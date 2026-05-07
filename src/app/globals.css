@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  background: #f4f7f5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background: #f4f7f5;
+  color: #17212b;
+}
+
+@keyframes order-pop {
+  0% {
+    transform: scale(0.98);
+    box-shadow: 0 0 0 0 rgba(217, 93, 57, 0.45);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 12px rgba(217, 93, 57, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(217, 93, 57, 0);
+  }
+}
+
+.animate-order-pop {
+  animation: order-pop 1.4s ease-out infinite;
+}
+
+@keyframes add-bump {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes success-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes urgent-pulse {
+  0%,
+  100% {
+    border-color: #d95d39;
+  }
+  50% {
+    border-color: #fbbf24;
+  }
+}
+
+.animate-add-bump {
+  animation: add-bump 240ms ease-out;
+}
+
+.animate-success-pop {
+  animation: success-pop 360ms ease-out;
+}
+
+.animate-urgent-pulse {
+  animation: urgent-pulse 900ms ease-in-out infinite;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+  }
+}
