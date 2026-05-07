@@ -9,7 +9,7 @@ import { getAppUrl } from "@/lib/app-url";
 
 export function StoreSettings() {
   return (
-    <LoginGate allowedRoles={["owner", "admin"]} title="店家設定登入">
+    <LoginGate allowedRoles={["merchant", "owner", "admin"]} title="店家設定登入">
       {({ profile }) => <StoreSettingsContent storeId={profile?.storeId ?? ""} />}
     </LoginGate>
   );

@@ -1,6 +1,6 @@
 export type OrderStatus = "new" | "preparing" | "completed" | "cancelled";
 export type OrderMode = "dine-in" | "takeout";
-export type UserRole = "admin" | "owner" | "staff" | "kitchen";
+export type UserRole = "user" | "merchant" | "kitchen" | "admin" | "owner" | "staff";
 export type StoreType = "breakfast" | "drink" | "snack" | "hotpot";
 
 export type Store = {

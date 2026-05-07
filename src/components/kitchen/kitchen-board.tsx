@@ -37,7 +37,7 @@ function elapsedLabel(createdAt: string, now: number) {
 
 export function KitchenBoard({ storeId }: { storeId: string }) {
   return (
-    <LoginGate allowedRoles={["owner", "staff", "kitchen", "admin"]} title="廚房 KDS 登入">
+    <LoginGate allowedRoles={["merchant", "owner", "staff", "kitchen", "admin"]} title="廚房 KDS 登入">
       {({ profile }) => {
         if (profile?.role !== "admin" && profile?.storeId !== storeId) {
           return (

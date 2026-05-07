@@ -82,7 +82,7 @@ export function useAuthState(): AuthState {
       storeId: null,
       name,
       email,
-      role: "owner"
+      role: "user"
     });
   }
 

@@ -55,6 +55,9 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
               <button onClick={createStore} className="rounded-lg bg-leaf px-4 py-3 font-black text-white">
                 建立店家
               </button>
+              <Link href="/admin/users" className="rounded-lg border border-stone-300 bg-white px-4 py-3 font-black text-steel">
+                使用者角色
+              </Link>
               <button onClick={onSignOut} className="inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white">
                 <LogOut className="size-4" />
                 登出

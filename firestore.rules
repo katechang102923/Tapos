@@ -35,7 +35,7 @@ service cloud.firestore {
     }
 
     function isOwner(storeId) {
-      return signedIn() && userStoreId() == storeId && role() == "owner";
+      return signedIn() && userStoreId() == storeId && role() in ["merchant", "owner"];
     }
 
     function ownsStoreDoc(storeId) {
@@ -51,7 +51,7 @@ service cloud.firestore {
     function canHandleOrders(storeId) {
       return signedIn()
         && userStoreId() == storeId
-        && role() in ["owner", "staff", "kitchen"];
+        && role() in ["merchant", "owner", "staff", "kitchen"];
     }
 
     function validOwnerUserCreate(userId) {
@@ -61,12 +61,12 @@ service cloud.firestore {
         && request.resource.data.storeId == null
         && request.resource.data.email is string
         && request.resource.data.name is string
-        && request.resource.data.role == "owner";
+        && request.resource.data.role in ["user", "owner"];
     }
 
     function validOwnerStoreCreate() {
       return signedIn()
-        && role() == "owner"
+        && role() in ["user", "merchant", "owner"]
         && userStoreId() == null
         && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.name is string
@@ -78,12 +78,16 @@ service cloud.firestore {
         && request.auth.uid == userId
         && resource.data.id == request.resource.data.id
         && resource.data.email == request.resource.data.email
-        && resource.data.role == request.resource.data.role
         && (
-          resource.data.storeId == request.resource.data.storeId
+          (
+            resource.data.role == request.resource.data.role
+            && resource.data.storeId == request.resource.data.storeId
+          )
           || (
             resource.data.storeId == null
+            && resource.data.role == "user"
             && request.resource.data.storeId is string
+            && request.resource.data.role in ["merchant", "owner"]
             && ownsStoreDoc(request.resource.data.storeId)
           )
         );

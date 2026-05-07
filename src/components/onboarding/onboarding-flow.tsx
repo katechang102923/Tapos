@@ -21,7 +21,7 @@ const defaultBanner = "https://images.unsplash.com/photo-1514933651103-005eec06c
 
 export function OnboardingFlow() {
   return (
-    <LoginGate allowedRoles={["owner", "admin"]} title="開始建立店家">
+    <LoginGate allowedRoles={["user", "merchant", "owner", "admin"]} title="開始建立店家">
       {({ profile, firebaseUser }) => <OnboardingContent uid={firebaseUser?.uid ?? ""} currentStoreId={profile?.storeId ?? null} />}
     </LoginGate>
   );
@@ -74,7 +74,7 @@ function OnboardingContent({ uid, currentStoreId }: { uid: string; currentStoreI
     const menu = createDefaultMenu(storeId, storeType);
 
     await setDoc(doc(db, "stores", storeId), store);
-    await updateDoc(doc(db, "users", uid), { storeId, role: "owner" });
+    await updateDoc(doc(db, "users", uid), { storeId, role: "merchant" });
     await Promise.all([
       ...menu.categories.map((category) => setDoc(doc(db, "categories", category.id), category)),
       ...menu.products.map((product) => setDoc(doc(db, "products", product.id), product))

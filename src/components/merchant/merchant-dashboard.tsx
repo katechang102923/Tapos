@@ -43,7 +43,7 @@ function isDrinkName(name: string) {
 
 export function MerchantDashboard() {
   return (
-    <LoginGate allowedRoles={["owner", "staff", "admin"]} title="早餐店後台登入">
+    <LoginGate allowedRoles={["merchant", "owner", "staff", "admin"]} title="早餐店後台登入">
       {({ profile, signOutUser }) => <MerchantDashboardContent role={profile?.role ?? "staff"} storeId={profile?.storeId ?? ""} onSignOut={signOutUser} />}
     </LoginGate>
   );
@@ -59,7 +59,7 @@ function MerchantDashboardContent({ storeId, role, onSignOut }: { storeId: strin
   const categories = db.categories.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
   const products = db.products.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
   const activeOrders = todayOrders.filter((order) => order.status !== "cancelled");
-  const canManageStore = role === "owner" || role === "admin";
+  const canManageStore = role === "merchant" || role === "owner" || role === "admin";
   const revenue = useMemo(() => activeOrders.reduce((sum, order) => sum + order.total, 0), [activeOrders]);
   const ranking = useMemo(() => {
     const map = new Map<string, { name: string; quantity: number; total: number }>();
