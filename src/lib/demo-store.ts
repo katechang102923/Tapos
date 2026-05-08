@@ -9,6 +9,7 @@ import {
   getDocs,
   onSnapshot,
   query,
+  runTransaction,
   setDoc,
   updateDoc,
   writeBatch,
@@ -17,8 +18,9 @@ import {
 import { initialData } from "./mock-data";
 import { firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
+import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { Category, DemoDatabase, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, User } from "./types";
+import type { Category, DemoDatabase, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, StoreMemberRole, User } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -51,11 +53,28 @@ function newId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
+function pendingUserId(email: string) {
+  return `pending-${email.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
+
+function platformRoleFromMemberships(memberships: Record<string, StoreMemberRole>) {
+  const roles = Object.values(memberships);
+  if (roles.includes("owner")) return "owner";
+  if (roles.includes("manager")) return "manager";
+  if (roles.includes("staff")) return "staff";
+  if (roles.includes("viewer")) return "viewer";
+  return "user";
+}
+
 function orderDayKey(value = new Date()) {
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function formatOrderNumber(source: "qr" | "pos", sequence: number) {
+  return `${source === "pos" ? "P" : "Q"}${String(sequence).padStart(3, "0")}`;
 }
 
 function optionDefaults(product: Product) {
@@ -105,19 +124,23 @@ export function useDemoStore(options: StoreOptions = {}) {
       setReady(true);
     };
 
-    const storesRef = admin
-      ? collection(firestore, "stores")
-      : storeId
-        ? query(collection(firestore, "stores"), where("__name__", "==", storeId))
-        : collection(firestore, "stores");
-    const unsubStores = onSnapshot(
-      storesRef,
-      (snapshot) => {
-        next.stores = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Store);
+    const unsubStores = storeId && !admin
+      ? onSnapshot(
+        doc(firestore, "stores", storeId),
+        (snapshot) => {
+          next.stores = snapshot.exists() ? [{ id: snapshot.id, ...snapshot.data() } as Store] : [];
+          commit();
+        },
+        handleError
+      )
+      : onSnapshot(
+        collection(firestore, "stores"),
+        (snapshot) => {
+          next.stores = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Store);
         commit();
       },
       handleError
-    );
+      );
 
     const collectionNames = skipOrderList ? ["categories", "products"] : ["categories", "products", "orders"];
     const unsubscribers = collectionNames.map((collectionName) => {
@@ -164,20 +187,18 @@ export function useDemoStore(options: StoreOptions = {}) {
     setDb(initialData);
   }
 
-  function createOrder(order: OrderPayload) {
+  async function createOrder(order: OrderPayload) {
     const now = new Date();
     const createdAt = now.toISOString();
-    const dayKey = orderDayKey(now);
-    const sequence = db.orders.filter((item) => item.storeId === order.storeId && orderDayKey(new Date(item.createdAt)) === dayKey).length + 1;
+    const source = order.source ?? "qr";
     const id = useFirestore && firestore ? doc(collection(firestore, "orders")).id : newId("o");
-    const orderNumber = String(sequence).padStart(3, "0");
-    const nextOrder: Order = {
+    const buildOrder = (orderNumber: string): Order => ({
       ...order,
       id,
       orderNumber,
       pickupNumber: orderNumber,
       status: order.status ?? "pending",
-      source: order.source ?? "qr",
+      source,
       createdAt,
       updatedAt: createdAt,
       totalAmount: order.total,
@@ -186,15 +207,38 @@ export function useDemoStore(options: StoreOptions = {}) {
         id: item.id || newId("oi"),
         orderId: id
       })) as OrderItem[]
-    };
+    });
 
     if (useFirestore && firestore) {
+      const db = firestore;
+      const orderRef = doc(db, "orders", id);
+      const counterRef = doc(db, "counters", "orderNumbers");
+      const counterKey = source === "pos" ? "pos" : "qr";
+      const nextOrder = await runTransaction(db, async (transaction) => {
+        const counterSnapshot = await transaction.get(counterRef);
+        const counterData = counterSnapshot.exists() ? counterSnapshot.data() : {};
+        const currentSequence = typeof counterData[counterKey] === "number" ? counterData[counterKey] : 1;
+        const orderNumber = formatOrderNumber(source, currentSequence);
+        const createdOrder = buildOrder(orderNumber);
+        const nextCounters = {
+          qr: typeof counterData.qr === "number" ? counterData.qr : 1,
+          pos: typeof counterData.pos === "number" ? counterData.pos : 1,
+          [counterKey]: currentSequence + 1
+        };
+
+        transaction.set(counterRef, nextCounters, { merge: true });
+        transaction.set(orderRef, createdOrder);
+        return createdOrder;
+      });
       setDb((current) => ({ ...current, orders: [nextOrder, ...current.orders.filter((item) => item.id !== id)] }));
-      setDoc(doc(firestore, "orders", id), nextOrder).catch((writeError: Error) => setError(writeError.message));
+      return nextOrder;
     } else {
+      const sourceOrders = db.orders.filter((item) => item.source === source);
+      const sequence = sourceOrders.length + 1;
+      const nextOrder = buildOrder(formatOrderNumber(source, sequence));
       setDb((current) => ({ ...current, orders: [nextOrder, ...current.orders] }));
+      return nextOrder;
     }
-    return nextOrder;
   }
 
   function updateOrderStatus(orderId: string, status: OrderStatus) {
@@ -290,6 +334,80 @@ export function useDemoStore(options: StoreOptions = {}) {
     });
   }
 
+  async function bindStoreUser(email: string, targetStoreId: string, memberRole: StoreMemberRole) {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !targetStoreId) return;
+
+    function nextUser(user: User): User {
+      const memberships = { ...(user.memberships ?? {}), [targetStoreId]: memberRole };
+      const storeIds = Array.from(new Set([...(user.storeIds ?? []), targetStoreId]));
+      return {
+        ...user,
+        email: normalizedEmail,
+        storeId: user.storeId ?? targetStoreId,
+        storeIds,
+        memberships,
+        role: user.role === "admin" ? "admin" : platformRoleFromMemberships(memberships),
+        pending: user.pending ?? false,
+        approved: user.pending ? false : user.approved ?? false,
+        status: user.pending ? "pending" : user.status ?? "pending",
+        updatedAt: new Date().toISOString()
+      };
+    }
+
+    if (useFirestore && firestore) {
+      const usersByEmail = await getDocs(query(collection(firestore, "users"), where("email", "==", normalizedEmail)));
+      const targetDoc = usersByEmail.docs[0];
+      if (targetDoc) {
+        const user = { id: targetDoc.id, ...targetDoc.data() } as User;
+        await setDoc(doc(firestore, "users", targetDoc.id), nextUser(user), { merge: true });
+      } else {
+        const id = pendingUserId(normalizedEmail);
+        const now = new Date().toISOString();
+        await setDoc(doc(firestore, "users", id), nextUser({ id, email: normalizedEmail, name: normalizedEmail, role: "merchant", storeId: null, storeIds: [], memberships: {}, pending: true, approved: false, status: "pending", createdAt: now, updatedAt: now }), { merge: true });
+      }
+      return;
+    }
+
+    setDb((current) => {
+      const existing = current.users.find((user) => user.email.toLowerCase() === normalizedEmail);
+      if (existing) {
+        return { ...current, users: current.users.map((user) => (user.id === existing.id ? nextUser(user) : user)) };
+      }
+      const id = pendingUserId(normalizedEmail);
+      return {
+        ...current,
+        users: [nextUser({ id, email: normalizedEmail, name: normalizedEmail, role: "merchant", storeId: null, storeIds: [], memberships: {}, pending: true }), ...current.users]
+      };
+    });
+  }
+
+  async function unbindStoreUser(userId: string, targetStoreId: string) {
+    function nextUser(user: User): User {
+      const memberships = { ...(user.memberships ?? {}) };
+      delete memberships[targetStoreId];
+      const storeIds = (user.storeIds ?? []).filter((id) => id !== targetStoreId);
+      return {
+        ...user,
+        storeId: user.storeId === targetStoreId ? storeIds[0] ?? null : user.storeId,
+        storeIds,
+        memberships,
+        role: user.role === "admin" ? "admin" : platformRoleFromMemberships(memberships),
+        updatedAt: new Date().toISOString()
+      };
+    }
+
+    if (useFirestore && firestore) {
+      const userRef = doc(firestore, "users", userId);
+      const user = db.users.find((item) => item.id === userId);
+      if (!user) return;
+      await setDoc(userRef, nextUser(user), { merge: true });
+      return;
+    }
+
+    setDb((current) => ({ ...current, users: current.users.map((user) => (user.id === userId ? nextUser(user) : user)) }));
+  }
+
   function importBreakfastMenu(targetStoreId = storeId) {
     if (!targetStoreId) return;
     const targetStore = db.stores.find((item) => item.id === targetStoreId);
@@ -340,8 +458,14 @@ export function useDemoStore(options: StoreOptions = {}) {
       );
       snapshots.forEach((snapshot) => snapshot.docs.forEach((item) => batch.delete(item.ref)));
 
-      const linkedUsers = await getDocs(query(collection(db, "users"), where("storeId", "==", targetStoreId)));
-      linkedUsers.docs.forEach((item) => batch.update(item.ref, { storeId: null }));
+      const linkedUsers = await getDocs(query(collection(db, "users"), where("storeIds", "array-contains", targetStoreId)));
+      linkedUsers.docs.forEach((item) => {
+        const user = { id: item.id, ...item.data() } as User;
+        const memberships = { ...(user.memberships ?? {}) };
+        delete memberships[targetStoreId];
+        const storeIds = (user.storeIds ?? []).filter((id) => id !== targetStoreId);
+        batch.update(item.ref, { storeId: user.storeId === targetStoreId ? storeIds[0] ?? null : user.storeId ?? null, storeIds, memberships });
+      });
       await batch.commit();
       return;
     }
@@ -352,7 +476,12 @@ export function useDemoStore(options: StoreOptions = {}) {
       categories: current.categories.filter((category) => category.storeId !== targetStoreId),
       products: current.products.filter((product) => product.storeId !== targetStoreId),
       orders: current.orders.filter((order) => order.storeId !== targetStoreId),
-      users: current.users.map((user) => (user.storeId === targetStoreId ? { ...user, storeId: null } : user))
+      users: current.users.map((user) => {
+        const memberships = { ...(user.memberships ?? {}) };
+        delete memberships[targetStoreId];
+        const storeIds = (user.storeIds ?? []).filter((id) => id !== targetStoreId);
+        return user.storeId === targetStoreId || user.storeIds?.includes(targetStoreId) ? { ...user, storeId: user.storeId === targetStoreId ? storeIds[0] ?? null : user.storeId, storeIds, memberships } : user;
+      })
     }));
   }
 
@@ -373,7 +502,11 @@ export function useDemoStore(options: StoreOptions = {}) {
         productId: product.id,
         productName: product.name,
         quantity,
-        unitPrice: product.price,
+        unitPrice: productFinalPrice(product),
+        originalPrice: product.price,
+        discountType: product.discountType ?? "none",
+        discountValue: Number(product.discountValue ?? 0),
+        finalPrice: productFinalPrice(product),
         selectedOptions: optionDefaults(product),
         note: Math.random() > 0.7 ? "少醬" : ""
       };
@@ -414,6 +547,8 @@ export function useDemoStore(options: StoreOptions = {}) {
     resetDemo,
     seedDemoData,
     importBreakfastMenu,
+    bindStoreUser,
+    unbindStoreUser,
     updateOrderStatus,
     rejectOrder,
     upsertCategory,

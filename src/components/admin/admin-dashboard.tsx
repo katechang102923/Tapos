@@ -5,7 +5,9 @@ import Link from "next/link";
 import { Building2, Database, Edit3, LogOut, MenuSquare, Power, PowerOff, Store as StoreIcon, Trash2 } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
-import type { Product, Store } from "@/lib/types";
+import type { Product, Store, StoreMemberRole, User } from "@/lib/types";
+
+const storeMemberRoles: StoreMemberRole[] = ["owner", "manager", "staff", "viewer"];
 
 const blankProduct: Product = {
   id: "",
@@ -30,12 +32,14 @@ export function AdminDashboard() {
 }
 
 function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
-  const { db, deleteProduct, deleteStoreCascade, seedDemoData, upsertProduct, upsertStore } = useDemoStore({ admin: true });
+  const { db, bindStoreUser, deleteProduct, deleteStoreCascade, seedDemoData, unbindStoreUser, upsertProduct, upsertStore } = useDemoStore({ admin: true });
   const [editingStore, setEditingStore] = useState<Store | null>(null);
   const [menuStoreId, setMenuStoreId] = useState("");
   const [editingProduct, setEditingProduct] = useState<Product>(blankProduct);
   const [deleteTarget, setDeleteTarget] = useState<Store | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [bindingEmail, setBindingEmail] = useState<Record<string, string>>({});
+  const [bindingRole, setBindingRole] = useState<Record<string, StoreMemberRole>>({});
 
   const menuStore = db.stores.find((store) => store.id === menuStoreId) ?? null;
   const menuCategories = db.categories.filter((category) => category.storeId === menuStoreId).sort((a, b) => a.sort - b.sort);
@@ -43,10 +47,22 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
   const linkedUserCount = useMemo(() => {
     const map = new Map<string, number>();
     db.users.forEach((user) => {
-      if (user.storeId) map.set(user.storeId, (map.get(user.storeId) ?? 0) + 1);
+      const ids = user.storeIds?.length ? user.storeIds : user.storeId ? [user.storeId] : [];
+      ids.forEach((storeId) => map.set(storeId, (map.get(storeId) ?? 0) + 1));
     });
     return map;
   }, [db.users]);
+
+  function storeUsers(storeId: string) {
+    return db.users.filter((user) => user.storeIds?.includes(storeId) || user.storeId === storeId);
+  }
+
+  async function bindUser(storeId: string) {
+    const email = bindingEmail[storeId]?.trim();
+    if (!email) return;
+    await bindStoreUser(email, storeId, bindingRole[storeId] ?? "staff");
+    setBindingEmail((current) => ({ ...current, [storeId]: "" }));
+  }
 
   function toggleOpen(store: Store) {
     upsertStore({ ...store, isOpen: !store.isOpen });
@@ -173,6 +189,17 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
                   刪除
                 </button>
               </div>
+              <StoreBindings
+                storeId={store.id}
+                users={storeUsers(store.id)}
+                email={bindingEmail[store.id] ?? ""}
+                role={bindingRole[store.id] ?? "staff"}
+                onEmailChange={(value) => setBindingEmail((current) => ({ ...current, [store.id]: value }))}
+                onRoleChange={(value) => setBindingRole((current) => ({ ...current, [store.id]: value }))}
+                onBind={() => bindUser(store.id)}
+                onRemove={(userId) => unbindStoreUser(userId, store.id)}
+                onRoleUpdate={(user, nextRole) => bindStoreUser(user.email, store.id, nextRole)}
+              />
             </article>
           ))}
         </section>
@@ -270,6 +297,68 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
       )}
     </main>
   );
+}
+
+function StoreBindings({
+  storeId,
+  users,
+  email,
+  role,
+  onEmailChange,
+  onRoleChange,
+  onBind,
+  onRemove,
+  onRoleUpdate
+}: {
+  storeId: string;
+  users: User[];
+  email: string;
+  role: StoreMemberRole;
+  onEmailChange: (value: string) => void;
+  onRoleChange: (value: StoreMemberRole) => void;
+  onBind: () => void;
+  onRemove: (userId: string) => void;
+  onRoleUpdate: (user: User, role: StoreMemberRole) => void;
+}) {
+  return (
+    <section className="mt-5 rounded-lg bg-[#fffaf0] p-4">
+      <h3 className="font-black text-ink">綁定使用者</h3>
+      <div className="mt-3 grid gap-2">
+        {users.length === 0 ? (
+          <p className="rounded-lg bg-white p-3 text-sm font-bold text-steel">尚未綁定使用者</p>
+        ) : users.map((user) => (
+          <div key={user.id} className="grid gap-2 rounded-lg bg-white p-3">
+            <div>
+              <p className="font-black text-ink">{user.email}</p>
+              <p className="font-mono text-xs text-steel">{user.pending ? "pending invite" : user.id}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <select value={user.memberships?.[storeId] ?? "staff"} onChange={(event) => onRoleUpdate(user, event.target.value as StoreMemberRole)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-bold">
+                {storeMemberRoles.map((item) => <option key={item} value={item}>{roleLabel(item)}</option>)}
+              </select>
+              <button onClick={() => onRemove(user.id)} className="rounded-lg bg-tomato px-3 py-2 text-sm font-black text-white">移除綁定</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 grid gap-2">
+        <input value={email} onChange={(event) => onEmailChange(event.target.value)} placeholder="輸入使用者 Email" className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-bold" />
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <select value={role} onChange={(event) => onRoleChange(event.target.value as StoreMemberRole)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-bold">
+            {storeMemberRoles.map((item) => <option key={item} value={item}>{roleLabel(item)}</option>)}
+          </select>
+          <button onClick={onBind} className="rounded-lg bg-ink px-3 py-2 text-sm font-black text-white">新增綁定</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function roleLabel(role: StoreMemberRole) {
+  if (role === "owner") return "owner 老闆";
+  if (role === "manager") return "manager 店長";
+  if (role === "staff") return "staff 員工";
+  return "viewer 只讀/報表";
 }
 
 function Field({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {

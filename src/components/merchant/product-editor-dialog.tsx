@@ -2,6 +2,7 @@
 
 import { Plus } from "lucide-react";
 import type { Category, Product, ProductOptionChoice, ProductOptionGroup } from "@/lib/types";
+import { discountLabel, productFinalPrice } from "@/lib/pricing";
 
 export function ProductEditorDialog({
   addChildGroup,
@@ -68,6 +69,20 @@ export function ProductEditorDialog({
                 <LabeledInput label="售價" type="number" value={String(editingProduct.price ?? 0)} onChange={(value) => setEditingProduct((current) => ({ ...current, price: Number(value) }))} />
                 <LabeledInput label="成本 / 原價" type="number" value={String(editingProduct.originalPrice ?? editingProduct.price ?? 0)} onChange={(value) => setEditingProduct((current) => ({ ...current, originalPrice: Number(value) }))} />
                 <LabeledInput label="排序" type="number" value={String(editingProduct.sort ?? 0)} onChange={(value) => setEditingProduct((current) => ({ ...current, sort: Number(value) }))} />
+                <label className="grid gap-1 text-sm font-black text-steel">
+                  商品折扣
+                  <select value={editingProduct.discountType ?? "none"} onChange={(event) => setEditingProduct((current) => ({ ...current, discountType: event.target.value as Product["discountType"], discountValue: event.target.value === "none" ? 0 : current.discountValue ?? 0 }))} className="rounded-lg border border-orange-100 px-3 py-3 font-bold text-ink">
+                    <option value="none">無折扣</option>
+                    <option value="percent">幾折</option>
+                    <option value="amount">折扣金額</option>
+                    <option value="specialPrice">特價價</option>
+                  </select>
+                </label>
+                <LabeledInput label={(editingProduct.discountType ?? "none") === "percent" ? "折數（例：9 折請填 90，85 折請填 85）" : (editingProduct.discountType ?? "none") === "amount" ? "折扣金額" : (editingProduct.discountType ?? "none") === "specialPrice" ? "特價價" : "折扣值"} type="number" value={String(editingProduct.discountValue ?? 0)} onChange={(value) => setEditingProduct((current) => ({ ...current, discountValue: Number(value) }))} />
+                <div className="rounded-lg bg-orange-50 px-3 py-3 text-sm font-black text-steel">
+                  折扣後單價：<span className="text-tomato">${productFinalPrice(editingProduct)}</span>
+                  {discountLabel(editingProduct.discountType, editingProduct.discountValue) && <span className="ml-2 text-tomato">{discountLabel(editingProduct.discountType, editingProduct.discountValue)}</span>}
+                </div>
                 <label className="grid gap-1 text-sm font-black text-steel">
                   分類
                   <select value={editingProduct.categoryId} onChange={(event) => setEditingProduct((current) => ({ ...current, categoryId: event.target.value }))} className="rounded-lg border border-orange-100 px-3 py-3 font-bold text-ink">

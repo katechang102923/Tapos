@@ -1,7 +1,9 @@
-export type OrderStatus = "pending" | "accepted" | "cooking" | "ready" | "completed" | "cancelled";
+export type OrderStatus = "pending" | "waiting" | "accepted" | "cooking" | "preparing" | "ready" | "completed" | "cancelled";
 export type OrderMode = "dine-in" | "takeout";
-export type UserRole = "user" | "merchant" | "kitchen" | "admin";
+export type StoreMemberRole = "owner" | "manager" | "staff" | "viewer";
+export type UserRole = "user" | "merchant" | "kitchen" | "admin" | StoreMemberRole;
 export type StoreType = "breakfast" | "drink" | "snack" | "hotpot";
+export type DiscountType = "none" | "percent" | "amount" | "specialPrice";
 
 export type Store = {
   id: string;
@@ -12,6 +14,8 @@ export type Store = {
   address?: string;
   businessHours?: string;
   description?: string;
+  takeoutEnabled?: boolean;
+  dineInEnabled?: boolean;
   ownerId?: string;
   storeType?: StoreType;
   isOpen: boolean;
@@ -25,6 +29,13 @@ export type Store = {
 export type User = {
   id: string;
   storeId: string | null;
+  storeIds?: string[];
+  memberships?: Record<string, StoreMemberRole>;
+  pending?: boolean;
+  approved?: boolean;
+  status?: "pending" | "active" | "rejected";
+  createdAt?: string;
+  updatedAt?: string;
   name: string;
   email: string;
   role: UserRole;
@@ -113,6 +124,8 @@ export type Product = {
   imageUrl: string;
   originalPrice?: number;
   price: number;
+  discountType?: DiscountType;
+  discountValue?: number;
   isAvailable: boolean;
   isSoldOut: boolean;
   sort: number;
@@ -137,6 +150,10 @@ export type OrderItem = {
   productName: string;
   quantity: number;
   unitPrice: number;
+  originalPrice?: number;
+  discountType?: DiscountType;
+  discountValue?: number;
+  finalPrice?: number;
   selectedOptions: OrderItemOption[];
   note: string;
 };

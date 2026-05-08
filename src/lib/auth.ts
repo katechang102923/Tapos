@@ -8,12 +8,21 @@ import {
   signOut,
   type User as FirebaseUser
 } from "firebase/auth";
-import { doc, getDocFromServer, onSnapshot, setDoc, type DocumentSnapshot } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDocFromServer, getDocs, onSnapshot, query, setDoc, where, type DocumentSnapshot } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { auth, firebaseEnabled, firestore } from "./firebase";
-import type { User, UserRole } from "./types";
+import type { StoreMemberRole, User, UserRole } from "./types";
 
-const supportedRoles: UserRole[] = ["user", "merchant", "kitchen", "admin"];
+const supportedRoles: UserRole[] = ["user", "merchant", "kitchen", "admin", "owner", "manager", "staff", "viewer"];
+const storeRoles: StoreMemberRole[] = ["owner", "manager", "staff", "viewer"];
+const platformAdminEmail = "ciut0000@gmail.com";
+
+function normalizeMemberships(value: unknown): Record<string, StoreMemberRole> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, StoreMemberRole] => storeRoles.includes(entry[1] as StoreMemberRole))
+  );
+}
 
 function profileFromSnapshot(snapshot: DocumentSnapshot): User | null {
   if (!snapshot.exists()) return null;
@@ -25,6 +34,13 @@ function profileFromSnapshot(snapshot: DocumentSnapshot): User | null {
   return {
     id: snapshot.id,
     storeId: typeof data.storeId === "string" ? data.storeId : null,
+    storeIds: Array.isArray(data.storeIds) ? data.storeIds.filter((item): item is string => typeof item === "string") : [],
+    memberships: normalizeMemberships(data.memberships),
+    pending: Boolean(data.pending),
+    approved: Boolean(data.approved),
+    status: data.status === "active" || data.status === "rejected" || data.status === "pending" ? data.status : "pending",
+    createdAt: typeof data.createdAt === "string" ? data.createdAt : undefined,
+    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : undefined,
     name: typeof data.name === "string" ? data.name : "",
     email: typeof data.email === "string" ? data.email : "",
     role
@@ -79,6 +95,41 @@ export function useAuthState(): AuthState {
       getDocFromServer(userRef)
         .then((snapshot) => {
           if (!active) return;
+          if (!snapshot.exists() && user.email?.toLowerCase() === platformAdminEmail) {
+            const now = new Date().toISOString();
+            return setDoc(userRef, {
+              id: user.uid,
+              email: platformAdminEmail,
+              name: "Platform Admin",
+              role: "admin",
+              storeId: null,
+              storeIds: [],
+              memberships: {},
+              status: "active",
+              approved: true,
+              pending: false,
+              createdAt: now,
+              updatedAt: now
+            }).then(() => {
+              if (!active) return;
+              setProfile({
+                id: user.uid,
+                email: platformAdminEmail,
+                name: "Platform Admin",
+                role: "admin",
+                storeId: null,
+                storeIds: [],
+                memberships: {},
+                status: "active",
+                approved: true,
+                pending: false,
+                createdAt: now,
+                updatedAt: now
+              });
+              setError("");
+              setLoading(false);
+            });
+          }
           const nextProfile = profileFromSnapshot(snapshot);
           setProfile(nextProfile);
           setError(nextProfile ? "" : missingProfileMessage(user.uid));
@@ -123,13 +174,29 @@ export function useAuthState(): AuthState {
   async function registerOwner(email: string, password: string, name: string) {
     if (!auth || !firestore) throw new Error("Firebase 尚未設定");
     const credential = await createUserWithEmailAndPassword(auth, email, password);
+    const pendingSnapshot = await getDocs(query(collection(firestore, "users"), where("email", "==", email), where("pending", "==", true)));
+    const pendingData = pendingSnapshot.docs[0]?.data();
+    const memberships = normalizeMemberships(pendingData?.memberships);
+    const storeIds = Array.isArray(pendingData?.storeIds) ? pendingData.storeIds.filter((item): item is string => typeof item === "string") : Object.keys(memberships);
+    const defaultStoreId = typeof pendingData?.storeId === "string" ? pendingData.storeId : storeIds[0] ?? null;
+    const pendingRole = typeof pendingData?.role === "string" && supportedRoles.includes(pendingData.role as UserRole) ? pendingData.role as UserRole : "user";
+    const now = new Date().toISOString();
+    const isFixedAdmin = email.trim().toLowerCase() === platformAdminEmail;
     await setDoc(doc(firestore, "users", credential.user.uid), {
       id: credential.user.uid,
-      storeId: null,
+      storeId: isFixedAdmin ? null : defaultStoreId,
+      storeIds: isFixedAdmin ? [] : storeIds,
+      memberships: isFixedAdmin ? {} : memberships,
       name,
       email,
-      role: "user"
+      role: isFixedAdmin ? "admin" : pendingRole,
+      pending: false,
+      approved: isFixedAdmin,
+      status: isFixedAdmin ? "active" : "pending",
+      createdAt: now,
+      updatedAt: now
     });
+    await Promise.all(pendingSnapshot.docs.map((item) => deleteDoc(item.ref)));
   }
 
   async function resetPassword(email: string) {

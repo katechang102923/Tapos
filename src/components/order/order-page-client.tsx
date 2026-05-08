@@ -7,6 +7,7 @@ import { CheckCircle2, ChevronLeft, Minus, Plus, Search, Send, ShoppingCart } fr
 import { ProductOptionModal } from "@/components/product-option-modal";
 import { useDemoStore } from "@/lib/demo-store";
 import { firebaseEnabled, firestore } from "@/lib/firebase";
+import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { selectionsTotal } from "@/lib/product-options";
 import type { Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product } from "@/lib/types";
 
@@ -20,27 +21,28 @@ type CartLine = {
 const statusSteps: Array<{ status: OrderStatus; label: string }> = [
   { status: "pending", label: "等待接單" },
   { status: "accepted", label: "店家已接單" },
-  { status: "cooking", label: "餐點製作中" },
+  { status: "preparing", label: "餐點製作中" },
   { status: "ready", label: "可取餐" }
 ];
 
 function lineUnitPrice(line: CartLine) {
-  return line.product.price + selectionsTotal(line.selectedOptions);
+  return productFinalPrice(line.product) + selectionsTotal(line.selectedOptions);
 }
 
 function statusRank(status: OrderStatus) {
   if (status === "completed" || status === "ready") return 3;
-  if (status === "cooking") return 2;
+  if (status === "cooking" || status === "preparing") return 2;
   if (status === "accepted") return 1;
   return 0;
 }
 
 function customerStatusMessage(status: OrderStatus, rejectReason?: string) {
+  if (status === "pending" || status === "waiting") return "等待店家接單";
   if (status === "accepted") return "店家已接單";
-  if (status === "cooking") return "餐點製作中";
+  if (status === "cooking" || status === "preparing") return "餐點製作中";
   if (status === "ready") return "可取餐";
-  if (status === "completed") return "訂單已完成";
-  if (status === "cancelled") return `店家已取消訂單${rejectReason ? `：${rejectReason}` : ""}`;
+  if (status === "completed") return "已完成";
+  if (status === "cancelled") return `訂單取消${rejectReason ? `：${rejectReason}` : ""}`;
   return "等待店家接單";
 }
 
@@ -66,10 +68,14 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
     if (typeof window === "undefined") return null;
     return window.localStorage.getItem(`lastOrderId:${storeId}`);
   });
-  const [trackedOrder, setTrackedOrder] = useState<Order | null>(null);
+  const [submittedOrder, setSubmittedOrder] = useState<Order | null>(null);
+  const [liveOrder, setLiveOrder] = useState<Order | null>(null);
+  const [orderListenError, setOrderListenError] = useState("");
+  const [submitError, setSubmitError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const store = db.stores.find((item) => item.id === storeId);
-  const lastOrder = trackedOrder ?? (lastOrderId ? db.orders.find((order) => order.id === lastOrderId) ?? null : null);
+  const lastOrder = liveOrder ?? submittedOrder ?? (lastOrderId ? db.orders.find((order) => order.id === lastOrderId) ?? null : null);
   const categories = db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort);
   const products = db.products
     .filter((item) => item.storeId === storeId)
@@ -81,13 +87,24 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
   const total = useMemo(() => cart.reduce((sum, item) => sum + lineUnitPrice(item) * item.quantity, 0), [cart]);
 
   useEffect(() => {
-    if (!lastOrderId || !firebaseEnabled || !firestore) return;
-    const unsubscribe = onSnapshot(doc(firestore, "orders", lastOrderId), (snapshot) => {
-      if (snapshot.exists()) {
-        const order = { id: snapshot.id, ...snapshot.data() } as Order;
-        setTrackedOrder(order);
+    if (!lastOrderId) {
+      setLiveOrder(null);
+      setOrderListenError("");
+      return;
+    }
+    if (!firebaseEnabled || !firestore) return;
+    const unsubscribe = onSnapshot(
+      doc(firestore, "orders", lastOrderId),
+      (snapshot) => {
+        setOrderListenError("");
+        if (snapshot.exists()) {
+          setLiveOrder({ id: snapshot.id, ...snapshot.data() } as Order);
+        }
+      },
+      (listenError) => {
+        setOrderListenError(listenError.message);
       }
-    });
+    );
     return unsubscribe;
   }, [lastOrderId]);
 
@@ -106,9 +123,12 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
     setCart((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
   }
 
-  function submitOrder() {
-    if (cart.length === 0 || !store?.isOpen) return;
-    const order = createOrder({
+  async function submitOrder() {
+    if (cart.length === 0 || !store?.isOpen || isSubmitting) return;
+    setSubmitError("");
+    setIsSubmitting(true);
+    try {
+      const order = await createOrder({
       storeId,
       mode,
       tableNo: mode === "takeout" ? "外帶" : tableId ?? tableNo,
@@ -123,17 +143,28 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
         productId: line.product.id,
         productName: line.product.name,
         quantity: line.quantity,
-        unitPrice: lineUnitPrice(line),
-        selectedOptions: line.selectedOptions,
+          unitPrice: lineUnitPrice(line),
+          originalPrice: line.product.price,
+          discountType: line.product.discountType ?? "none",
+          discountValue: Number(line.product.discountValue ?? 0),
+          finalPrice: productFinalPrice(line.product),
+          selectedOptions: line.selectedOptions,
         note: line.note
       }))
-    });
-    setLastOrderId(order.id);
-    window.localStorage.setItem(`lastOrderId:${storeId}`, order.id);
-    setTrackedOrder(order);
-    setCart([]);
-    setCustomerNote("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      setLastOrderId(order.id);
+      window.localStorage.setItem(`lastOrderId:${storeId}`, order.id);
+      setSubmittedOrder(order);
+      setLiveOrder(null);
+      setOrderListenError("");
+      setCart([]);
+      setCustomerNote("");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (writeError) {
+      setSubmitError(writeError instanceof Error ? writeError.message : "訂單建立失敗，請稍後再試");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   if (!store) return <div className="p-8 text-center text-steel">找不到店家</div>;
@@ -141,7 +172,9 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
   const handleClearOrder = () => {
     setLastOrderId(null);
     window.localStorage.removeItem(`lastOrderId:${storeId}`);
-    setTrackedOrder(null);
+    setSubmittedOrder(null);
+    setLiveOrder(null);
+    setOrderListenError("");
   };
 
   return (
@@ -206,6 +239,7 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
                 })}
               </div>
               {lastOrder.status === "cancelled" && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-xs font-black text-tomato sm:text-sm">取消原因：{lastOrder.rejectReason || "店家無法接單"}</p>}
+              {orderListenError && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-xs font-black text-tomato sm:text-sm">訂單狀態同步失敗：{orderListenError}</p>}
             </div>
           )}
 
@@ -243,7 +277,11 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
                           <h2 className="text-lg font-black text-ink sm:text-2xl">{product.name}</h2>
                           <p className="mt-1 min-h-0 text-xs leading-5 text-steel sm:text-base sm:leading-6">{product.description}</p>
                         </div>
-                        <p className="shrink-0 text-lg font-black text-tomato sm:text-2xl">${product.price}</p>
+                        <div className="shrink-0 text-right">
+                          <p className="text-lg font-black text-tomato sm:text-2xl">${productFinalPrice(product)}</p>
+                          {productFinalPrice(product) !== product.price && <p className="text-xs font-bold text-stone-400 line-through">${product.price}</p>}
+                          {discountLabel(product.discountType, product.discountValue) && <p className="mt-1 rounded-full bg-tomato/10 px-2 py-1 text-xs font-black text-tomato">{discountLabel(product.discountType, product.discountValue)}</p>}
+                        </div>
                       </div>
                       <button onClick={() => addToCart(product)} disabled={disabled} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-ink px-3 py-3 text-sm font-black text-white disabled:bg-stone-300 sm:mt-4 sm:px-4 sm:py-4 sm:text-base">
                         <Plus className="size-4 sm:size-5" />加入購物車
@@ -258,7 +296,7 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
         </section>
 
         <aside className="hidden lg:block lg:sticky lg:top-20 lg:h-fit">
-          <CartPanel cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} submitOrder={submitOrder} total={total} updateLine={updateLine} setCart={setCart} canSubmit={store.isOpen && cart.length > 0} />
+          <CartPanel cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} submitOrder={submitOrder} total={total} updateLine={updateLine} setCart={setCart} canSubmit={store.isOpen && cart.length > 0 && !isSubmitting} submitError={submitError} isSubmitting={isSubmitting} />
         </aside>
       </div>
 
@@ -269,7 +307,7 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
             <span className="text-lg font-black sm:text-2xl">${total}</span>
           </summary>
           <div className="max-h-[50vh] overflow-y-auto pt-2 sm:pt-3">
-            <CartPanel cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} submitOrder={submitOrder} total={total} updateLine={updateLine} setCart={setCart} canSubmit={store.isOpen && cart.length > 0} />
+            <CartPanel cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} submitOrder={submitOrder} total={total} updateLine={updateLine} setCart={setCart} canSubmit={store.isOpen && cart.length > 0 && !isSubmitting} submitError={submitError} isSubmitting={isSubmitting} />
           </div>
         </details>
       </div>
@@ -286,7 +324,9 @@ function CartPanel({
   total,
   updateLine,
   setCart,
-  canSubmit
+  canSubmit,
+  submitError,
+  isSubmitting
 }: {
   cart: CartLine[];
   customerNote: string;
@@ -296,6 +336,8 @@ function CartPanel({
   updateLine: (index: number, patch: Partial<CartLine>) => void;
   setCart: React.Dispatch<React.SetStateAction<CartLine[]>>;
   canSubmit: boolean;
+  submitError: string;
+  isSubmitting: boolean;
 }) {
   return (
     <div className="rounded-lg border border-orange-100 bg-white p-3 shadow-soft sm:p-4">
@@ -343,8 +385,9 @@ function CartPanel({
       )}
       <textarea value={customerNote} onChange={(event) => setCustomerNote(event.target.value)} placeholder="訂單備註（非必填）" className="mt-3 min-h-16 w-full rounded-lg border border-orange-100 px-3 py-2 text-sm sm:mt-4 sm:min-h-20 sm:px-3 sm:py-3 sm:text-lg" />
       <div className="mt-3 flex items-center justify-between text-lg font-black sm:mt-4 sm:text-2xl"><span>總計</span><span>${total}</span></div>
+      {submitError && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-sm font-black text-tomato">{submitError}</p>}
       <button onClick={submitOrder} disabled={!canSubmit} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-tomato px-3 py-4 text-sm font-black text-white disabled:bg-stone-300 sm:mt-4 sm:px-4 sm:py-5 sm:text-lg">
-        <Send className="size-5 sm:size-6" />送出訂單
+        <Send className="size-5 sm:size-6" />{isSubmitting ? "送出中..." : "送出訂單"}
       </button>
     </div>
   );

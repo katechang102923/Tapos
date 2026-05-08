@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { OrderItemOption, Product } from "@/lib/types";
+import { productFinalPrice } from "@/lib/pricing";
 import { optionGroupLevels, productOptionGroups, visibleOptionGroups } from "@/lib/product-options";
 
 export function ProductOptionModal({
@@ -52,7 +53,7 @@ export function ProductOptionModal({
           <div>
             <p className="text-sm font-black text-leaf">選擇商品選項</p>
             <h2 className="mt-1 text-3xl font-black text-ink">{product.name}</h2>
-            <p className="mt-2 font-bold text-tomato">${product.price + totalDelta}</p>
+            <p className="mt-2 font-bold text-tomato">${productFinalPrice(product) + totalDelta}</p>
           </div>
           <button onClick={onClose} className="rounded-lg border border-stone-300 px-4 py-2 font-black text-steel">關閉</button>
         </div>

@@ -6,6 +6,7 @@ import { ArrowLeft, Eye, EyeOff, Plus } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { ProductEditorDialog } from "@/components/merchant/product-editor-dialog";
 import { useDemoStore } from "@/lib/demo-store";
+import { productFinalPrice } from "@/lib/pricing";
 import type { Product, ProductOptionChoice, ProductOptionGroup } from "@/lib/types";
 
 const blankProduct: Product = {
@@ -17,6 +18,8 @@ const blankProduct: Product = {
   imageUrl: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=900&q=80",
   originalPrice: 70,
   price: 60,
+  discountType: "none",
+  discountValue: 0,
   isAvailable: true,
   isSoldOut: false,
   sort: 99,
@@ -73,6 +76,8 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
       storeId,
       price: Number(editingProduct.price),
       originalPrice: Number(editingProduct.originalPrice || editingProduct.price),
+      discountType: editingProduct.discountType ?? "none",
+      discountValue: Number(editingProduct.discountValue ?? 0),
       sort: Number(editingProduct.sort) || products.length + 1,
       categoryId: editingProduct.categoryId || categories[0]?.id || "cat-burger"
     });
@@ -203,7 +208,8 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
                 <img src={product.imageUrl} alt={product.name} className="size-16 rounded-lg object-cover" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-black">{product.name}</p>
-                  <p className="font-bold text-tomato">${product.price}</p>
+                  <p className="font-bold text-tomato">${productFinalPrice(product)}</p>
+                  {productFinalPrice(product) !== product.price && <p className="text-xs font-bold text-stone-400 line-through">${product.price}</p>}
                   <p className="text-xs font-bold text-steel">
                     {product.optionGroups?.length ?? 0} 個選項群組
                   </p>

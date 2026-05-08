@@ -11,10 +11,10 @@ import type { Order, OrderItem, OrderStatus } from "@/lib/types";
 
 type Station = "all" | "hot" | "drink";
 
-const tabs: Array<{ status: OrderStatus; label: string }> = [
-  { status: "pending", label: "待接單" },
-  { status: "cooking", label: "製作中" },
-  { status: "ready", label: "可出餐" }
+const tabs: Array<{ status: OrderStatus; statuses: OrderStatus[]; label: string }> = [
+  { status: "pending", statuses: ["pending", "waiting", "accepted"], label: "待接單" },
+  { status: "preparing", statuses: ["cooking", "preparing"], label: "製作中" },
+  { status: "ready", statuses: ["ready"], label: "可出餐" }
 ];
 
 function isDrinkName(name: string) {
@@ -87,7 +87,7 @@ function KitchenBoardContent({ storeId }: { storeId: string }) {
     [db.orders, storeId, today]
   );
   const orders = todayOrders
-    .filter((order) => order.status === activeStatus && stationItems(order, station).length > 0)
+    .filter((order) => tabs.find((tab) => tab.status === activeStatus)?.statuses.includes(order.status) && stationItems(order, station).length > 0)
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   return (
@@ -123,7 +123,7 @@ function KitchenBoardContent({ storeId }: { storeId: string }) {
 
         <section className="mt-5 grid gap-3 md:grid-cols-3">
           {tabs.map((tab) => {
-            const count = todayOrders.filter((order) => order.status === tab.status).length;
+            const count = todayOrders.filter((order) => tab.statuses.includes(order.status)).length;
             return (
               <button key={tab.status} onClick={() => setActiveStatus(tab.status)} className={`rounded-lg px-5 py-4 text-left transition ${activeStatus === tab.status ? "bg-white text-ink" : "bg-white/10 text-white ring-1 ring-white/10"}`}>
                 <p className="text-sm font-black opacity-70">{tab.label}</p>
@@ -192,8 +192,8 @@ function KitchenBoardContent({ storeId }: { storeId: string }) {
                   </div>
                   {order.customerNote && <p className="mt-4 rounded-lg bg-amber-50 p-3 text-lg font-black text-amber-800">整單備註：{order.customerNote}</p>}
                   <div className="mt-5 grid grid-cols-2 gap-3">
-                    <button onClick={() => updateOrderStatus(order.id, order.status === "pending" ? "cooking" : "ready")} className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-5 text-2xl font-black text-white disabled:bg-stone-300" disabled={order.status === "ready" || order.status === "completed"}>
-                      <Flame className="size-6" />{order.status === "pending" ? "開始製作" : "可出餐"}
+                    <button onClick={() => updateOrderStatus(order.id, ["pending", "waiting", "accepted"].includes(order.status) ? "preparing" : "ready")} className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-5 text-2xl font-black text-white disabled:bg-stone-300" disabled={order.status === "ready" || order.status === "completed"}>
+                      <Flame className="size-6" />{["pending", "waiting", "accepted"].includes(order.status) ? "開始製作" : "可出餐"}
                     </button>
                     <button onClick={() => updateOrderStatus(order.id, order.status === "ready" ? "completed" : "ready")} className="inline-flex items-center justify-center gap-2 rounded-lg bg-leaf px-4 py-5 text-2xl font-black text-white disabled:bg-stone-300" disabled={order.status === "completed"}>
                       <CheckCircle2 className="size-6" />{order.status === "ready" ? "已取餐" : "完成出餐"}

@@ -8,7 +8,7 @@ import { LoginGate } from "@/components/auth/login-gate";
 import { firestore } from "@/lib/firebase";
 import type { User, UserRole } from "@/lib/types";
 
-const roleOptions: UserRole[] = ["user", "merchant", "kitchen", "admin"];
+const roleOptions: UserRole[] = ["user", "owner", "manager", "staff", "viewer", "merchant", "kitchen", "admin"];
 
 function editableRole(role: UserRole) {
   return roleOptions.includes(role) ? role : "merchant";
@@ -59,9 +59,44 @@ function AdminUsersContent() {
     setSavingId(userId);
     setError("");
     try {
-      await updateDoc(doc(firestore, "users", userId), { role });
+      await updateDoc(doc(firestore, "users", userId), { role, updatedAt: new Date().toISOString() });
     } catch (err) {
       setError(err instanceof Error ? err.message : "更新角色失敗");
+    } finally {
+      setSavingId("");
+    }
+  }
+
+  async function approveUser(user: User) {
+    if (!firestore) return;
+    setSavingId(user.id);
+    setError("");
+    try {
+      await updateDoc(doc(firestore, "users", user.id), {
+        approved: true,
+        status: "active",
+        pending: false,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "核准帳號失敗");
+    } finally {
+      setSavingId("");
+    }
+  }
+
+  async function rejectUser(user: User) {
+    if (!firestore) return;
+    setSavingId(user.id);
+    setError("");
+    try {
+      await updateDoc(doc(firestore, "users", user.id), {
+        approved: false,
+        status: "rejected",
+        updatedAt: new Date().toISOString()
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "拒絕帳號失敗");
     } finally {
       setSavingId("");
     }
@@ -117,7 +152,8 @@ function AdminUsersContent() {
     try {
       await updateDoc(doc(firestore, "users", lookupUser.id), {
         role: lookupRole,
-        storeId: lookupStoreId.trim() || null
+        storeId: lookupStoreId.trim() || null,
+        updatedAt: new Date().toISOString()
       });
       setLookupUser({ ...lookupUser, role: lookupRole, storeId: lookupStoreId.trim() || null });
       setLookupMessage("已更新使用者權限");
@@ -254,9 +290,15 @@ function AdminUsersContent() {
                       <td className="px-5 py-4">{user.email}</td>
                       <td className="px-5 py-4 font-mono text-xs text-steel">{user.storeId || "-"}</td>
                       <td className="px-5 py-4">
+                        <span className={`rounded-full px-3 py-1 text-xs font-black ${user.status === "active" ? "bg-leaf/10 text-leaf" : user.status === "rejected" ? "bg-tomato/10 text-tomato" : "bg-amber-100 text-amber-700"}`}>
+                          {user.status ?? "pending"} / {user.approved ? "approved" : "not approved"}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4">
                         <span className="rounded-full bg-leaf/10 px-3 py-1 text-xs font-black text-leaf">{user.role}</span>
                       </td>
                       <td className="px-5 py-4">
+                        <div className="flex flex-wrap gap-2">
                         <select
                           value={editableRole(user.role)}
                           disabled={savingId === user.id}
@@ -269,6 +311,9 @@ function AdminUsersContent() {
                             </option>
                           ))}
                         </select>
+                          <button onClick={() => approveUser(user)} disabled={savingId === user.id || user.role === "admin"} className="rounded-lg bg-leaf px-3 py-2 font-black text-white disabled:opacity-50">核准</button>
+                          <button onClick={() => rejectUser(user)} disabled={savingId === user.id || user.role === "admin"} className="rounded-lg bg-tomato px-3 py-2 font-black text-white disabled:opacity-50">拒絕</button>
+                        </div>
                       </td>
                     </tr>
                   ))}

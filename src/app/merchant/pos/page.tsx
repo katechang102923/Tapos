@@ -7,6 +7,7 @@ import { LoginGate } from "@/components/auth/login-gate";
 import { ProductOptionModal } from "@/components/product-option-modal";
 import { StatusPill } from "@/components/status-pill";
 import { useDemoStore } from "@/lib/demo-store";
+import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { normalizeSelectedOptions, selectionsTotal } from "@/lib/product-options";
 import type { Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product } from "@/lib/types";
 
@@ -20,7 +21,7 @@ type CartLine = {
 const orderTabs: Array<{ key: "open" | "pending" | "cooking" | "completed" | "cancelled"; label: string; statuses: OrderStatus[] }> = [
   { key: "open", label: "未處理", statuses: ["pending", "accepted"] },
   { key: "pending", label: "新訂單", statuses: ["pending"] },
-  { key: "cooking", label: "處理中", statuses: ["cooking", "ready"] },
+  { key: "cooking", label: "處理中", statuses: ["cooking", "preparing", "ready"] },
   { key: "completed", label: "已完成", statuses: ["completed"] },
   { key: "cancelled", label: "已取消", statuses: ["cancelled"] }
 ];
@@ -53,6 +54,8 @@ function MerchantPosContent({ storeId }: { storeId: string }) {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [choosingProduct, setChoosingProduct] = useState<Product | null>(null);
   const [orderSuccess, setOrderSuccess] = useState<string>("");
+  const [orderError, setOrderError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastOrder, setLastOrder] = useState<{ orderNumber: string; pickupNumber: string; status: string } | null>(null);
 
   const visibleProducts = activeCategoryId === "all" ? products : products.filter((product) => product.categoryId === activeCategoryId);
@@ -82,7 +85,7 @@ function MerchantPosContent({ storeId }: { storeId: string }) {
     return <div className="grid min-h-screen place-items-center bg-[#f4f4f2] font-black text-steel">載入店家資料...</div>;
   }
 
-  const total = cart.reduce((sum, line) => sum + line.quantity * (line.product.price + selectionsTotal(line.selectedOptions)), 0);
+  const total = cart.reduce((sum, line) => sum + line.quantity * (productFinalPrice(line.product) + selectionsTotal(line.selectedOptions)), 0);
 
   function confirmProductOptions(selectedOptions: OrderItemOption[]) {
     if (!choosingProduct) return;
@@ -98,9 +101,13 @@ function MerchantPosContent({ storeId }: { storeId: string }) {
     setCart((current) => current.filter((_, itemIndex) => itemIndex !== index));
   }
 
-  function submitOrder() {
-    if (cart.length === 0) return;
-    const order = createOrder({
+  async function submitOrder() {
+    if (cart.length === 0 || isSubmitting) return;
+    setOrderError("");
+    setOrderSuccess("");
+    setIsSubmitting(true);
+    try {
+      const order = await createOrder({
       storeId,
       mode,
       tableNo: mode === "takeout" ? "外帶" : tableNo,
@@ -115,16 +122,25 @@ function MerchantPosContent({ storeId }: { storeId: string }) {
         productId: line.product.id,
         productName: line.product.name,
         quantity: line.quantity,
-        unitPrice: line.product.price + selectionsTotal(line.selectedOptions),
+        unitPrice: productFinalPrice(line.product) + selectionsTotal(line.selectedOptions),
+        originalPrice: line.product.price,
+        discountType: line.product.discountType ?? "none",
+        discountValue: Number(line.product.discountValue ?? 0),
+        finalPrice: productFinalPrice(line.product),
         selectedOptions: line.selectedOptions,
         note: line.note
       }))
-    });
+      });
 
-    setLastOrder({ orderNumber: order.orderNumber, pickupNumber: order.pickupNumber, status: order.status });
-    setCart([]);
-    setCustomerNote("");
+      setLastOrder({ orderNumber: order.orderNumber, pickupNumber: order.pickupNumber, status: order.status });
+      setCart([]);
+      setCustomerNote("");
     setOrderSuccess(`POS 訂單已建立，訂單號 ${order.orderNumber}`);
+    } catch (writeError) {
+      setOrderError(writeError instanceof Error ? writeError.message : "訂單建立失敗，請稍後再試");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -150,6 +166,11 @@ function MerchantPosContent({ storeId }: { storeId: string }) {
           <div className="mb-5 rounded-lg border border-leaf/30 bg-leaf/10 p-5 text-leaf">
             <p className="font-black">{orderSuccess}</p>
             {lastOrder && <p className="mt-2 text-sm">取餐號：{lastOrder.pickupNumber}，狀態：{lastOrder.status}</p>}
+          </div>
+        )}
+        {orderError && (
+          <div className="mb-5 rounded-lg border border-tomato/30 bg-tomato/10 p-5 text-tomato">
+            <p className="font-black">{orderError}</p>
           </div>
         )}
 
@@ -225,7 +246,9 @@ function MerchantPosContent({ storeId }: { storeId: string }) {
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-lg font-black">{product.name}</p>
                       <p className="mt-1 line-clamp-2 text-xs font-bold text-steel">{product.description}</p>
-                      <p className="mt-2 text-xl font-black text-tomato">${product.price}</p>
+                      <p className="mt-2 text-xl font-black text-tomato">${productFinalPrice(product)}</p>
+                      {productFinalPrice(product) !== product.price && <p className="text-xs font-bold text-stone-400 line-through">${product.price}</p>}
+                      {discountLabel(product.discountType, product.discountValue) && <p className="mt-1 text-xs font-black text-tomato">{discountLabel(product.discountType, product.discountValue)}</p>}
                     </div>
                   </div>
                 </button>
@@ -234,7 +257,7 @@ function MerchantPosContent({ storeId }: { storeId: string }) {
           </section>
 
           <aside className="space-y-5">
-            <CartPanel cart={cart} total={total} updateLine={updateLine} removeLine={removeLine} submitOrder={submitOrder} />
+            <CartPanel cart={cart} total={total} updateLine={updateLine} removeLine={removeLine} submitOrder={submitOrder} isSubmitting={isSubmitting} />
             <section className="rounded-lg bg-white p-5 shadow-sm">
               <h2 className="text-2xl font-black">今日商品銷售排行</h2>
               <div className="mt-4 space-y-3">
@@ -309,8 +332,8 @@ function OrderWorkCard({ order, updateOrderStatus }: { order: Order; updateOrder
       <p className="mt-3 text-lg font-black text-tomato">總金額 ${order.totalAmount ?? order.total}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {order.status === "pending" && <button onClick={() => updateOrderStatus(order.id, "accepted")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white"><CheckCircle2 className="size-4" />接單</button>}
-        {order.status === "accepted" && <button onClick={() => updateOrderStatus(order.id, "cooking")} className="inline-flex items-center gap-2 rounded-lg bg-amber-100 px-3 py-2 font-black text-amber-700"><TimerReset className="size-4" />製作中</button>}
-        {(order.status === "cooking" || order.status === "ready") && <button onClick={() => updateOrderStatus(order.id, "completed")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white"><CheckCircle2 className="size-4" />已完成</button>}
+        {order.status === "accepted" && <button onClick={() => updateOrderStatus(order.id, "preparing")} className="inline-flex items-center gap-2 rounded-lg bg-amber-100 px-3 py-2 font-black text-amber-700"><TimerReset className="size-4" />製作中</button>}
+        {(order.status === "cooking" || order.status === "preparing" || order.status === "ready") && <button onClick={() => updateOrderStatus(order.id, "completed")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white"><CheckCircle2 className="size-4" />已完成</button>}
         {!["completed", "cancelled"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "cancelled")} className="inline-flex items-center gap-2 rounded-lg bg-tomato px-3 py-2 font-black text-white"><XCircle className="size-4" />取消</button>}
       </div>
     </article>
@@ -322,13 +345,15 @@ function CartPanel({
   total,
   removeLine,
   submitOrder,
-  updateLine
+  updateLine,
+  isSubmitting
 }: {
   cart: CartLine[];
   total: number;
   removeLine: (index: number) => void;
   submitOrder: () => void;
   updateLine: (index: number, patch: Partial<CartLine>) => void;
+  isSubmitting: boolean;
 }) {
   return (
     <section className="rounded-lg bg-white p-5 shadow-sm">
@@ -342,7 +367,7 @@ function CartPanel({
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="font-black text-ink">{line.product.name}</p>
-                  <p className="mt-1 text-sm text-steel">${line.product.price + selectionsTotal(line.selectedOptions)} x {line.quantity}</p>
+                  <p className="mt-1 text-sm text-steel">${productFinalPrice(line.product) + selectionsTotal(line.selectedOptions)} x {line.quantity}</p>
                   {line.selectedOptions.length > 0 && <div className="mt-2 space-y-1 text-xs font-bold text-steel">{line.selectedOptions.map((option) => <p key={`${option.groupId}-${option.choiceId}`} style={{ marginLeft: `${(option.level ?? 0) * 14}px` }}>- {option.groupName}：{option.choiceName}{option.priceDelta ? ` +${option.priceDelta}` : ""}</p>)}</div>}
                 </div>
                 <button onClick={() => removeLine(index)} className="rounded-lg bg-tomato px-3 py-2 font-black text-white">刪除</button>
@@ -358,7 +383,7 @@ function CartPanel({
         </div>
       )}
       <div className="mt-6 rounded-lg bg-orange-50 p-4 text-xl font-black text-ink">總計：${total}</div>
-      <button onClick={submitOrder} disabled={cart.length === 0} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-leaf px-4 py-4 font-black text-white disabled:opacity-60">
+      <button onClick={submitOrder} disabled={cart.length === 0 || isSubmitting} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-leaf px-4 py-4 font-black text-white disabled:opacity-60">
         <Send className="size-5" /> 送出訂單
       </button>
     </section>

@@ -75,7 +75,12 @@ function OnboardingContent({ uid, currentStoreId }: { uid: string; currentStoreI
     const menu = createDefaultMenu(storeId, storeType);
 
     await setDoc(doc(db, "stores", storeId), store);
-    await updateDoc(doc(db, "users", uid), { storeId, role: "merchant" });
+    await updateDoc(doc(db, "users", uid), {
+      storeId,
+      storeIds: [storeId],
+      memberships: { [storeId]: "owner" },
+      role: "merchant"
+    });
     await Promise.all([
       ...menu.categories.map((category) => setDoc(doc(db, "categories", category.id), category)),
       ...menu.products.map((product) => setDoc(doc(db, "products", product.id), product))

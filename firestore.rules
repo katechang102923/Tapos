@@ -26,16 +26,28 @@ service cloud.firestore {
       return hasUserDoc() ? userDoc().data.role : null;
     }
 
+    function approved() {
+      return hasUserDoc() && userDoc().data.approved == true && userDoc().data.status == "active";
+    }
+
     function userStoreId() {
       return hasUserDoc() ? userDoc().data.storeId : null;
     }
 
+    function membershipRole(storeId) {
+      return hasUserDoc()
+        && userDoc().data.memberships is map
+        && storeId in userDoc().data.memberships
+        ? userDoc().data.memberships[storeId]
+        : null;
+    }
+
     function isAdmin() {
-      return role() == "admin";
+      return signedIn() && ((role() == "admin" && approved()) || request.auth.token.email == "ciut0000@gmail.com");
     }
 
     function isOwner(storeId) {
-      return signedIn() && userStoreId() == storeId && role() in ["merchant", "owner"];
+      return signedIn() && approved() && ((userStoreId() == storeId && role() in ["merchant", "owner"]) || membershipRole(storeId) == "owner");
     }
 
     function ownsStoreDoc(storeId) {
@@ -45,37 +57,39 @@ service cloud.firestore {
     }
 
     function canManageStore(storeId) {
-      return isAdmin() || isOwner(storeId) || ownsStoreDoc(storeId);
+      return isAdmin() || isOwner(storeId) || membershipRole(storeId) in ["manager", "staff"] || ownsStoreDoc(storeId);
     }
 
     function canHandleOrders(storeId) {
       return signedIn()
-        && userStoreId() == storeId
-        && role() in ["merchant", "kitchen"];
+        && approved()
+        && ((userStoreId() == storeId && role() in ["merchant", "kitchen", "owner", "manager", "staff"]) || membershipRole(storeId) in ["owner", "manager", "staff"]);
     }
 
     function validOrderStatusUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "rejectReason"])
-        && request.resource.data.status in ["pending", "accepted", "cooking", "ready", "completed", "cancelled"];
+        && request.resource.data.status in ["pending", "waiting", "accepted", "cooking", "preparing", "ready", "completed", "cancelled"];
     }
 
     function validOwnerUserCreate(userId) {
       return signedIn()
         && request.auth.uid == userId
         && request.resource.data.id == userId
-        && request.resource.data.storeId == null
         && request.resource.data.email is string
         && request.resource.data.name is string
-        && request.resource.data.role in ["user", "owner"];
-    }
-
-    function validOwnerStoreCreate() {
-      return signedIn()
-        && role() in ["user", "merchant", "owner"]
-        && userStoreId() == null
-        && request.resource.data.ownerId == request.auth.uid
-        && request.resource.data.name is string
-        && request.resource.data.isOpen is bool;
+        && (
+          (
+            request.resource.data.email == "ciut0000@gmail.com"
+            && request.resource.data.role == "admin"
+            && request.resource.data.approved == true
+            && request.resource.data.status == "active"
+          )
+          || (
+            request.resource.data.role == "user"
+            && request.resource.data.approved == false
+            && request.resource.data.status == "pending"
+          )
+        );
     }
 
     function validOwnProfileUpdate(userId) {
@@ -92,7 +106,7 @@ service cloud.firestore {
             resource.data.storeId == null
             && resource.data.role == "user"
             && request.resource.data.storeId is string
-            && request.resource.data.role in ["merchant", "owner"]
+            && request.resource.data.role in ["merchant", "owner", "manager", "staff", "viewer"]
             && ownsStoreDoc(request.resource.data.storeId)
           )
         );
@@ -125,16 +139,17 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin() || resource.data.email == request.auth.token.email);
       allow create: if validOwnerUserCreate(userId) || isAdmin();
-      allow update: if isAdmin() || validOwnProfileUpdate(userId);
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
     match /stores/{storeId} {
-      allow read: if true;
-      allow create: if isAdmin() || validOwnerStoreCreate();
-      allow update: if isAdmin() || ownsStoreDoc(storeId);
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
@@ -159,6 +174,19 @@ service cloud.firestore {
       allow list: if isAdmin() || canHandleOrders(resource.data.storeId);
       allow create: if validQrOrderCreate() || validPosOrderCreate() || isAdmin();
       allow update: if isAdmin() || (canHandleOrders(resource.data.storeId) && validOrderStatusUpdate());
+      allow delete: if isAdmin();
+    }
+
+    match /counters/orderNumbers {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(["qr", "pos"])
+        && request.resource.data.qr is number
+        && request.resource.data.pos is number;
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(["qr", "pos"])
+        && request.resource.data.qr is number
+        && request.resource.data.pos is number
+        && request.resource.data.qr >= resource.data.qr
+        && request.resource.data.pos >= resource.data.pos;
       allow delete: if isAdmin();
     }
   }
