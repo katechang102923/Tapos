@@ -62,7 +62,10 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
   const [cart, setCart] = useState<CartLine[]>([]);
   const [choosingProduct, setChoosingProduct] = useState<Product | null>(null);
   const [customerNote, setCustomerNote] = useState("");
-  const [lastOrderId, setLastOrderId] = useState<string | null>(null);
+  const [lastOrderId, setLastOrderId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return window.localStorage.getItem(`lastOrderId:${storeId}`);
+  });
   const [trackedOrder, setTrackedOrder] = useState<Order | null>(null);
 
   const store = db.stores.find((item) => item.id === storeId);
@@ -79,9 +82,13 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
 
   useEffect(() => {
     if (!lastOrderId || !firebaseEnabled || !firestore) return;
-    return onSnapshot(doc(firestore, "orders", lastOrderId), (snapshot) => {
-      if (snapshot.exists()) setTrackedOrder({ id: snapshot.id, ...snapshot.data() } as Order);
+    const unsubscribe = onSnapshot(doc(firestore, "orders", lastOrderId), (snapshot) => {
+      if (snapshot.exists()) {
+        const order = { id: snapshot.id, ...snapshot.data() } as Order;
+        setTrackedOrder(order);
+      }
     });
+    return unsubscribe;
   }, [lastOrderId]);
 
   function addToCart(product: Product) {
@@ -122,6 +129,7 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
       }))
     });
     setLastOrderId(order.id);
+    window.localStorage.setItem(`lastOrderId:${storeId}`, order.id);
     setTrackedOrder(order);
     setCart([]);
     setCustomerNote("");
@@ -130,106 +138,123 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
 
   if (!store) return <div className="p-8 text-center text-steel">找不到店家</div>;
 
+  const handleClearOrder = () => {
+    setLastOrderId(null);
+    window.localStorage.removeItem(`lastOrderId:${storeId}`);
+    setTrackedOrder(null);
+  };
+
   return (
-    <main className="min-h-screen bg-[#fff7e8] pb-32 lg:pb-8">
+    <main className="min-h-screen bg-[#fff7e8]">
       <header className="sticky top-0 z-40 border-b border-orange-100 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
-          <Link href="/" className="grid size-12 place-items-center rounded-lg bg-orange-50 text-ink">
-            <ChevronLeft className="size-6" />
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-2 sm:px-4 sm:py-3">
+          <Link href="/" className="grid size-10 place-items-center rounded-lg bg-orange-50 text-ink sm:size-12">
+            <ChevronLeft className="size-5 sm:size-6" />
           </Link>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xl font-black text-ink">{store.name}</p>
-            <p className={`text-base font-black ${store.isOpen ? "text-leaf" : "text-tomato"}`}>{store.isOpen ? "營業中" : "休息中"}</p>
+            <p className="truncate text-sm font-black text-ink sm:text-xl">{store.name}</p>
+            <p className={`text-xs font-black sm:text-sm ${store.isOpen ? "text-leaf" : "text-tomato"}`}>{store.isOpen ? "營業中" : "休息中"}</p>
           </div>
-          <div className="rounded-lg bg-tomato px-4 py-3 text-base font-black text-white">{mode === "takeout" ? "外帶" : `${tableId ?? tableNo} 桌`}</div>
+          <div className="shrink-0 rounded-lg bg-tomato px-2 py-1 text-xs font-black text-white sm:px-4 sm:py-3 sm:text-base">{mode === "takeout" ? "外帶" : `${tableId ?? tableNo} 桌`}</div>
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-5 px-4 py-4 lg:grid-cols-[1fr_410px]">
-        <section className="min-w-0">
+      <div className="mx-auto max-w-7xl px-3 py-3 sm:px-4 sm:py-4 lg:grid lg:grid-cols-[1fr_410px] lg:gap-5">
+        <section className="min-w-0 lg:space-y-4">
           <div className="overflow-hidden rounded-lg bg-white shadow-soft">
-            <div className="relative h-44 bg-ink sm:h-56">
+            <div className="relative h-32 bg-ink sm:h-40">
               <img src={store.bannerUrl || store.logoUrl} alt={store.name} className="h-full w-full object-cover opacity-70" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/75 to-transparent" />
-              <div className="absolute inset-x-0 bottom-0 p-5 text-white">
-                <p className="text-sm font-black text-white/80">顧客 QR 點餐</p>
-                <h1 className="text-4xl font-black">{store.name}</h1>
-                <p className="mt-2 text-base font-bold text-white/90">{store.temporaryNotice || store.notice || "送出後請等待店家接單"}</p>
+              <div className="absolute inset-x-0 bottom-0 p-3 text-white sm:p-4">
+                <h1 className="text-2xl font-black sm:text-3xl">{store.name}</h1>
+                <p className="mt-1 text-xs font-bold text-white/90 sm:text-sm">{store.temporaryNotice || store.notice || "送出後請等待店家接單"}</p>
               </div>
             </div>
-            <div className="grid gap-3 p-4 sm:grid-cols-[1fr_1fr]">
+            <div className="grid gap-2 p-3 sm:grid-cols-[1fr_1fr] sm:gap-3 sm:p-4">
               <div className="grid grid-cols-2 rounded-lg bg-orange-50 p-1">
                 {(["takeout", "dine-in"] as OrderMode[]).map((item) => (
-                  <button key={item} onClick={() => setMode(item)} className={`rounded-md px-4 py-4 text-xl font-black ${mode === item ? "bg-white text-ink shadow-sm" : "text-steel"}`}>
+                  <button key={item} onClick={() => setMode(item)} className={`rounded-md px-3 py-3 text-sm font-black sm:px-4 sm:py-4 sm:text-lg ${mode === item ? "bg-white text-ink shadow-sm" : "text-steel"}`}>
                     {item === "dine-in" ? "內用" : "外帶"}
                   </button>
                 ))}
               </div>
-              <input value={tableId ?? tableNo} onChange={(event) => setTableNo(event.target.value)} disabled={mode === "takeout" || Boolean(tableId)} placeholder="桌號" className="rounded-lg border border-orange-200 bg-white px-4 py-4 text-xl font-black disabled:bg-stone-100" />
+              <input value={tableId ?? tableNo} onChange={(event) => setTableNo(event.target.value)} disabled={mode === "takeout" || Boolean(tableId)} placeholder="桌號" className="rounded-lg border border-orange-200 bg-white px-3 py-3 text-sm font-black disabled:bg-stone-100 sm:px-4 sm:py-4 sm:text-lg" />
             </div>
           </div>
 
           {lastOrder && (
-            <div className={`animate-success-pop mt-4 rounded-lg border-2 bg-white p-5 shadow-soft ${lastOrder.status === "cancelled" ? "border-tomato" : "border-leaf"}`}>
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className={`flex items-center gap-2 text-base font-black ${lastOrder.status === "cancelled" ? "text-tomato" : "text-leaf"}`}>
-                    <CheckCircle2 className="size-5" />
+            <div className={`rounded-lg border-2 bg-white p-4 shadow-soft sm:p-5 ${lastOrder.status === "cancelled" ? "border-tomato" : "border-leaf"}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className={`flex items-center gap-2 text-sm font-black sm:text-base ${lastOrder.status === "cancelled" ? "text-tomato" : "text-leaf"}`}>
+                    <CheckCircle2 className="size-4 shrink-0 sm:size-5" />
                     {customerStatusMessage(lastOrder.status, lastOrder.rejectReason)}
                   </p>
-                  <p className="text-5xl font-black text-ink">取餐號 {lastOrder.pickupNumber}</p>
-                  <p className="mt-1 font-mono text-sm font-bold text-steel">訂單號 {lastOrder.orderNumber}</p>
+                  <p className="mt-2 text-3xl font-black text-ink sm:text-4xl">取餐號 {lastOrder.pickupNumber}</p>
+                  <p className="mt-1 font-mono text-xs font-bold text-steel sm:text-sm">訂單號 {lastOrder.orderNumber}</p>
                 </div>
+                <button onClick={handleClearOrder} className="shrink-0 rounded-lg bg-orange-50 px-2 py-1 text-xs font-black text-steel hover:bg-orange-100 sm:px-3 sm:py-2">新訂單</button>
               </div>
-              <div className="mt-5 grid grid-cols-4 gap-2">
+              <div className="mt-4 grid grid-cols-4 gap-1 sm:gap-2">
                 {statusSteps.map((step, index) => {
                   const done = lastOrder.status !== "cancelled" && statusRank(lastOrder.status) >= index;
-                  return <div key={step.status} className={`rounded-lg px-3 py-4 text-center text-base font-black ${done ? "bg-leaf text-white" : "bg-stone-100 text-stone-400"}`}>{step.label}</div>;
+                  return (
+                    <div key={step.status} className={`rounded-lg px-2 py-2 text-center text-xs font-black sm:px-3 sm:py-4 sm:text-base ${done ? "bg-leaf text-white" : "bg-stone-100 text-stone-400"}`}>
+                      {step.label}
+                    </div>
+                  );
                 })}
               </div>
-              {lastOrder.status === "cancelled" && <p className="mt-3 rounded-lg bg-tomato/10 p-3 font-black text-tomato">取消原因：{lastOrder.rejectReason || "店家無法接單"}</p>}
+              {lastOrder.status === "cancelled" && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-xs font-black text-tomato sm:text-sm">取消原因：{lastOrder.rejectReason || "店家無法接單"}</p>}
             </div>
           )}
 
-          <div className="sticky top-[73px] z-30 mt-4 space-y-3 bg-[#fff7e8] py-3">
+          <div className="sticky top-[58px] z-30 space-y-2 bg-[#fff7e8] py-2 sm:top-[66px] sm:py-3 sm:space-y-3 lg:relative lg:top-auto lg:z-auto lg:bg-transparent lg:py-0">
             <label className="relative block">
-              <Search className="absolute left-4 top-1/2 size-6 -translate-y-1/2 text-stone-400" />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋餐點" className="w-full rounded-lg border border-orange-100 bg-white py-5 pl-13 pr-4 text-xl font-black shadow-sm outline-none focus:border-tomato" />
+              <Search className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-stone-400 sm:left-4 sm:size-6" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋餐點" className="w-full rounded-lg border border-orange-100 bg-white py-3 pl-10 pr-3 text-sm font-black shadow-sm outline-none focus:border-tomato sm:py-5 sm:pl-13 sm:pr-4 sm:text-lg" />
             </label>
-            <div className="flex gap-2 overflow-x-auto">
+            <div className="flex gap-2 overflow-x-auto pb-1">
               {[{ id: "all", name: "全部" }, ...categories].map((category) => (
-                <button key={category.id} onClick={() => setActiveCategory(category.id)} className={`shrink-0 rounded-lg px-6 py-4 text-lg font-black ${activeCategory === category.id ? "bg-ink text-white" : "bg-white text-steel shadow-sm"}`}>
+                <button key={category.id} onClick={() => setActiveCategory(category.id)} className={`shrink-0 rounded-lg px-4 py-2 text-sm font-black sm:px-6 sm:py-4 sm:text-lg ${activeCategory === category.id ? "bg-ink text-white" : "bg-white text-steel shadow-sm"}`}>
                   {category.name}
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {products.map((product) => {
-              const disabled = !store.isOpen || !product.isAvailable || product.isSoldOut;
-              return (
-                <article key={product.id} className={`overflow-hidden rounded-lg border bg-white shadow-sm transition ${disabled ? "border-stone-200 opacity-60 grayscale" : "border-orange-100"}`}>
-                  <div className="relative">
-                    <img src={product.imageUrl} alt={product.name} className="aspect-[4/3] w-full object-cover" />
-                    {product.isSoldOut && <div className="absolute inset-0 grid place-items-center bg-black/55"><span className="rounded-lg bg-white px-5 py-3 text-xl font-black text-ink">售完</span></div>}
-                  </div>
-                  <div className="p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h2 className="text-2xl font-black text-ink">{product.name}</h2>
-                        <p className="mt-1 min-h-11 text-base leading-6 text-steel">{product.description}</p>
-                      </div>
-                      <p className="shrink-0 text-2xl font-black text-tomato">${product.price}</p>
+          <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {products.length === 0 ? (
+              <div className="col-span-full rounded-lg bg-white p-8 text-center shadow-sm">
+                <p className="font-black text-steel">沒有符合的餐點</p>
+              </div>
+            ) : (
+              products.map((product) => {
+                const disabled = !store.isOpen || !product.isAvailable || product.isSoldOut;
+                return (
+                  <article key={product.id} className={`overflow-hidden rounded-lg border bg-white shadow-sm transition ${disabled ? "border-stone-200 opacity-60 grayscale" : "border-orange-100"}`}>
+                    <div className="relative">
+                      <img src={product.imageUrl} alt={product.name} className="aspect-[4/3] w-full object-cover" />
+                      {product.isSoldOut && <div className="absolute inset-0 grid place-items-center bg-black/55"><span className="rounded-lg bg-white px-4 py-2 text-sm font-black text-ink sm:px-5 sm:py-3 sm:text-lg">售完</span></div>}
                     </div>
-                    <button onClick={() => addToCart(product)} disabled={disabled} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-ink px-4 py-4 text-base font-black text-white disabled:bg-stone-300">
-                      <Plus className="size-5" />加入購物車
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
+                    <div className="p-3 sm:p-4">
+                      <div className="flex items-start justify-between gap-2 sm:gap-3">
+                        <div className="min-w-0">
+                          <h2 className="text-lg font-black text-ink sm:text-2xl">{product.name}</h2>
+                          <p className="mt-1 min-h-0 text-xs leading-5 text-steel sm:text-base sm:leading-6">{product.description}</p>
+                        </div>
+                        <p className="shrink-0 text-lg font-black text-tomato sm:text-2xl">${product.price}</p>
+                      </div>
+                      <button onClick={() => addToCart(product)} disabled={disabled} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-ink px-3 py-3 text-sm font-black text-white disabled:bg-stone-300 sm:mt-4 sm:px-4 sm:py-4 sm:text-base">
+                        <Plus className="size-4 sm:size-5" />加入購物車
+                      </button>
+                    </div>
+                  </article>
+                );
+              })
+            )}
           </div>
+          <div className="h-4 sm:h-0" />
         </section>
 
         <aside className="hidden lg:block lg:sticky lg:top-20 lg:h-fit">
@@ -237,13 +262,13 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
         </aside>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-orange-100 bg-white p-3 shadow-[0_-12px_30px_rgba(0,0,0,0.12)] lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-orange-100 bg-white p-2 shadow-[0_-12px_30px_rgba(0,0,0,0.12)] sm:p-3 lg:hidden">
         <details className="group mx-auto max-w-7xl">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg bg-ink px-4 py-5 text-white">
-            <span className="flex items-center gap-2 text-xl font-black"><ShoppingCart className="size-6" />購物車 {totalQuantity} 件</span>
-            <span className="text-2xl font-black">${total}</span>
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg bg-ink px-3 py-3 text-white sm:px-4 sm:py-5">
+            <span className="flex items-center gap-2 text-sm font-black sm:text-xl"><ShoppingCart className="size-5 sm:size-6" />購物車 {totalQuantity} 件</span>
+            <span className="text-lg font-black sm:text-2xl">${total}</span>
           </summary>
-          <div className="max-h-[66vh] overflow-y-auto pt-3">
+          <div className="max-h-[50vh] overflow-y-auto pt-2 sm:pt-3">
             <CartPanel cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} submitOrder={submitOrder} total={total} updateLine={updateLine} setCart={setCart} canSubmit={store.isOpen && cart.length > 0} />
           </div>
         </details>
@@ -273,43 +298,53 @@ function CartPanel({
   canSubmit: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-orange-100 bg-white p-4 shadow-soft">
-      <h2 className="flex items-center gap-2 text-2xl font-black text-ink"><ShoppingCart className="size-6" />購物車</h2>
+    <div className="rounded-lg border border-orange-100 bg-white p-3 shadow-soft sm:p-4">
+      <h2 className="flex items-center gap-2 text-xl font-black text-ink sm:text-2xl"><ShoppingCart className="size-5 sm:size-6" />購物車</h2>
       {cart.length === 0 ? (
-        <p className="mt-4 rounded-lg bg-orange-50 p-5 text-center text-lg font-black text-steel">尚未選擇餐點</p>
+        <p className="mt-3 rounded-lg bg-orange-50 p-4 text-center text-sm font-black text-steel sm:mt-4 sm:p-5 sm:text-lg">尚未選擇餐點</p>
       ) : (
-        <div className="mt-4 space-y-3">
+        <div className="mt-3 space-y-2 sm:mt-4 sm:space-y-3">
           {cart.map((line, index) => (
-            <div key={`${line.product.id}-${index}`} className="rounded-lg border border-orange-100 p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-lg font-black text-ink">{line.product.name}</p>
-                  <p className="text-sm font-semibold text-tomato">${lineUnitPrice(line)}</p>
+            <div key={`${line.product.id}-${index}`} className="rounded-lg border border-orange-100 p-2 sm:p-3">
+              <div className="flex items-start justify-between gap-2 sm:gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-black text-ink sm:text-lg">{line.product.name}</p>
+                  <p className="text-xs font-semibold text-tomato sm:text-sm">${lineUnitPrice(line)}</p>
                   {line.selectedOptions.length > 0 && (
-                    <div className="mt-2 space-y-1 text-xs font-bold text-steel">
-                      {line.selectedOptions.map((option) => <p key={`${option.groupId}-${option.choiceId}`} style={{ marginLeft: `${(option.level ?? 0) * 14}px` }}>- {option.groupName}：{option.choiceName}{option.priceDelta ? ` +${option.priceDelta}` : ""}</p>)}
+                    <div className="mt-1 space-y-0.5 text-xs font-bold text-steel sm:mt-2 sm:space-y-1">
+                      {line.selectedOptions.map((option) => (
+                        <p key={`${option.groupId}-${option.choiceId}`} style={{ marginLeft: `${(option.level ?? 0) * 12}px` }} className="text-xs sm:text-sm">
+                          - {option.groupName}：{option.choiceName}{option.priceDelta ? ` +${option.priceDelta}` : ""}
+                        </p>
+                      ))}
                     </div>
                   )}
                 </div>
-                <button onClick={() => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="grid size-10 place-items-center rounded-lg bg-orange-50"><Minus className="size-5 text-tomato" /></button>
+                <button onClick={() => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="grid size-8 shrink-0 place-items-center rounded-lg bg-orange-50 sm:size-10">
+                  <Minus className="size-4 text-tomato sm:size-5" />
+                </button>
               </div>
-              <div className="mt-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <button onClick={() => updateLine(index, { quantity: Math.max(1, line.quantity - 1) })} className="grid size-12 place-items-center rounded-lg bg-orange-50"><Minus className="size-6" /></button>
-                  <span className="w-10 text-center text-2xl font-black">{line.quantity}</span>
-                  <button onClick={() => updateLine(index, { quantity: line.quantity + 1 })} className="grid size-12 place-items-center rounded-lg bg-orange-50"><Plus className="size-6" /></button>
+              <div className="mt-2 flex items-center justify-between sm:mt-3">
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <button onClick={() => updateLine(index, { quantity: Math.max(1, line.quantity - 1) })} className="grid size-8 place-items-center rounded-lg bg-orange-50 sm:size-10">
+                    <Minus className="size-4 sm:size-5" />
+                  </button>
+                  <span className="w-8 text-center text-lg font-black sm:w-10 sm:text-2xl">{line.quantity}</span>
+                  <button onClick={() => updateLine(index, { quantity: line.quantity + 1 })} className="grid size-8 place-items-center rounded-lg bg-orange-50 sm:size-10">
+                    <Plus className="size-4 sm:size-5" />
+                  </button>
                 </div>
-                <p className="text-xl font-black text-ink">${lineUnitPrice(line) * line.quantity}</p>
+                <p className="text-lg font-black text-ink sm:text-xl">${lineUnitPrice(line) * line.quantity}</p>
               </div>
-              <input value={line.note} onChange={(event) => updateLine(index, { note: event.target.value })} placeholder="品項備註" className="mt-3 w-full rounded-lg border border-orange-100 px-3 py-3" />
+              <input value={line.note} onChange={(event) => updateLine(index, { note: event.target.value })} placeholder="品項備註" className="mt-2 w-full rounded-lg border border-orange-100 px-2 py-2 text-xs sm:mt-3 sm:px-3 sm:py-3 sm:text-base" />
             </div>
           ))}
         </div>
       )}
-      <textarea value={customerNote} onChange={(event) => setCustomerNote(event.target.value)} placeholder="訂單備註" className="mt-4 min-h-20 w-full rounded-lg border border-orange-100 px-3 py-4 text-lg" />
-      <div className="mt-4 flex items-center justify-between text-2xl font-black"><span>總計</span><span>${total}</span></div>
-      <button onClick={submitOrder} disabled={!canSubmit} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-tomato px-4 py-5 text-xl font-black text-white disabled:bg-stone-300">
-        <Send className="size-6" />送出訂單
+      <textarea value={customerNote} onChange={(event) => setCustomerNote(event.target.value)} placeholder="訂單備註（非必填）" className="mt-3 min-h-16 w-full rounded-lg border border-orange-100 px-3 py-2 text-sm sm:mt-4 sm:min-h-20 sm:px-3 sm:py-3 sm:text-lg" />
+      <div className="mt-3 flex items-center justify-between text-lg font-black sm:mt-4 sm:text-2xl"><span>總計</span><span>${total}</span></div>
+      <button onClick={submitOrder} disabled={!canSubmit} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-tomato px-3 py-4 text-sm font-black text-white disabled:bg-stone-300 sm:mt-4 sm:px-4 sm:py-5 sm:text-lg">
+        <Send className="size-5 sm:size-6" />送出訂單
       </button>
     </div>
   );
