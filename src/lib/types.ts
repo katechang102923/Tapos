@@ -31,6 +31,7 @@ export type User = {
   storeId: string | null;
   storeIds?: string[];
   memberships?: Record<string, StoreMemberRole>;
+  storeRoles?: Record<string, StoreMemberRole>;
   pending?: boolean;
   approved?: boolean;
   status?: "pending" | "active" | "rejected";

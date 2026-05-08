@@ -386,7 +386,7 @@ function StoreBindings({
               <p className="font-mono text-xs text-steel">{user.pending ? "pending invite" : user.id}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <select value={user.memberships?.[storeId] ?? "staff"} onChange={(event) => onRoleUpdate(user, event.target.value as StoreMemberRole)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-bold">
+              <select value={user.storeRoles?.[storeId] ?? user.memberships?.[storeId] ?? "staff"} onChange={(event) => onRoleUpdate(user, event.target.value as StoreMemberRole)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-bold">
                 {storeMemberRoles.map((item) => <option key={item} value={item}>{roleLabel(item)}</option>)}
               </select>
               <button onClick={() => onRemove(user.id)} className="rounded-lg bg-tomato px-3 py-2 text-sm font-black text-white">移除綁定</button>

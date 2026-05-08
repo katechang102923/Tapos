@@ -24,6 +24,13 @@ function normalizeMemberships(value: unknown): Record<string, StoreMemberRole> {
   );
 }
 
+function platformRoleFromStoreRoles(rolesByStore: Record<string, StoreMemberRole>): UserRole {
+  const roles = Object.values(rolesByStore);
+  if (roles.includes("owner") || roles.includes("manager")) return "merchant";
+  if (roles.includes("staff")) return "kitchen";
+  return "user";
+}
+
 function profileFromSnapshot(snapshot: DocumentSnapshot): User | null {
   if (!snapshot.exists()) return null;
 
@@ -36,6 +43,7 @@ function profileFromSnapshot(snapshot: DocumentSnapshot): User | null {
     storeId: typeof data.storeId === "string" ? data.storeId : null,
     storeIds: Array.isArray(data.storeIds) ? data.storeIds.filter((item): item is string => typeof item === "string") : [],
     memberships: normalizeMemberships(data.memberships),
+    storeRoles: normalizeMemberships(data.storeRoles),
     pending: Boolean(data.pending),
     approved: Boolean(data.approved),
     status: data.status === "active" || data.status === "rejected" || data.status === "pending" ? data.status : "pending",
@@ -61,6 +69,7 @@ function adminProfile(uid: string, email = platformAdminEmail, createdAt?: strin
     storeId: null,
     storeIds: [],
     memberships: {},
+    storeRoles: {},
     status: "active",
     approved: true,
     pending: false,
@@ -194,7 +203,9 @@ export function useAuthState(): AuthState {
     const pendingSnapshot = await getDocs(query(collection(firestore, "users"), where("email", "==", email), where("pending", "==", true)));
     const pendingData = pendingSnapshot.docs[0]?.data();
     const memberships = normalizeMemberships(pendingData?.memberships);
-    const storeIds = Array.isArray(pendingData?.storeIds) ? pendingData.storeIds.filter((item): item is string => typeof item === "string") : Object.keys(memberships);
+    const storeRoles = normalizeMemberships(pendingData?.storeRoles);
+    const mergedStoreRoles = { ...memberships, ...storeRoles };
+    const storeIds = Array.isArray(pendingData?.storeIds) ? pendingData.storeIds.filter((item): item is string => typeof item === "string") : Object.keys(mergedStoreRoles);
     const defaultStoreId = typeof pendingData?.storeId === "string" ? pendingData.storeId : storeIds[0] ?? null;
     const pendingRole = typeof pendingData?.role === "string" && supportedRoles.includes(pendingData.role as UserRole) ? pendingData.role as UserRole : "user";
     const now = new Date().toISOString();
@@ -203,10 +214,11 @@ export function useAuthState(): AuthState {
       id: credential.user.uid,
       storeId: isFixedAdmin ? null : defaultStoreId,
       storeIds: isFixedAdmin ? [] : storeIds,
-      memberships: isFixedAdmin ? {} : memberships,
+      memberships: isFixedAdmin ? {} : mergedStoreRoles,
+      storeRoles: isFixedAdmin ? {} : mergedStoreRoles,
       name,
       email,
-      role: isFixedAdmin ? "admin" : pendingRole,
+      role: isFixedAdmin ? "admin" : (Object.keys(mergedStoreRoles).length ? platformRoleFromStoreRoles(mergedStoreRoles) : pendingRole),
       pending: false,
       approved: isFixedAdmin,
       status: isFixedAdmin ? "active" : "pending",

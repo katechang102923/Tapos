@@ -28,7 +28,7 @@ const orderTabs: Array<{ key: "open" | "pending" | "cooking" | "completed" | "ca
 
 export default function MerchantPosPage() {
   return (
-    <LoginGate allowedRoles={["merchant", "admin"]} title="POS 前台登入">
+    <LoginGate allowedRoles={["merchant", "kitchen", "admin"]} title="POS 前台登入">
       {({ profile }) => <MerchantPosContent storeId={profile?.storeId ?? ""} />}
     </LoginGate>
   );

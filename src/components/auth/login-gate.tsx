@@ -78,6 +78,22 @@ export function LoginGate({
 
   const fixedAdminEmail = authState.firebaseUser?.email?.toLowerCase() === "ciut0000@gmail.com";
 
+  if (allowedRoles.length === 1 && allowedRoles[0] === "admin" && !fixedAdminEmail) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4">
+        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-soft">
+          <p className="text-sm font-black text-tomato">權限不足</p>
+          <h1 className="mt-2 text-2xl font-black text-ink">只有平台管理員可以進入</h1>
+          <p className="mt-3 leading-7 text-steel">平台管理中心僅限 ciut0000@gmail.com 使用。</p>
+          <button onClick={authState.signOutUser} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white">
+            <LogOut className="size-4" />
+            登出
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   if (authState.profile && !fixedAdminEmail && authState.profile.role !== "admin" && (authState.profile.status !== "active" || !authState.profile.approved)) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4">

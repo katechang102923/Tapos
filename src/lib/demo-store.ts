@@ -60,10 +60,8 @@ function pendingUserId(email: string) {
 
 function platformRoleFromMemberships(memberships: Record<string, StoreMemberRole>) {
   const roles = Object.values(memberships);
-  if (roles.includes("owner")) return "owner";
-  if (roles.includes("manager")) return "manager";
-  if (roles.includes("staff")) return "staff";
-  if (roles.includes("viewer")) return "viewer";
+  if (roles.includes("owner") || roles.includes("manager")) return "merchant";
+  if (roles.includes("staff")) return "kitchen";
   return "user";
 }
 
@@ -341,6 +339,7 @@ export function useDemoStore(options: StoreOptions = {}) {
 
     function nextUser(user: User): User {
       const memberships = { ...(user.memberships ?? {}), [targetStoreId]: memberRole };
+      const storeRoles = { ...(user.storeRoles ?? {}), [targetStoreId]: memberRole };
       const storeIds = Array.from(new Set([...(user.storeIds ?? []), targetStoreId]));
       return {
         ...user,
@@ -348,7 +347,8 @@ export function useDemoStore(options: StoreOptions = {}) {
         storeId: user.storeId ?? targetStoreId,
         storeIds,
         memberships,
-        role: user.role === "admin" ? "admin" : platformRoleFromMemberships(memberships),
+        storeRoles,
+        role: normalizedEmail === "ciut0000@gmail.com" && user.role === "admin" ? "admin" : platformRoleFromMemberships(memberships),
         pending: false,
         approved: true,
         status: "active",
@@ -372,7 +372,18 @@ export function useDemoStore(options: StoreOptions = {}) {
             storeId: targetStoreId,
             storeIds: [targetStoreId],
             memberships: { [targetStoreId]: memberRole },
+            storeRoles: { [targetStoreId]: memberRole },
             role: memberRole,
+            status: "pending",
+            createdAt: now,
+            updatedAt: now
+          }, { merge: true });
+          await setDoc(doc(firestore, "storeUserBindings", `${targetStoreId}_${id}`), {
+            id: `${targetStoreId}_${id}`,
+            email: normalizedEmail,
+            userId: null,
+            storeId: targetStoreId,
+            storeRole: memberRole,
             status: "pending",
             createdAt: now,
             updatedAt: now
@@ -385,6 +396,7 @@ export function useDemoStore(options: StoreOptions = {}) {
             storeId: targetStoreId,
             storeIds: [targetStoreId],
             memberships: { [targetStoreId]: memberRole },
+            storeRoles: { [targetStoreId]: memberRole },
             pending: true,
             approved: false,
             status: "pending",
@@ -392,6 +404,17 @@ export function useDemoStore(options: StoreOptions = {}) {
             updatedAt: now
           }, { merge: true });
         }
+        const bindingUserId = targetDoc?.id ?? pendingUserId(normalizedEmail);
+        await setDoc(doc(firestore, "storeUserBindings", `${targetStoreId}_${bindingUserId}`), {
+          id: `${targetStoreId}_${bindingUserId}`,
+          email: normalizedEmail,
+          userId: targetDoc?.id ?? null,
+          storeId: targetStoreId,
+          storeRole: memberRole,
+          status: targetDoc ? "active" : "pending",
+          updatedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        }, { merge: true });
       } catch (writeError) {
         console.error("bindUserToStore failed", writeError);
         setError(writeError instanceof Error ? writeError.message : "bindUserToStore failed");
@@ -417,6 +440,7 @@ export function useDemoStore(options: StoreOptions = {}) {
           storeId: targetStoreId,
           storeIds: [targetStoreId],
           memberships: { [targetStoreId]: memberRole },
+          storeRoles: { [targetStoreId]: memberRole },
           pending: true,
           approved: false,
           status: "pending",
@@ -430,14 +454,17 @@ export function useDemoStore(options: StoreOptions = {}) {
   async function unbindStoreUser(userId: string, targetStoreId: string) {
     function nextUser(user: User): User {
       const memberships = { ...(user.memberships ?? {}) };
+      const storeRoles = { ...(user.storeRoles ?? {}) };
       delete memberships[targetStoreId];
+      delete storeRoles[targetStoreId];
       const storeIds = (user.storeIds ?? []).filter((id) => id !== targetStoreId);
       return {
         ...user,
         storeId: user.storeId === targetStoreId ? storeIds[0] ?? null : user.storeId,
         storeIds,
         memberships,
-        role: user.role === "admin" ? "admin" : platformRoleFromMemberships(memberships),
+        storeRoles,
+        role: user.email.toLowerCase() === "ciut0000@gmail.com" && user.role === "admin" ? "admin" : platformRoleFromMemberships(memberships),
         updatedAt: new Date().toISOString()
       };
     }
@@ -520,12 +547,15 @@ export function useDemoStore(options: StoreOptions = {}) {
         });
         linkedUsers.forEach(({ ref, user }) => {
           const memberships = { ...(user.memberships ?? {}) };
+          const storeRoles = { ...(user.storeRoles ?? {}) };
           delete memberships[targetStoreId];
+          delete storeRoles[targetStoreId];
           const storeIds = (user.storeIds ?? []).filter((id) => id !== targetStoreId);
           batch.update(ref, {
             storeId: user.storeId === targetStoreId ? storeIds[0] ?? null : user.storeId ?? null,
             storeIds,
             memberships,
+            storeRoles,
             updatedAt: new Date().toISOString()
           });
         });
@@ -546,9 +576,11 @@ export function useDemoStore(options: StoreOptions = {}) {
       orders: current.orders.filter((order) => order.storeId !== targetStoreId),
       users: current.users.map((user) => {
         const memberships = { ...(user.memberships ?? {}) };
+        const storeRoles = { ...(user.storeRoles ?? {}) };
         delete memberships[targetStoreId];
+        delete storeRoles[targetStoreId];
         const storeIds = (user.storeIds ?? []).filter((id) => id !== targetStoreId);
-        return user.storeId === targetStoreId || user.storeIds?.includes(targetStoreId) ? { ...user, storeId: user.storeId === targetStoreId ? storeIds[0] ?? null : user.storeId, storeIds, memberships } : user;
+        return user.storeId === targetStoreId || user.storeIds?.includes(targetStoreId) ? { ...user, storeId: user.storeId === targetStoreId ? storeIds[0] ?? null : user.storeId, storeIds, memberships, storeRoles } : user;
       })
     }));
   }
