@@ -13,13 +13,13 @@ const entries = [
   {
     href: "/merchant/pos",
     title: "POS 前台點餐",
-    description: "店員可在櫃台替客人建立訂單，支援內用桌號、外帶與備註。",
+    description: "接單、建立訂單、查看今日銷售與商品排行。",
     icon: ShoppingCart
   },
   {
-    href: "/merchant",
+    href: "/merchant/dashboard",
     title: "店家後台管理",
-    description: "管理商品上下架、訂單接單、QR Code、店家資料與營業狀態。",
+    description: "管理店家資料、菜單、商品選項、QR Code 與桌號設定。",
     icon: LayoutDashboard
   },
   {
@@ -59,7 +59,7 @@ export default function HomePage() {
               開始註冊店家
               <ArrowRight className="size-4" />
             </Link>
-            <Link href="/merchant" className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-3 font-black text-ink transition hover:border-leaf hover:text-leaf">
+            <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-3 font-black text-ink transition hover:border-leaf hover:text-leaf">
               進入店家後台
             </Link>
             <Link href="/merchant/pos" className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-3 font-black text-ink transition hover:border-leaf hover:text-leaf">

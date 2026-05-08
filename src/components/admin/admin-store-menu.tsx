@@ -29,6 +29,15 @@ export function AdminStoreMenu({ storeId }: { storeId: string }) {
   );
 }
 
+function Field({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
+  return (
+    <label className="grid gap-1 text-sm font-black text-steel">
+      {label}
+      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="rounded-lg border border-stone-300 px-4 py-3 font-bold text-ink" />
+    </label>
+  );
+}
+
 function AdminStoreMenuContent({ storeId }: { storeId: string }) {
   const { db, deleteProduct, upsertProduct } = useDemoStore({ admin: true });
   const store = db.stores.find((item) => item.id === storeId);
@@ -84,15 +93,21 @@ function AdminStoreMenuContent({ storeId }: { storeId: string }) {
         <aside className="rounded-lg bg-white p-5 shadow-soft">
           <h2 className="text-2xl font-black text-ink">{editingProduct.id ? "編輯商品" : "新增商品"}</h2>
           <div className="mt-4 grid gap-3">
-            <input value={editingProduct.name} onChange={(event) => setEditingProduct({ ...editingProduct, name: event.target.value })} placeholder="商品名稱" className="rounded-lg border border-stone-300 px-4 py-3 font-bold" />
-            <textarea value={editingProduct.description} onChange={(event) => setEditingProduct({ ...editingProduct, description: event.target.value })} placeholder="商品描述" className="min-h-24 rounded-lg border border-stone-300 px-4 py-3" />
-            <input type="number" value={editingProduct.originalPrice ?? editingProduct.price} onChange={(event) => setEditingProduct({ ...editingProduct, originalPrice: Number(event.target.value) })} placeholder="原價" className="rounded-lg border border-stone-300 px-4 py-3 font-bold" />
-            <input type="number" value={editingProduct.price} onChange={(event) => setEditingProduct({ ...editingProduct, price: Number(event.target.value) })} placeholder="售價" className="rounded-lg border border-stone-300 px-4 py-3 font-bold" />
-            <select value={editingProduct.categoryId} onChange={(event) => setEditingProduct({ ...editingProduct, categoryId: event.target.value })} className="rounded-lg border border-stone-300 px-4 py-3 font-bold">
-              <option value="">選擇分類</option>
-              {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-            </select>
-            <input value={editingProduct.imageUrl} onChange={(event) => setEditingProduct({ ...editingProduct, imageUrl: event.target.value })} placeholder="圖片網址" className="rounded-lg border border-stone-300 px-4 py-3" />
+            <Field label="商品名稱" value={editingProduct.name} onChange={(value) => setEditingProduct({ ...editingProduct, name: value })} />
+            <label className="grid gap-1 text-sm font-black text-steel">
+              商品描述
+              <textarea value={editingProduct.description} onChange={(event) => setEditingProduct({ ...editingProduct, description: event.target.value })} placeholder="商品描述" className="min-h-24 rounded-lg border border-stone-300 px-4 py-3 font-normal text-ink" />
+            </label>
+            <Field label="原價" type="number" value={String(editingProduct.originalPrice ?? editingProduct.price)} onChange={(value) => setEditingProduct({ ...editingProduct, originalPrice: Number(value) })} />
+            <Field label="售價" type="number" value={String(editingProduct.price)} onChange={(value) => setEditingProduct({ ...editingProduct, price: Number(value) })} />
+            <label className="grid gap-1 text-sm font-black text-steel">
+              商品分類
+              <select value={editingProduct.categoryId} onChange={(event) => setEditingProduct({ ...editingProduct, categoryId: event.target.value })} className="rounded-lg border border-stone-300 px-4 py-3 font-bold text-ink">
+                <option value="">選擇分類</option>
+                {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+              </select>
+            </label>
+            <Field label="商品圖片網址" value={editingProduct.imageUrl} onChange={(value) => setEditingProduct({ ...editingProduct, imageUrl: value })} />
             <label className="flex items-center gap-3 rounded-lg bg-stone-100 px-4 py-3 font-black text-steel">
               <input type="checkbox" checked={editingProduct.isAvailable} onChange={(event) => setEditingProduct({ ...editingProduct, isAvailable: event.target.checked, isSoldOut: false })} />
               商品上架

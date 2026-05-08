@@ -6,6 +6,7 @@ import { CheckCircle2, ChefHat, Clock3, Coffee, Flame, Maximize2, Minimize2, Mon
 import { LoginGate } from "@/components/auth/login-gate";
 import { StatusPill } from "@/components/status-pill";
 import { useDemoStore } from "@/lib/demo-store";
+import { normalizeSelectedOptions } from "@/lib/product-options";
 import type { Order, OrderItem, OrderStatus } from "@/lib/types";
 
 type Station = "all" | "hot" | "drink";
@@ -172,16 +173,22 @@ function KitchenBoardContent({ storeId }: { storeId: string }) {
                     {overdue && <span className="ml-auto rounded-full bg-amber-500 px-3 py-1 text-sm text-white">超過 15 分</span>}
                   </div>
                   <div className="mt-5 space-y-4">
-                    {items.map((item: OrderItem) => (
+                    {items.map((item: OrderItem) => {
+                      const selectedOptions = normalizeSelectedOptions(item.selectedOptions);
+                      return (
                       <div key={item.id} className="rounded-lg bg-white p-4 shadow-sm">
                         <div className="flex items-start justify-between gap-4">
                           <p className={`${largeMode ? "text-4xl" : "text-xl"} font-black`}>{item.productName}</p>
                           <p className={`${largeMode ? "text-6xl" : "text-3xl"} font-black text-tomato`}>x{item.quantity}</p>
                         </div>
-                        <p className="mt-2 text-base font-bold text-steel">{Object.entries(item.selectedOptions).map(([key, value]) => `${key}: ${value}`).join(" / ")}</p>
+                        {selectedOptions.length > 0 && (
+                          <div className="mt-2 space-y-1 text-base font-bold text-steel">
+                            {selectedOptions.map((option) => <p key={`${option.groupId}-${option.choiceId}`} style={{ marginLeft: `${(option.level ?? 0) * 18}px` }}>{option.groupName}：{option.choiceName}{option.priceDelta ? ` +${option.priceDelta}` : ""}</p>)}
+                          </div>
+                        )}
                         {item.note && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-base font-black text-amber-800">備註：{item.note}</p>}
                       </div>
-                    ))}
+                    );})}
                   </div>
                   {order.customerNote && <p className="mt-4 rounded-lg bg-amber-50 p-3 text-lg font-black text-amber-800">整單備註：{order.customerNote}</p>}
                   <div className="mt-5 grid grid-cols-2 gap-3">

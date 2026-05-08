@@ -4,14 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { doc, onSnapshot } from "firebase/firestore";
 import { CheckCircle2, ChevronLeft, Minus, Plus, Search, Send, ShoppingCart } from "lucide-react";
+import { ProductOptionModal } from "@/components/product-option-modal";
 import { useDemoStore } from "@/lib/demo-store";
 import { firebaseEnabled, firestore } from "@/lib/firebase";
-import type { Order, OrderItem, OrderMode, OrderStatus, Product } from "@/lib/types";
+import { selectionsTotal } from "@/lib/product-options";
+import type { Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product } from "@/lib/types";
 
 type CartLine = {
   product: Product;
   quantity: number;
-  options: Record<string, string>;
+  selectedOptions: OrderItemOption[];
   note: string;
 };
 
@@ -22,16 +24,8 @@ const statusSteps: Array<{ status: OrderStatus; label: string }> = [
   { status: "ready", label: "可取餐" }
 ];
 
-function optionDefaults(product: Product) {
-  return Object.fromEntries(product.options.map((option) => [option.name, option.values[0] ?? ""]));
-}
-
-function optionPrice(value: string) {
-  return Number(value.match(/\+(\d+)/)?.[1] ?? 0);
-}
-
 function lineUnitPrice(line: CartLine) {
-  return line.product.price + Object.values(line.options).reduce((sum, value) => sum + optionPrice(value), 0);
+  return line.product.price + selectionsTotal(line.selectedOptions);
 }
 
 function statusRank(status: OrderStatus) {
@@ -66,6 +60,7 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
   const [activeCategory, setActiveCategory] = useState("all");
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [choosingProduct, setChoosingProduct] = useState<Product | null>(null);
   const [customerNote, setCustomerNote] = useState("");
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
   const [trackedOrder, setTrackedOrder] = useState<Order | null>(null);
@@ -91,7 +86,13 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
 
   function addToCart(product: Product) {
     if (!store?.isOpen || product.isSoldOut || !product.isAvailable) return;
-    setCart((current) => [...current, { product, quantity: 1, options: optionDefaults(product), note: "" }]);
+    setChoosingProduct(product);
+  }
+
+  function confirmProductOptions(selectedOptions: OrderItemOption[]) {
+    if (!choosingProduct) return;
+    setCart((current) => [...current, { product: choosingProduct, quantity: 1, selectedOptions, note: "" }]);
+    setChoosingProduct(null);
   }
 
   function updateLine(index: number, patch: Partial<CartLine>) {
@@ -116,7 +117,7 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
         productName: line.product.name,
         quantity: line.quantity,
         unitPrice: lineUnitPrice(line),
-        selectedOptions: line.options,
+        selectedOptions: line.selectedOptions,
         note: line.note
       }))
     });
@@ -247,6 +248,7 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
           </div>
         </details>
       </div>
+      {choosingProduct && <ProductOptionModal product={choosingProduct} onClose={() => setChoosingProduct(null)} onConfirm={confirmProductOptions} />}
     </main>
   );
 }
@@ -283,6 +285,11 @@ function CartPanel({
                 <div>
                   <p className="text-lg font-black text-ink">{line.product.name}</p>
                   <p className="text-sm font-semibold text-tomato">${lineUnitPrice(line)}</p>
+                  {line.selectedOptions.length > 0 && (
+                    <div className="mt-2 space-y-1 text-xs font-bold text-steel">
+                      {line.selectedOptions.map((option) => <p key={`${option.groupId}-${option.choiceId}`} style={{ marginLeft: `${(option.level ?? 0) * 14}px` }}>- {option.groupName}：{option.choiceName}{option.priceDelta ? ` +${option.priceDelta}` : ""}</p>)}
+                    </div>
+                  )}
                 </div>
                 <button onClick={() => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="grid size-10 place-items-center rounded-lg bg-orange-50"><Minus className="size-5 text-tomato" /></button>
               </div>

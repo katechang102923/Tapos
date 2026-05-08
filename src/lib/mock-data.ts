@@ -52,6 +52,96 @@ export const initialData: DemoDatabase = {
       isAvailable: true,
       isSoldOut: false,
       sort: 1,
+      optionGroups: [
+        {
+          id: "g-seasoning",
+          name: "調味",
+          required: true,
+          minSelect: 1,
+          maxSelect: 1,
+          options: [
+            { id: "season-normal", name: "正常", priceDelta: 0, isAvailable: true },
+            { id: "season-less-sauce", name: "少醬", priceDelta: 0, isAvailable: true },
+            { id: "season-no-onion", name: "不加洋蔥", priceDelta: 0, isAvailable: true },
+            { id: "season-spicy", name: "加辣", priceDelta: 0, isAvailable: true }
+          ]
+        },
+        {
+          id: "g-upgrade",
+          name: "加購 / 升級套餐",
+          required: false,
+          minSelect: 0,
+          maxSelect: 1,
+          options: [
+            { id: "upgrade-none", name: "不升級", priceDelta: 0, isAvailable: true },
+            {
+              id: "upgrade-a",
+              name: "升級 A 套餐",
+              priceDelta: 60,
+              isAvailable: true,
+              children: [
+                {
+                  id: "g-a-drink",
+                  name: "A 套餐飲料",
+                  required: true,
+                  minSelect: 1,
+                  maxSelect: 1,
+                  options: [
+                    { id: "a-black-tea", name: "紅茶", priceDelta: 0, isAvailable: true },
+                    { id: "a-milk-tea", name: "奶茶", priceDelta: 10, isAvailable: true },
+                    { id: "a-fresh-milk-tea", name: "鮮奶茶", priceDelta: 20, isAvailable: true }
+                  ]
+                }
+              ]
+            },
+            {
+              id: "upgrade-b",
+              name: "升級 B 套餐",
+              priceDelta: 80,
+              isAvailable: true,
+              children: [
+                {
+                  id: "g-b-drink",
+                  name: "B 套餐飲料",
+                  required: true,
+                  minSelect: 1,
+                  maxSelect: 1,
+                  options: [
+                    { id: "b-black-tea", name: "紅茶", priceDelta: 0, isAvailable: true },
+                    { id: "b-milk-tea", name: "奶茶", priceDelta: 10, isAvailable: true },
+                    { id: "b-fresh-milk-tea", name: "鮮奶茶", priceDelta: 20, isAvailable: true }
+                  ]
+                },
+                {
+                  id: "g-b-side",
+                  name: "B 套餐點心",
+                  required: true,
+                  minSelect: 1,
+                  maxSelect: 1,
+                  options: [
+                    { id: "b-nugget", name: "雞塊", priceDelta: 0, isAvailable: true },
+                    { id: "b-fries", name: "薯條", priceDelta: 0, isAvailable: true }
+                  ]
+                }
+              ]
+            },
+            { id: "addon-cheese", name: "加購起司", priceDelta: 10, isAvailable: true },
+            { id: "addon-egg", name: "加購蛋", priceDelta: 15, isAvailable: true }
+          ]
+        },
+        {
+          id: "g-extra",
+          name: "加料 / 備註",
+          required: false,
+          minSelect: 0,
+          maxSelect: 3,
+          options: [
+            { id: "extra-cheese", name: "加起司", priceDelta: 10, isAvailable: true },
+            { id: "extra-egg", name: "加蛋", priceDelta: 15, isAvailable: true },
+            { id: "extra-no-lettuce", name: "不加生菜", priceDelta: 0, isAvailable: true }
+          ]
+        }
+      ],
       options: [
         { name: "加料", values: ["不加", "加起司 +10", "加蛋 +15"] },
         { name: "醬料", values: ["正常", "少醬", "不加醬"] }
@@ -173,7 +263,8 @@ export const initialData: DemoDatabase = {
       customerNote: "紅茶少冰",
       status: "pending",
       source: "qr",
-      total: 145,
+      total: 240,
+      totalAmount: 240,
       createdAt: new Date(now.getTime() - 1000 * 60 * 6).toISOString(),
       updatedAt: new Date(now.getTime() - 1000 * 60 * 6).toISOString(),
       items: [
@@ -184,8 +275,13 @@ export const initialData: DemoDatabase = {
           productId: "p-burger-01",
           productName: "招牌豬肉蛋堡",
           quantity: 1,
-          unitPrice: 65,
-          selectedOptions: { 加料: "不加", 醬料: "正常" },
+          unitPrice: 160,
+          selectedOptions: [
+            { groupId: "g-seasoning", groupName: "調味", choiceId: "season-less-sauce", choiceName: "少醬", priceDelta: 0, level: 0 },
+            { groupId: "g-upgrade", groupName: "加購 / 升級套餐", choiceId: "upgrade-a", choiceName: "升級 A 套餐", priceDelta: 60, level: 0 },
+            { groupId: "g-a-drink", groupName: "A 套餐飲料", choiceId: "a-fresh-milk-tea", choiceName: "鮮奶茶", priceDelta: 20, level: 1 },
+            { groupId: "g-extra", groupName: "加料 / 備註", choiceId: "extra-egg", choiceName: "加蛋", priceDelta: 15, level: 0 }
+          ],
           note: ""
         },
         {
@@ -196,7 +292,11 @@ export const initialData: DemoDatabase = {
           productName: "招牌奶茶",
           quantity: 1,
           unitPrice: 35,
-          selectedOptions: { 容量: "中杯", 甜度: "半糖", 冰量: "少冰" },
+          selectedOptions: [
+            { groupId: "legacy-0", groupName: "容量", choiceId: "legacy-0-0", choiceName: "中杯", priceDelta: 0 },
+            { groupId: "legacy-1", groupName: "甜度", choiceId: "legacy-1-1", choiceName: "半糖", priceDelta: 0 },
+            { groupId: "legacy-2", groupName: "冰量", choiceId: "legacy-2-1", choiceName: "少冰", priceDelta: 0 }
+          ],
           note: ""
         },
         {
@@ -207,7 +307,9 @@ export const initialData: DemoDatabase = {
           productName: "黃金脆薯",
           quantity: 1,
           unitPrice: 45,
-          selectedOptions: { 調味: "胡椒" },
+          selectedOptions: [
+            { groupId: "legacy-0", groupName: "調味", choiceId: "legacy-0-1", choiceName: "胡椒", priceDelta: 0 }
+          ],
           note: "番茄醬多一包"
         }
       ]

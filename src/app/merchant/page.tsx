@@ -1,5 +1,5 @@
-import { MerchantDashboard } from "@/components/merchant/merchant-dashboard";
+import { redirect } from "next/navigation";
 
 export default function MerchantPage() {
-  return <MerchantDashboard />;
+  redirect("/merchant/dashboard");
 }

@@ -16,6 +16,7 @@ import {
 } from "firebase/firestore";
 import { initialData } from "./mock-data";
 import { firebaseEnabled, firestore } from "./firebase";
+import { legacySelections } from "./product-options";
 import type { Category, DemoDatabase, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, User } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
@@ -57,7 +58,7 @@ function orderDayKey(value = new Date()) {
 }
 
 function optionDefaults(product: Product) {
-  return Object.fromEntries(product.options.map((option) => [option.name, option.values[0] ?? ""]));
+  return legacySelections(product);
 }
 
 function scopedQuery(collectionName: string, storeId?: string, admin?: boolean, customerSessionId?: string) {

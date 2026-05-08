@@ -43,6 +43,34 @@ export type ProductOption = {
   required?: boolean;
 };
 
+export type ProductOptionChoice = {
+  id: string;
+  name: string;
+  optionName?: string;
+  priceDelta: number;
+  isAvailable: boolean;
+  children?: ProductOptionGroup[];
+  nextGroupIds?: string[];
+};
+
+export type ProductOptionGroup = {
+  id: string;
+  name: string;
+  groupName?: string;
+  required: boolean;
+  minSelect: number;
+  maxSelect: number;
+  options: ProductOptionChoice[];
+};
+
+export type ProductOptionRecord = {
+  id: string;
+  storeId: string;
+  productId: string;
+  optionGroups: ProductOptionGroup[];
+  updatedAt: string;
+};
+
 export type Product = {
   id: string;
   storeId: string;
@@ -56,6 +84,16 @@ export type Product = {
   isSoldOut: boolean;
   sort: number;
   options: ProductOption[];
+  optionGroups?: ProductOptionGroup[];
+};
+
+export type OrderItemOption = {
+  groupId: string;
+  groupName: string;
+  choiceId: string;
+  choiceName: string;
+  priceDelta: number;
+  level?: number;
 };
 
 export type OrderItem = {
@@ -66,8 +104,33 @@ export type OrderItem = {
   productName: string;
   quantity: number;
   unitPrice: number;
-  selectedOptions: Record<string, string>;
+  selectedOptions: OrderItemOption[];
   note: string;
+};
+
+export type Table = {
+  id: string;
+  storeId: string;
+  tableNo: string;
+  name: string;
+  qrUrl: string;
+  isActive: boolean;
+  sort: number;
+};
+
+export type DailySalesSummary = {
+  id: string;
+  storeId: string;
+  date: string;
+  totalRevenue: number;
+  orderCount: number;
+  averageOrderValue: number;
+  topProducts: Array<{
+    productId: string;
+    productName: string;
+    quantity: number;
+    totalAmount: number;
+  }>;
 };
 
 export type OrderItemPayload = Omit<OrderItem, "id" | "orderId"> & {
@@ -107,4 +170,6 @@ export type DemoDatabase = {
   categories: Category[];
   products: Product[];
   orders: Order[];
+  tables?: Table[];
+  dailySalesSummaries?: DailySalesSummary[];
 };
