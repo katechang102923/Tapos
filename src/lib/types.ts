@@ -71,6 +71,38 @@ export type ProductOptionRecord = {
   updatedAt: string;
 };
 
+export type OptionItem = {
+  id: string;
+  storeId: string;
+  optionGroupId: string;
+  name: string;
+  priceDelta: number;
+  isAvailable: boolean;
+  sort: number;
+};
+
+export type BundleGroup = {
+  id: string;
+  storeId: string;
+  productId: string;
+  name: string;
+  required: boolean;
+  minSelect: number;
+  maxSelect: number;
+  sort: number;
+};
+
+export type BundleItem = {
+  id: string;
+  storeId: string;
+  bundleGroupId: string;
+  name: string;
+  priceDelta: number;
+  allowanceAmount?: number;
+  isAvailable: boolean;
+  sort: number;
+};
+
 export type Product = {
   id: string;
   storeId: string;
@@ -170,6 +202,10 @@ export type DemoDatabase = {
   categories: Category[];
   products: Product[];
   orders: Order[];
+  optionGroups?: ProductOptionGroup[];
+  optionItems?: OptionItem[];
+  bundleGroups?: BundleGroup[];
+  bundleItems?: BundleItem[];
   tables?: Table[];
   dailySalesSummaries?: DailySalesSummary[];
 };

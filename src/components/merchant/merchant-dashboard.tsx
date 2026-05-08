@@ -35,7 +35,7 @@ function isDrinkName(name: string) {
   return /飲|茶|奶|咖啡|豆漿|紅茶|綠茶/.test(name);
 }
 
-type MerchantView = "dashboard" | "menu" | "qrcode";
+type MerchantView = "dashboard" | "menu" | "options" | "qrcode" | "tables";
 
 export function MerchantDashboard({ view = "dashboard" }: { view?: MerchantView }) {
   return (
@@ -203,12 +203,13 @@ function MerchantDashboardContent({ storeId, role, view, onSignOut }: { storeId:
           </div>
         </div>
         <nav className="mt-6 grid gap-2">
-          <SidebarItem href="/merchant/dashboard" icon={LayoutDashboard} label="後台設定中心" active={view === "dashboard"} />
+          <SidebarItem href="/merchant/dashboard" icon={LayoutDashboard} label="後台概覽" active={view === "dashboard"} />
           <SidebarItem href="/merchant/menu" icon={MenuIcon} label="菜單管理" active={view === "menu"} />
-          <Link href="/merchant/pos" className="inline-flex items-center gap-3 rounded-lg bg-leaf px-4 py-3 font-black text-white"><ShoppingCart className="size-5" />前往 POS 前台</Link>
-          <Link href="/merchant/qrcode" className="inline-flex items-center gap-3 rounded-lg px-4 py-3 font-black text-white/70 hover:bg-white/10"><QrCode className="size-5" />QR Code 管理</Link>
-          <Link href="/kds" className="inline-flex items-center gap-3 rounded-lg bg-white/10 px-4 py-3 font-black text-white"><ChefHat className="size-5" />廚房 KDS</Link>
-          {canManageStore && <Link href="/merchant/settings" className="inline-flex items-center gap-3 rounded-lg px-4 py-3 font-black text-white/70 hover:bg-white/10"><Settings className="size-5" />店家設定</Link>}
+          <SidebarItem href="/merchant/options" icon={ShoppingCart} label="商品選項管理" active={view === "options"} />
+          <SidebarItem href="/merchant/qrcode" icon={QrCode} label="QR Code 管理" active={view === "qrcode"} />
+          <SidebarItem href="/merchant/tables" icon={Table2} label="桌號設定" active={view === "tables"} />
+          {canManageStore && <SidebarItem href="/merchant/settings" icon={Settings} label="店家設定" active={false} />}
+          <Link href="/merchant/pos" className="inline-flex items-center gap-3 rounded-lg bg-leaf px-4 py-3 font-black text-white"><ShoppingCart className="size-5" />前往 POS 工作台</Link>
         </nav>
       </aside>
 
@@ -425,7 +426,7 @@ function DashboardSettingsCenter({
           <p className="mt-2 text-sm font-bold leading-6 text-steel">資料結構以 `tables` 保存桌號、排序、啟用狀態與桌號 QR 連結。下方先提供 1 到 12 桌的點餐連結與下載入口。</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {tableNumbers.map((tableNo) => {
-              const tableUrl = `${orderUrl}?table=${encodeURIComponent(tableNo)}`;
+              const tableUrl = `${orderUrl}/${encodeURIComponent(tableNo)}`;
               const tableQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(tableUrl)}`;
               return (
                 <div key={tableNo} className="rounded-lg border border-orange-100 bg-[#fffaf0] p-4">

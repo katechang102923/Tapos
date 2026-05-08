@@ -61,7 +61,7 @@ export const initialData: DemoDatabase = {
           maxSelect: 1,
           options: [
             { id: "season-normal", name: "正常", priceDelta: 0, isAvailable: true },
-            { id: "season-less-sauce", name: "少醬", priceDelta: 0, isAvailable: true },
+            { id: "season-less-sauce", name: "不加醬", priceDelta: 0, isAvailable: true },
             { id: "season-no-onion", name: "不加洋蔥", priceDelta: 0, isAvailable: true },
             { id: "season-spicy", name: "加辣", priceDelta: 0, isAvailable: true }
           ]
@@ -125,8 +125,39 @@ export const initialData: DemoDatabase = {
                 }
               ]
             },
+            {
+              id: "upgrade-c",
+              name: "升級 C 套餐",
+              priceDelta: 95,
+              isAvailable: true,
+              children: [
+                {
+                  id: "g-c-drink",
+                  name: "C 套餐飲料",
+                  required: true,
+                  minSelect: 1,
+                  maxSelect: 1,
+                  options: [
+                    { id: "c-black-tea", name: "紅茶", priceDelta: 0, isAvailable: true },
+                    { id: "c-milk-tea", name: "奶茶", priceDelta: 10, isAvailable: true },
+                    { id: "c-fresh-milk-tea", name: "鮮奶茶", priceDelta: 20, isAvailable: true }
+                  ]
+                },
+                {
+                  id: "g-c-side",
+                  name: "C 套餐點心",
+                  required: true,
+                  minSelect: 1,
+                  maxSelect: 1,
+                  options: [
+                    { id: "c-fries", name: "薯條", priceDelta: 0, isAvailable: true }
+                  ]
+                }
+              ]
+            },
             { id: "addon-cheese", name: "加購起司", priceDelta: 10, isAvailable: true },
-            { id: "addon-egg", name: "加購蛋", priceDelta: 15, isAvailable: true }
+            { id: "addon-egg", name: "加購蛋", priceDelta: 15, isAvailable: true },
+            { id: "addon-meat", name: "加購肉排", priceDelta: 30, isAvailable: true }
           ]
         },
         {

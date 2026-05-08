@@ -44,7 +44,7 @@ function customerStatusMessage(status: OrderStatus, rejectReason?: string) {
   return "等待店家接單";
 }
 
-export function OrderPageClient({ storeId }: { storeId: string }) {
+export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId?: string }) {
   const [customerSessionId] = useState(() => {
     if (typeof window === "undefined") return "";
     const key = `qr-order-session-${storeId}`;
@@ -55,8 +55,8 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
     return next;
   });
   const { db, createOrder } = useDemoStore({ storeId, customerSessionId, skipOrderList: true });
-  const [mode, setMode] = useState<OrderMode>("takeout");
-  const [tableNo, setTableNo] = useState("1");
+  const [mode, setMode] = useState<OrderMode>(tableId ? "dine-in" : "takeout");
+  const [tableNo, setTableNo] = useState(tableId ?? "1");
   const [activeCategory, setActiveCategory] = useState("all");
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -104,7 +104,7 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
     const order = createOrder({
       storeId,
       mode,
-      tableNo: mode === "takeout" ? "外帶" : tableNo,
+      tableNo: mode === "takeout" ? "外帶" : tableId ?? tableNo,
       customerSessionId,
       customerNote,
       total,
@@ -141,7 +141,7 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
             <p className="truncate text-xl font-black text-ink">{store.name}</p>
             <p className={`text-base font-black ${store.isOpen ? "text-leaf" : "text-tomato"}`}>{store.isOpen ? "營業中" : "休息中"}</p>
           </div>
-          <div className="rounded-lg bg-tomato px-4 py-3 text-base font-black text-white">{mode === "takeout" ? "外帶" : `${tableNo} 桌`}</div>
+          <div className="rounded-lg bg-tomato px-4 py-3 text-base font-black text-white">{mode === "takeout" ? "外帶" : `${tableId ?? tableNo} 桌`}</div>
         </div>
       </header>
 
@@ -165,7 +165,7 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
                   </button>
                 ))}
               </div>
-              <input value={tableNo} onChange={(event) => setTableNo(event.target.value)} disabled={mode === "takeout"} placeholder="桌號" className="rounded-lg border border-orange-200 bg-white px-4 py-4 text-xl font-black disabled:bg-stone-100" />
+              <input value={tableId ?? tableNo} onChange={(event) => setTableNo(event.target.value)} disabled={mode === "takeout" || Boolean(tableId)} placeholder="桌號" className="rounded-lg border border-orange-200 bg-white px-4 py-4 text-xl font-black disabled:bg-stone-100" />
             </div>
           </div>
 
