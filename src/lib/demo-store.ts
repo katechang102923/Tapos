@@ -16,7 +16,7 @@ import {
 } from "firebase/firestore";
 import { initialData } from "./mock-data";
 import { firebaseEnabled, firestore } from "./firebase";
-import type { Category, DemoDatabase, Order, OrderStatus, Product, Store, User } from "./types";
+import type { Category, DemoDatabase, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, User } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -27,8 +27,6 @@ type StoreOptions = {
   customerSessionId?: string;
   skipOrderList?: boolean;
 };
-
-type OrderPayload = Omit<Order, "id" | "orderNumber" | "pickupNumber" | "createdAt" | "updatedAt"> & Partial<Pick<Order, "status" | "source">>;
 
 function loadLocalData(): DemoDatabase {
   if (typeof window === "undefined") return initialData;
@@ -185,7 +183,7 @@ export function useDemoStore(options: StoreOptions = {}) {
         ...item,
         id: item.id || newId("oi"),
         orderId: id
-      }))
+      })) as OrderItem[]
     };
 
     if (useFirestore && firestore) {

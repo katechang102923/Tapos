@@ -98,15 +98,30 @@ service cloud.firestore {
         );
     }
 
-    function validCustomerOrderCreate() {
+    function validOrderCreateCommon() {
       return request.resource.data.storeId is string
         && exists(storePath(request.resource.data.storeId))
-        && request.resource.data.status == "pending"
         && request.resource.data.items is list
         && request.resource.data.total is number
         && request.resource.data.totalAmount is number
         && request.resource.data.createdAt is string
-        && request.resource.data.updatedAt is string;
+        && request.resource.data.updatedAt is string
+        && request.resource.data.source in ["qr", "pos"];
+    }
+
+    function validQrOrderCreate() {
+      return validOrderCreateCommon()
+        && request.resource.data.source == "qr"
+        && request.resource.data.status == "pending"
+        && request.resource.data.customerSessionId is string;
+    }
+
+    function validPosOrderCreate() {
+      return validOrderCreateCommon()
+        && request.resource.data.source == "pos"
+        && request.resource.data.status in ["pending", "accepted"]
+        && signedIn()
+        && canHandleOrders(request.resource.data.storeId);
     }
 
     match /users/{userId} {
@@ -142,7 +157,7 @@ service cloud.firestore {
     match /orders/{orderId} {
       allow get: if isAdmin() || canHandleOrders(resource.data.storeId) || (resource.data.customerSessionId is string);
       allow list: if isAdmin() || canHandleOrders(resource.data.storeId);
-      allow create: if validCustomerOrderCreate();
+      allow create: if validQrOrderCreate() || validPosOrderCreate() || isAdmin();
       allow update: if isAdmin() || (canHandleOrders(resource.data.storeId) && validOrderStatusUpdate());
       allow delete: if isAdmin();
     }

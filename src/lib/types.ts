@@ -70,6 +70,11 @@ export type OrderItem = {
   note: string;
 };
 
+export type OrderItemPayload = Omit<OrderItem, "id" | "orderId"> & {
+  id?: string;
+  orderId?: string;
+};
+
 export type Order = {
   id: string;
   storeId: string;
@@ -88,6 +93,12 @@ export type Order = {
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];
+};
+
+export type OrderPayload = Omit<Order, "id" | "orderNumber" | "pickupNumber" | "createdAt" | "updatedAt" | "items" | "status" | "source"> & {
+  items: OrderItemPayload[];
+  status?: OrderStatus;
+  source?: "qr" | "pos";
 };
 
 export type DemoDatabase = {
