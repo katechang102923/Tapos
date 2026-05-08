@@ -40,6 +40,9 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [bindingEmail, setBindingEmail] = useState<Record<string, string>>({});
   const [bindingRole, setBindingRole] = useState<Record<string, StoreMemberRole>>({});
+  const [actionMessage, setActionMessage] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [savingAction, setSavingAction] = useState("");
 
   const menuStore = db.stores.find((store) => store.id === menuStoreId) ?? null;
   const menuCategories = db.categories.filter((category) => category.storeId === menuStoreId).sort((a, b) => a.sort - b.sort);
@@ -60,8 +63,19 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
   async function bindUser(storeId: string) {
     const email = bindingEmail[storeId]?.trim();
     if (!email) return;
-    await bindStoreUser(email, storeId, bindingRole[storeId] ?? "staff");
-    setBindingEmail((current) => ({ ...current, [storeId]: "" }));
+    setSavingAction(`bind-${storeId}`);
+    setActionError("");
+    setActionMessage("");
+    try {
+      await bindStoreUser(email, storeId, bindingRole[storeId] ?? "staff");
+      setBindingEmail((current) => ({ ...current, [storeId]: "" }));
+      setActionMessage(`已綁定 ${email}`);
+    } catch (error) {
+      console.error("bindUserToStore failed", error);
+      setActionError(error instanceof Error ? error.message : "bindUserToStore failed");
+    } finally {
+      setSavingAction("");
+    }
   }
 
   function toggleOpen(store: Store) {
@@ -111,10 +125,21 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
 
   async function confirmDeleteStore() {
     if (!deleteTarget || deleteConfirmName !== deleteTarget.name) return;
-    await deleteStoreCascade(deleteTarget.id);
-    if (menuStoreId === deleteTarget.id) setMenuStoreId("");
-    setDeleteTarget(null);
-    setDeleteConfirmName("");
+    setSavingAction(`delete-${deleteTarget.id}`);
+    setActionError("");
+    setActionMessage("");
+    try {
+      await deleteStoreCascade(deleteTarget.id);
+      if (menuStoreId === deleteTarget.id) setMenuStoreId("");
+      setActionMessage(`已刪除店家：${deleteTarget.name}`);
+      setDeleteTarget(null);
+      setDeleteConfirmName("");
+    } catch (error) {
+      console.error("deleteStore failed", error);
+      setActionError(error instanceof Error ? error.message : "deleteStore failed");
+    } finally {
+      setSavingAction("");
+    }
   }
 
   return (
@@ -152,6 +177,11 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
             管理員可建立與維護店家資料、協助調整菜單、管理使用者角色，並處理不再使用的店家資料。
           </p>
         </header>
+        {(actionMessage || actionError) && (
+          <div className={`mt-5 rounded-lg p-4 font-black ${actionError ? "bg-tomato/10 text-tomato" : "bg-leaf/10 text-leaf"}`}>
+            {actionError || actionMessage}
+          </div>
+        )}
 
         <section className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {db.stores.map((store) => (
@@ -197,8 +227,29 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
                 onEmailChange={(value) => setBindingEmail((current) => ({ ...current, [store.id]: value }))}
                 onRoleChange={(value) => setBindingRole((current) => ({ ...current, [store.id]: value }))}
                 onBind={() => bindUser(store.id)}
-                onRemove={(userId) => unbindStoreUser(userId, store.id)}
-                onRoleUpdate={(user, nextRole) => bindStoreUser(user.email, store.id, nextRole)}
+                isSaving={savingAction === `bind-${store.id}`}
+                onRemove={async (userId) => {
+                  try {
+                    setActionError("");
+                    setActionMessage("");
+                    await unbindStoreUser(userId, store.id);
+                    setActionMessage("已移除綁定");
+                  } catch (error) {
+                    console.error("bindUserToStore failed", error);
+                    setActionError(error instanceof Error ? error.message : "移除綁定失敗");
+                  }
+                }}
+                onRoleUpdate={async (user, nextRole) => {
+                  try {
+                    setActionError("");
+                    setActionMessage("");
+                    await bindStoreUser(user.email, store.id, nextRole);
+                    setActionMessage("已更新使用者角色");
+                  } catch (error) {
+                    console.error("bindUserToStore failed", error);
+                    setActionError(error instanceof Error ? error.message : "修改角色失敗");
+                  }
+                }}
               />
             </article>
           ))}
@@ -290,7 +341,7 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
             <input value={deleteConfirmName} onChange={(event) => setDeleteConfirmName(event.target.value)} className="mt-2 w-full rounded-lg border border-stone-300 px-4 py-3 font-bold" />
             <div className="mt-5 flex flex-wrap justify-end gap-2">
               <button onClick={() => { setDeleteTarget(null); setDeleteConfirmName(""); }} className="rounded-lg border border-stone-300 px-4 py-3 font-black text-steel">取消</button>
-              <button onClick={confirmDeleteStore} disabled={deleteConfirmName !== deleteTarget.name} className="rounded-lg bg-tomato px-4 py-3 font-black text-white disabled:bg-stone-300">確認刪除</button>
+              <button onClick={confirmDeleteStore} disabled={deleteConfirmName !== deleteTarget.name || savingAction === `delete-${deleteTarget.id}`} className="rounded-lg bg-tomato px-4 py-3 font-black text-white disabled:bg-stone-300">{savingAction === `delete-${deleteTarget.id}` ? "刪除中..." : "確認刪除"}</button>
             </div>
           </div>
         </div>
@@ -307,6 +358,7 @@ function StoreBindings({
   onEmailChange,
   onRoleChange,
   onBind,
+  isSaving,
   onRemove,
   onRoleUpdate
 }: {
@@ -317,6 +369,7 @@ function StoreBindings({
   onEmailChange: (value: string) => void;
   onRoleChange: (value: StoreMemberRole) => void;
   onBind: () => void;
+  isSaving: boolean;
   onRemove: (userId: string) => void;
   onRoleUpdate: (user: User, role: StoreMemberRole) => void;
 }) {
@@ -347,7 +400,7 @@ function StoreBindings({
           <select value={role} onChange={(event) => onRoleChange(event.target.value as StoreMemberRole)} className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-bold">
             {storeMemberRoles.map((item) => <option key={item} value={item}>{roleLabel(item)}</option>)}
           </select>
-          <button onClick={onBind} className="rounded-lg bg-ink px-3 py-2 text-sm font-black text-white">新增綁定</button>
+          <button onClick={onBind} disabled={isSaving} className="rounded-lg bg-ink px-3 py-2 text-sm font-black text-white disabled:opacity-50">{isSaving ? "綁定中..." : "新增綁定"}</button>
         </div>
       </div>
     </section>

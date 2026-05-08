@@ -177,6 +177,14 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /pendingInvites/{inviteId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /pendingUsers/{pendingUserId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
     match /counters/orderNumbers {
       allow read: if true;
       allow create: if request.resource.data.keys().hasOnly(["qr", "pos"])

@@ -13,7 +13,8 @@ import {
   setDoc,
   updateDoc,
   writeBatch,
-  where
+  where,
+  type DocumentReference
 } from "firebase/firestore";
 import { initialData } from "./mock-data";
 import { firebaseEnabled, firestore } from "./firebase";
@@ -348,23 +349,53 @@ export function useDemoStore(options: StoreOptions = {}) {
         storeIds,
         memberships,
         role: user.role === "admin" ? "admin" : platformRoleFromMemberships(memberships),
-        pending: user.pending ?? false,
-        approved: user.pending ? false : user.approved ?? false,
-        status: user.pending ? "pending" : user.status ?? "pending",
+        pending: false,
+        approved: true,
+        status: "active",
         updatedAt: new Date().toISOString()
       };
     }
 
     if (useFirestore && firestore) {
-      const usersByEmail = await getDocs(query(collection(firestore, "users"), where("email", "==", normalizedEmail)));
-      const targetDoc = usersByEmail.docs[0];
-      if (targetDoc) {
-        const user = { id: targetDoc.id, ...targetDoc.data() } as User;
-        await setDoc(doc(firestore, "users", targetDoc.id), nextUser(user), { merge: true });
-      } else {
-        const id = pendingUserId(normalizedEmail);
-        const now = new Date().toISOString();
-        await setDoc(doc(firestore, "users", id), nextUser({ id, email: normalizedEmail, name: normalizedEmail, role: "merchant", storeId: null, storeIds: [], memberships: {}, pending: true, approved: false, status: "pending", createdAt: now, updatedAt: now }), { merge: true });
+      try {
+        const usersByEmail = await getDocs(query(collection(firestore, "users"), where("email", "==", normalizedEmail)));
+        const targetDoc = usersByEmail.docs[0];
+        if (targetDoc) {
+          const user = { id: targetDoc.id, ...targetDoc.data() } as User;
+          await setDoc(doc(firestore, "users", targetDoc.id), nextUser(user), { merge: true });
+        } else {
+          const id = pendingUserId(normalizedEmail);
+          const now = new Date().toISOString();
+          await setDoc(doc(firestore, "pendingInvites", id), {
+            id,
+            email: normalizedEmail,
+            storeId: targetStoreId,
+            storeIds: [targetStoreId],
+            memberships: { [targetStoreId]: memberRole },
+            role: memberRole,
+            status: "pending",
+            createdAt: now,
+            updatedAt: now
+          }, { merge: true });
+          await setDoc(doc(firestore, "users", id), {
+            id,
+            email: normalizedEmail,
+            name: normalizedEmail,
+            role: "user",
+            storeId: targetStoreId,
+            storeIds: [targetStoreId],
+            memberships: { [targetStoreId]: memberRole },
+            pending: true,
+            approved: false,
+            status: "pending",
+            createdAt: now,
+            updatedAt: now
+          }, { merge: true });
+        }
+      } catch (writeError) {
+        console.error("bindUserToStore failed", writeError);
+        setError(writeError instanceof Error ? writeError.message : "bindUserToStore failed");
+        throw writeError;
       }
       return;
     }
@@ -375,9 +406,23 @@ export function useDemoStore(options: StoreOptions = {}) {
         return { ...current, users: current.users.map((user) => (user.id === existing.id ? nextUser(user) : user)) };
       }
       const id = pendingUserId(normalizedEmail);
+      const now = new Date().toISOString();
       return {
         ...current,
-        users: [nextUser({ id, email: normalizedEmail, name: normalizedEmail, role: "merchant", storeId: null, storeIds: [], memberships: {}, pending: true }), ...current.users]
+        users: [{
+          id,
+          email: normalizedEmail,
+          name: normalizedEmail,
+          role: "user",
+          storeId: targetStoreId,
+          storeIds: [targetStoreId],
+          memberships: { [targetStoreId]: memberRole },
+          pending: true,
+          approved: false,
+          status: "pending",
+          createdAt: now,
+          updatedAt: now
+        }, ...current.users]
       };
     });
   }
@@ -398,10 +443,16 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
 
     if (useFirestore && firestore) {
-      const userRef = doc(firestore, "users", userId);
-      const user = db.users.find((item) => item.id === userId);
-      if (!user) return;
-      await setDoc(userRef, nextUser(user), { merge: true });
+      try {
+        const userRef = doc(firestore, "users", userId);
+        const user = db.users.find((item) => item.id === userId);
+        if (!user) return;
+        await setDoc(userRef, nextUser(user), { merge: true });
+      } catch (writeError) {
+        console.error("bindUserToStore failed", writeError);
+        setError(writeError instanceof Error ? writeError.message : "unbindStoreUser failed");
+        throw writeError;
+      }
       return;
     }
 
@@ -446,27 +497,44 @@ export function useDemoStore(options: StoreOptions = {}) {
 
   async function deleteStoreCascade(targetStoreId: string) {
     if (useFirestore && firestore) {
-      const db = firestore;
-      const batch = writeBatch(db);
-      batch.delete(doc(db, "stores", targetStoreId));
+      try {
+        const db = firestore;
+        const batch = writeBatch(db);
+        batch.delete(doc(db, "stores", targetStoreId));
 
-      const relatedCollections = ["products", "categories", "orders"];
-      const snapshots = await Promise.all(
-        relatedCollections.map((collectionName) =>
-          getDocs(query(collection(db, collectionName), where("storeId", "==", targetStoreId)))
-        )
-      );
-      snapshots.forEach((snapshot) => snapshot.docs.forEach((item) => batch.delete(item.ref)));
+        const relatedCollections = ["products", "categories", "orders"];
+        const snapshots = await Promise.all(
+          relatedCollections.map((collectionName) =>
+            getDocs(query(collection(db, collectionName), where("storeId", "==", targetStoreId)))
+          )
+        );
+        snapshots.forEach((snapshot) => snapshot.docs.forEach((item) => batch.delete(item.ref)));
 
-      const linkedUsers = await getDocs(query(collection(db, "users"), where("storeIds", "array-contains", targetStoreId)));
-      linkedUsers.docs.forEach((item) => {
-        const user = { id: item.id, ...item.data() } as User;
-        const memberships = { ...(user.memberships ?? {}) };
-        delete memberships[targetStoreId];
-        const storeIds = (user.storeIds ?? []).filter((id) => id !== targetStoreId);
-        batch.update(item.ref, { storeId: user.storeId === targetStoreId ? storeIds[0] ?? null : user.storeId ?? null, storeIds, memberships });
-      });
-      await batch.commit();
+        const [linkedByStoreIds, linkedByStoreId] = await Promise.all([
+          getDocs(query(collection(db, "users"), where("storeIds", "array-contains", targetStoreId))),
+          getDocs(query(collection(db, "users"), where("storeId", "==", targetStoreId)))
+        ]);
+        const linkedUsers = new Map<string, { ref: DocumentReference; user: User }>();
+        [...linkedByStoreIds.docs, ...linkedByStoreId.docs].forEach((item) => {
+          linkedUsers.set(item.id, { ref: item.ref, user: { id: item.id, ...item.data() } as User });
+        });
+        linkedUsers.forEach(({ ref, user }) => {
+          const memberships = { ...(user.memberships ?? {}) };
+          delete memberships[targetStoreId];
+          const storeIds = (user.storeIds ?? []).filter((id) => id !== targetStoreId);
+          batch.update(ref, {
+            storeId: user.storeId === targetStoreId ? storeIds[0] ?? null : user.storeId ?? null,
+            storeIds,
+            memberships,
+            updatedAt: new Date().toISOString()
+          });
+        });
+        await batch.commit();
+      } catch (writeError) {
+        console.error("deleteStore failed", writeError);
+        setError(writeError instanceof Error ? writeError.message : "deleteStore failed");
+        throw writeError;
+      }
       return;
     }
 
