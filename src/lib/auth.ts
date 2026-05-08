@@ -31,6 +31,10 @@ function profileFromSnapshot(snapshot: DocumentSnapshot): User | null {
   };
 }
 
+function missingProfileMessage(uid: string) {
+  return `找不到 Firestore users/${uid} 使用者資料，請先在 users collection 建立該使用者文件。`;
+}
+
 export type AuthState = {
   firebaseUser: FirebaseUser | null;
   profile: User | null;
@@ -54,11 +58,14 @@ export function useAuthState(): AuthState {
       return;
     }
     const db = firestore;
+    let active = true;
 
     let unsubscribeProfile: (() => void) | null = null;
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (!active) return;
       setFirebaseUser(user);
       setProfile(null);
+      setError("");
       unsubscribeProfile?.();
 
       if (!user) {
@@ -71,10 +78,14 @@ export function useAuthState(): AuthState {
 
       getDocFromServer(userRef)
         .then((snapshot) => {
-          setProfile(profileFromSnapshot(snapshot));
+          if (!active) return;
+          const nextProfile = profileFromSnapshot(snapshot);
+          setProfile(nextProfile);
+          setError(nextProfile ? "" : missingProfileMessage(user.uid));
           setLoading(false);
         })
         .catch((snapshotError) => {
+          if (!active) return;
           setError(snapshotError.message);
           setLoading(false);
         });
@@ -82,9 +93,14 @@ export function useAuthState(): AuthState {
       unsubscribeProfile = onSnapshot(
         userRef,
         (snapshot) => {
-          setProfile(profileFromSnapshot(snapshot));
+          if (!active) return;
+          const nextProfile = profileFromSnapshot(snapshot);
+          setProfile(nextProfile);
+          setError(nextProfile ? "" : missingProfileMessage(user.uid));
+          setLoading(false);
         },
         (snapshotError) => {
+          if (!active) return;
           setError(snapshotError.message);
           setLoading(false);
         }
@@ -92,6 +108,7 @@ export function useAuthState(): AuthState {
     });
 
     return () => {
+      active = false;
       unsubscribeProfile?.();
       unsubscribeAuth();
     };

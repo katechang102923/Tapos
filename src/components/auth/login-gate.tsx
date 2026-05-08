@@ -82,6 +82,7 @@ export function LoginGate({
         <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-soft">
           <p className="text-sm font-black text-tomato">權限不足</p>
           <h1 className="mt-2 text-2xl font-black text-ink">此帳號沒有進入此頁面的角色權限</h1>
+          {authState.error && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-sm font-bold text-tomato">{authState.error}</p>}
           <button onClick={authState.signOutUser} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white">
             <LogOut className="size-4" />
             登出
