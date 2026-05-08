@@ -16,6 +16,7 @@ export type Store = {
   storeType?: StoreType;
   isOpen: boolean;
   peakMode?: boolean;
+  demoBreakfastMenuImported?: boolean;
   temporaryNotice?: string;
   notice?: string;
   createdAt: string;
