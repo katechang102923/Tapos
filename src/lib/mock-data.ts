@@ -31,7 +31,7 @@ export const initialData: DemoDatabase = {
       storeId: demoStoreId,
       name: "店長 Sandy",
       email: "owner@example.com",
-      role: "owner"
+      role: "merchant"
     }
   ],
   categories: [

@@ -21,7 +21,7 @@ const defaultBanner = "https://images.unsplash.com/photo-1514933651103-005eec06c
 
 export function OnboardingFlow() {
   return (
-    <LoginGate allowedRoles={["user", "merchant", "owner", "admin"]} title="開始建立店家">
+    <LoginGate allowedRoles={["user", "merchant", "admin"]} title="開始建立店家">
       {({ profile, firebaseUser }) => <OnboardingContent uid={firebaseUser?.uid ?? ""} currentStoreId={profile?.storeId ?? null} />}
     </LoginGate>
   );

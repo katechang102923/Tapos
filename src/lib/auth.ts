@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { auth, firebaseEnabled, firestore } from "./firebase";
 import type { User, UserRole } from "./types";
 
-const supportedRoles: UserRole[] = ["user", "merchant", "kitchen", "admin", "owner", "staff"];
+const supportedRoles: UserRole[] = ["user", "merchant", "kitchen", "admin"];
 
 function profileFromSnapshot(snapshot: DocumentSnapshot): User | null {
   if (!snapshot.exists()) return null;

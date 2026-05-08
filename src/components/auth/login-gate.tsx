@@ -72,6 +72,10 @@ export function LoginGate({
     );
   }
 
+  if (authState.firebaseUser && !authState.profile && !authState.error) {
+    return <div className="grid min-h-screen place-items-center bg-[#f4f4f2] font-black text-steel">載入使用者權限...</div>;
+  }
+
   if (!authState.profile || !allowedRoles.includes(authState.profile.role)) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4">
