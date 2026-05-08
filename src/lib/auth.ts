@@ -51,6 +51,34 @@ function missingProfileMessage(uid: string) {
   return `找不到 Firestore users/${uid} 使用者資料，請先在 users collection 建立該使用者文件。`;
 }
 
+function adminProfile(uid: string, email = platformAdminEmail, createdAt?: string): User {
+  const now = new Date().toISOString();
+  return {
+    id: uid,
+    email,
+    name: "Platform Admin",
+    role: "admin",
+    storeId: null,
+    storeIds: [],
+    memberships: {},
+    status: "active",
+    approved: true,
+    pending: false,
+    createdAt: createdAt ?? now,
+    updatedAt: now
+  };
+}
+
+async function ensureFixedAdminUser(uid: string, email: string) {
+  if (!firestore) throw new Error("Firebase 尚未設定");
+  const userRef = doc(firestore, "users", uid);
+  const snapshot = await getDocFromServer(userRef);
+  const existingCreatedAt = snapshot.exists() && typeof snapshot.data().createdAt === "string" ? snapshot.data().createdAt as string : undefined;
+  const profile = adminProfile(uid, email, existingCreatedAt);
+  await setDoc(userRef, profile, { merge: true });
+  return profile;
+}
+
 export type AuthState = {
   firebaseUser: FirebaseUser | null;
   profile: User | null;
@@ -91,45 +119,27 @@ export function useAuthState(): AuthState {
 
       setLoading(true);
       const userRef = doc(db, "users", user.uid);
+      const isFixedAdmin = user.email?.toLowerCase() === platformAdminEmail;
+
+      if (isFixedAdmin) {
+        ensureFixedAdminUser(user.uid, user.email ?? platformAdminEmail)
+          .then((fixedAdminProfile) => {
+            if (!active) return;
+            setProfile(fixedAdminProfile);
+            setError("");
+            setLoading(false);
+          })
+          .catch((snapshotError) => {
+            if (!active) return;
+            setError(snapshotError.message);
+            setLoading(false);
+          });
+      }
 
       getDocFromServer(userRef)
         .then((snapshot) => {
           if (!active) return;
-          if (!snapshot.exists() && user.email?.toLowerCase() === platformAdminEmail) {
-            const now = new Date().toISOString();
-            return setDoc(userRef, {
-              id: user.uid,
-              email: platformAdminEmail,
-              name: "Platform Admin",
-              role: "admin",
-              storeId: null,
-              storeIds: [],
-              memberships: {},
-              status: "active",
-              approved: true,
-              pending: false,
-              createdAt: now,
-              updatedAt: now
-            }).then(() => {
-              if (!active) return;
-              setProfile({
-                id: user.uid,
-                email: platformAdminEmail,
-                name: "Platform Admin",
-                role: "admin",
-                storeId: null,
-                storeIds: [],
-                memberships: {},
-                status: "active",
-                approved: true,
-                pending: false,
-                createdAt: now,
-                updatedAt: now
-              });
-              setError("");
-              setLoading(false);
-            });
-          }
+          if (isFixedAdmin) return;
           const nextProfile = profileFromSnapshot(snapshot);
           setProfile(nextProfile);
           setError(nextProfile ? "" : missingProfileMessage(user.uid));
@@ -145,6 +155,13 @@ export function useAuthState(): AuthState {
         userRef,
         (snapshot) => {
           if (!active) return;
+          if (isFixedAdmin) {
+            const data = snapshot.exists() ? snapshot.data() : {};
+            setProfile(adminProfile(user.uid, user.email ?? platformAdminEmail, typeof data.createdAt === "string" ? data.createdAt : undefined));
+            setError("");
+            setLoading(false);
+            return;
+          }
           const nextProfile = profileFromSnapshot(snapshot);
           setProfile(nextProfile);
           setError(nextProfile ? "" : missingProfileMessage(user.uid));

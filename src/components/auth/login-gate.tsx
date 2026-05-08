@@ -76,7 +76,9 @@ export function LoginGate({
     return <div className="grid min-h-screen place-items-center bg-[#f4f4f2] font-black text-steel">載入使用者權限...</div>;
   }
 
-  if (authState.profile && authState.profile.role !== "admin" && (authState.profile.status !== "active" || !authState.profile.approved)) {
+  const fixedAdminEmail = authState.firebaseUser?.email?.toLowerCase() === "ciut0000@gmail.com";
+
+  if (authState.profile && !fixedAdminEmail && authState.profile.role !== "admin" && (authState.profile.status !== "active" || !authState.profile.approved)) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4">
         <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-soft">
