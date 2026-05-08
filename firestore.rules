@@ -51,7 +51,7 @@ service cloud.firestore {
     function canHandleOrders(storeId) {
       return signedIn()
         && userStoreId() == storeId
-        && role() in ["merchant", "owner", "staff", "kitchen"];
+        && role() in ["merchant", "kitchen"];
     }
 
     function validOwnerUserCreate(userId) {
@@ -96,7 +96,7 @@ service cloud.firestore {
     function validCustomerOrderCreate() {
       return request.resource.data.storeId is string
         && exists(storePath(request.resource.data.storeId))
-        && request.resource.data.status == "new"
+        && request.resource.data.status == "pending"
         && request.resource.data.items is list
         && request.resource.data.total is number
         && request.resource.data.createdAt is string

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { BarChart3, ChefHat, Coffee, Eye, EyeOff, Flame, ImagePlus, LayoutDashboard, Menu as MenuIcon, Plus, Power, PowerOff, ReceiptText, RefreshCcw, Sandwich, Sparkles, Trash2 } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
@@ -50,15 +50,18 @@ export function MerchantDashboard() {
 }
 
 function MerchantDashboardContent({ storeId, role, onSignOut }: { storeId: string; role: UserRole; onSignOut: () => Promise<void> }) {
-  const { db, todayOrders, createMockOrder, deleteProduct, resetDemo, seedDemoData, updateOrderStatus, upsertCategory, upsertProduct, upsertStore } = useDemoStore({ storeId });
+  const { db, todayOrders, createMockOrder, deleteProduct, rejectOrder, resetDemo, seedDemoData, updateOrderStatus, upsertCategory, upsertProduct, upsertStore } = useDemoStore({ storeId });
   const [editingProduct, setEditingProduct] = useState<Product>(blankProduct);
   const [categoryName, setCategoryName] = useState("");
   const [notice, setNotice] = useState("");
+  const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({});
+  const previousPendingCount = useRef(0);
 
   const store = db.stores.find((item) => item.id === storeId);
   const categories = db.categories.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
   const products = db.products.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
-  const activeOrders = todayOrders.filter((order) => order.status !== "cancelled");
+  const activeOrders = todayOrders.filter((order) => order.status !== "rejected");
+  const pendingOrders = todayOrders.filter((order) => order.status === "pending");
   const canManageStore = role === "merchant" || role === "admin";
   const revenue = useMemo(() => activeOrders.reduce((sum, order) => sum + order.total, 0), [activeOrders]);
   const ranking = useMemo(() => {
@@ -73,6 +76,28 @@ function MerchantDashboardContent({ storeId, role, onSignOut }: { storeId: strin
     });
     return [...map.values()].sort((a, b) => b.quantity - a.quantity).slice(0, 6);
   }, [activeOrders]);
+
+  useEffect(() => {
+    if (pendingOrders.length > previousPendingCount.current) {
+      try {
+        const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (AudioContextClass) {
+          const context = new AudioContextClass();
+          const oscillator = context.createOscillator();
+          const gain = context.createGain();
+          oscillator.frequency.value = 880;
+          gain.gain.value = 0.05;
+          oscillator.connect(gain);
+          gain.connect(context.destination);
+          oscillator.start();
+          oscillator.stop(context.currentTime + 0.18);
+        }
+      } catch {
+        // Audio can be blocked until the user interacts with the page.
+      }
+    }
+    previousPendingCount.current = pendingOrders.length;
+  }, [pendingOrders.length]);
 
   if (!storeId) {
     return (
@@ -154,7 +179,7 @@ function MerchantDashboardContent({ storeId, role, onSignOut }: { storeId: strin
         <section className="mt-5 grid gap-4 md:grid-cols-5">
           <Metric label="今日營收" value={`$${revenue}`} accent="text-tomato" />
           <Metric label="今日訂單" value={todayOrders.length.toString()} />
-          <Metric label="待製作" value={todayOrders.filter((order) => order.status === "new").length.toString()} accent="text-amber-600" />
+          <Metric label="待接單" value={pendingOrders.length.toString()} accent="text-amber-600" />
           <Metric label="熱食品項" value={products.filter((product) => !isDrinkName(product.name)).length.toString()} />
           <Metric label="飲料品項" value={products.filter((product) => isDrinkName(product.name)).length.toString()} accent="text-leaf" />
         </section>
@@ -197,7 +222,7 @@ function MerchantDashboardContent({ storeId, role, onSignOut }: { storeId: strin
               <h2 className="text-2xl font-black">今日訂單</h2>
               <div className="mt-4 grid gap-3 lg:grid-cols-2">
                 {todayOrders.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((order) => (
-                  <article key={order.id} className="rounded-lg border border-orange-100 p-4">
+                  <article key={order.id} className={`rounded-lg border p-4 ${order.status === "pending" ? "animate-order-pop border-tomato bg-tomato/5" : "border-orange-100"}`}>
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-3xl font-black">#{order.pickupNumber} / {order.tableNo}</p>
@@ -207,8 +232,17 @@ function MerchantDashboardContent({ storeId, role, onSignOut }: { storeId: strin
                     </div>
                     <div className="mt-3 space-y-1 text-sm font-bold text-steel">{order.items.map((item) => <p key={item.id}>{item.quantity} x {item.productName}</p>)}</div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <button onClick={() => updateOrderStatus(order.id, "preparing")} className="rounded-lg bg-amber-100 px-3 py-2 font-black text-amber-700">製作中</button>
-                      <button onClick={() => updateOrderStatus(order.id, "completed")} className="rounded-lg bg-leaf px-3 py-2 font-black text-white">完成</button>
+                      {order.status === "pending" && (
+                        <>
+                          <button onClick={() => updateOrderStatus(order.id, "accepted")} className="rounded-lg bg-leaf px-3 py-2 font-black text-white">接單</button>
+                          <select value={rejectReasons[order.id] ?? "售完"} onChange={(event) => setRejectReasons((current) => ({ ...current, [order.id]: event.target.value }))} className="rounded-lg border border-orange-100 px-3 py-2 font-black text-steel">
+                            {["售完", "太忙", "已打烊"].map((reason) => <option key={reason}>{reason}</option>)}
+                          </select>
+                          <button onClick={() => rejectOrder(order.id, rejectReasons[order.id] ?? "售完")} className="rounded-lg bg-tomato px-3 py-2 font-black text-white">拒單</button>
+                        </>
+                      )}
+                      {order.status === "accepted" && <button onClick={() => updateOrderStatus(order.id, "preparing")} className="rounded-lg bg-amber-100 px-3 py-2 font-black text-amber-700">製作中</button>}
+                      {order.status === "preparing" && <button onClick={() => updateOrderStatus(order.id, "completed")} className="rounded-lg bg-leaf px-3 py-2 font-black text-white">完成</button>}
                     </div>
                   </article>
                 ))}

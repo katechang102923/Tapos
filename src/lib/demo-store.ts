@@ -45,6 +45,13 @@ function newId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
+function orderDayKey(value = new Date()) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function optionDefaults(product: Product) {
   return Object.fromEntries(product.options.map((option) => [option.name, option.values[0] ?? ""]));
 }
@@ -139,16 +146,18 @@ export function useDemoStore(options: StoreOptions = {}) {
   }
 
   function createOrder(order: Omit<Order, "id" | "orderNumber" | "pickupNumber" | "status" | "createdAt" | "updatedAt">) {
-    const createdAt = new Date().toISOString();
-    const sequence = db.orders.length + 1;
-    const pickupSequence = db.orders.filter((item) => new Date(item.createdAt).toDateString() === new Date().toDateString()).length + 1;
+    const now = new Date();
+    const createdAt = now.toISOString();
+    const dayKey = orderDayKey(now);
+    const sequence = db.orders.filter((item) => item.storeId === order.storeId && orderDayKey(new Date(item.createdAt)) === dayKey).length + 1;
     const id = useFirestore && firestore ? doc(collection(firestore, "orders")).id : newId("o");
+    const orderNumber = String(sequence).padStart(3, "0");
     const nextOrder: Order = {
       ...order,
       id,
-      orderNumber: `A${String(sequence).padStart(3, "0")}`,
-      pickupNumber: String(pickupSequence).padStart(3, "0"),
-      status: "new",
+      orderNumber,
+      pickupNumber: orderNumber,
+      status: "pending",
       createdAt,
       updatedAt: createdAt,
       items: order.items.map((item) => ({
@@ -175,6 +184,19 @@ export function useDemoStore(options: StoreOptions = {}) {
       ...current,
       orders: current.orders.map((order) =>
         order.id === orderId ? { ...order, status, updatedAt: new Date().toISOString() } : order
+      )
+    }));
+  }
+
+  function rejectOrder(orderId: string, rejectReason: string) {
+    if (useFirestore && firestore) {
+      updateDoc(doc(firestore, "orders", orderId), { status: "rejected", rejectReason, updatedAt: new Date().toISOString() });
+      return;
+    }
+    setDb((current) => ({
+      ...current,
+      orders: current.orders.map((order) =>
+        order.id === orderId ? { ...order, status: "rejected", rejectReason, updatedAt: new Date().toISOString() } : order
       )
     }));
   }
@@ -298,6 +320,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     resetDemo,
     seedDemoData,
     updateOrderStatus,
+    rejectOrder,
     upsertCategory,
     upsertProduct,
     upsertStore

@@ -171,7 +171,7 @@ export const initialData: DemoDatabase = {
       mode: "dine-in",
       tableNo: "5",
       customerNote: "紅茶少冰",
-      status: "new",
+      status: "pending",
       total: 145,
       createdAt: new Date(now.getTime() - 1000 * 60 * 6).toISOString(),
       updatedAt: new Date(now.getTime() - 1000 * 60 * 6).toISOString(),

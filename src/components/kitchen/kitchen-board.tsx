@@ -11,7 +11,8 @@ import type { Order, OrderItem, OrderStatus } from "@/lib/types";
 type Station = "all" | "hot" | "drink";
 
 const tabs: Array<{ status: OrderStatus; label: string }> = [
-  { status: "new", label: "新訂單" },
+  { status: "pending", label: "待接單" },
+  { status: "accepted", label: "已接單" },
   { status: "preparing", label: "製作中" },
   { status: "completed", label: "已完成" }
 ];
@@ -57,7 +58,7 @@ export function KitchenBoard({ storeId }: { storeId: string }) {
 
 function KitchenBoardContent({ storeId }: { storeId: string }) {
   const { db, createMockOrder, updateOrderStatus } = useDemoStore({ storeId });
-  const [activeStatus, setActiveStatus] = useState<OrderStatus>("new");
+  const [activeStatus, setActiveStatus] = useState<OrderStatus>("pending");
   const [station, setStation] = useState<Station>("all");
   const [largeMode, setLargeMode] = useState(true);
   const [peakMode, setPeakMode] = useState(true);
@@ -159,7 +160,7 @@ function KitchenBoardContent({ storeId }: { storeId: string }) {
               const minutes = elapsedMinutes(order.createdAt, now);
               const overdue = minutes >= 15 && order.status !== "completed";
               return (
-                <article key={order.id} className={`rounded-lg bg-[#fffaf0] p-5 text-ink shadow-soft ${overdue ? "animate-urgent-pulse border-4 border-amber-400" : order.status === "new" ? "animate-order-pop border-4 border-tomato" : "border border-stone-200"}`}>
+                <article key={order.id} className={`rounded-lg bg-[#fffaf0] p-5 text-ink shadow-soft ${overdue ? "animate-urgent-pulse border-4 border-amber-400" : order.status === "pending" ? "animate-order-pop border-4 border-tomato" : "border border-stone-200"}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className={`${largeMode ? "text-8xl" : "text-5xl"} font-black tracking-normal`}>#{order.pickupNumber}</p>
@@ -185,7 +186,7 @@ function KitchenBoardContent({ storeId }: { storeId: string }) {
                   </div>
                   {order.customerNote && <p className="mt-4 rounded-lg bg-amber-50 p-3 text-lg font-black text-amber-800">整單備註：{order.customerNote}</p>}
                   <div className="mt-5 grid grid-cols-2 gap-3">
-                    <button onClick={() => updateOrderStatus(order.id, "preparing")} className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-5 text-2xl font-black text-white disabled:bg-stone-300" disabled={order.status === "preparing" || order.status === "completed"}>
+                    <button onClick={() => updateOrderStatus(order.id, order.status === "pending" ? "accepted" : "preparing")} className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-5 text-2xl font-black text-white disabled:bg-stone-300" disabled={order.status === "preparing" || order.status === "completed"}>
                       <Flame className="size-6" />製作中
                     </button>
                     <button onClick={() => updateOrderStatus(order.id, "completed")} className="inline-flex items-center justify-center gap-2 rounded-lg bg-leaf px-4 py-5 text-2xl font-black text-white disabled:bg-stone-300" disabled={order.status === "completed"}>

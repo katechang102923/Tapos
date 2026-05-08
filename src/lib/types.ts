@@ -1,4 +1,4 @@
-export type OrderStatus = "new" | "preparing" | "completed" | "cancelled";
+export type OrderStatus = "pending" | "accepted" | "rejected" | "preparing" | "completed";
 export type OrderMode = "dine-in" | "takeout";
 export type UserRole = "user" | "merchant" | "kitchen" | "admin";
 export type StoreType = "breakfast" | "drink" | "snack" | "hotpot";
@@ -74,6 +74,7 @@ export type Order = {
   tableNo: string;
   customerNote: string;
   status: OrderStatus;
+  rejectReason?: string;
   total: number;
   createdAt: string;
   updatedAt: string;
