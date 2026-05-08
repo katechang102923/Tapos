@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
-import { ArrowLeft, ShieldCheck, Users } from "lucide-react";
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, updateDoc, where } from "firebase/firestore";
+import { ArrowLeft, Search, ShieldCheck, Users } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { firestore } from "@/lib/firebase";
 import type { User, UserRole } from "@/lib/types";
@@ -27,6 +27,12 @@ function AdminUsersContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [savingId, setSavingId] = useState("");
+  const [lookupValue, setLookupValue] = useState("");
+  const [lookupUser, setLookupUser] = useState<User | null>(null);
+  const [lookupRole, setLookupRole] = useState<UserRole>("user");
+  const [lookupStoreId, setLookupStoreId] = useState("");
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupMessage, setLookupMessage] = useState("");
 
   useEffect(() => {
     if (!firestore) {
@@ -61,6 +67,67 @@ function AdminUsersContent() {
     }
   }
 
+  async function findUser() {
+    if (!firestore) return;
+    const value = lookupValue.trim();
+    if (!value) {
+      setError("請輸入 email 或 uid");
+      return;
+    }
+
+    setError("");
+    setLookupMessage("");
+    setLookupUser(null);
+    setLookupLoading(true);
+
+    try {
+      const snapshot = value.includes("@")
+        ? await getDocs(query(collection(firestore, "users"), where("email", "==", value), limit(1)))
+        : await getDoc(doc(firestore, "users", value));
+
+      const foundUser = "docs" in snapshot
+        ? snapshot.docs[0]
+          ? ({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as User)
+          : null
+        : snapshot.exists()
+          ? ({ id: snapshot.id, ...snapshot.data() } as User)
+          : null;
+
+      if (!foundUser) {
+        setError("查無使用者");
+        return;
+      }
+
+      setLookupUser(foundUser);
+      setLookupRole(editableRole(foundUser.role));
+      setLookupStoreId(foundUser.storeId ?? "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "查詢使用者失敗");
+    } finally {
+      setLookupLoading(false);
+    }
+  }
+
+  async function saveLookupUser() {
+    if (!firestore || !lookupUser) return;
+    setSavingId(lookupUser.id);
+    setError("");
+    setLookupMessage("");
+
+    try {
+      await updateDoc(doc(firestore, "users", lookupUser.id), {
+        role: lookupRole,
+        storeId: lookupStoreId.trim() || null
+      });
+      setLookupUser({ ...lookupUser, role: lookupRole, storeId: lookupStoreId.trim() || null });
+      setLookupMessage("已更新使用者權限");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "儲存使用者失敗");
+    } finally {
+      setSavingId("");
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f4f2]">
       <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
@@ -81,6 +148,81 @@ function AdminUsersContent() {
             </Link>
           </div>
         </header>
+
+        <section className="mt-5 rounded-lg bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-2 text-sm font-black text-steel">
+            <Search className="size-4 text-leaf" />
+            查詢並發放權限
+          </div>
+          <div className="mt-4 flex flex-col gap-3 lg:flex-row">
+            <input
+              value={lookupValue}
+              onChange={(event) => setLookupValue(event.target.value)}
+              placeholder="輸入 email 或 uid"
+              className="min-w-0 flex-1 rounded-lg border border-stone-300 px-4 py-3 font-bold text-ink outline-none transition focus:border-leaf focus:ring-2 focus:ring-leaf/20"
+            />
+            <button
+              onClick={findUser}
+              disabled={lookupLoading}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white disabled:opacity-60"
+            >
+              <Search className="size-4" />
+              {lookupLoading ? "查詢中..." : "查詢"}
+            </button>
+          </div>
+
+          {lookupUser && (
+            <div className="mt-5 rounded-lg border border-stone-200 bg-stone-50 p-4">
+              <div className="grid gap-3 text-sm font-bold text-steel md:grid-cols-2 xl:grid-cols-5">
+                <div>
+                  <p className="text-xs font-black uppercase text-stone-400">Email</p>
+                  <p className="mt-1 break-all text-ink">{lookupUser.email || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-black uppercase text-stone-400">Name</p>
+                  <p className="mt-1 text-ink">{lookupUser.name || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-black uppercase text-stone-400">UID</p>
+                  <p className="mt-1 break-all font-mono text-xs text-ink">{lookupUser.id}</p>
+                </div>
+                <label className="grid gap-1">
+                  <span className="text-xs font-black uppercase text-stone-400">Role</span>
+                  <select
+                    value={lookupRole}
+                    onChange={(event) => setLookupRole(event.target.value as UserRole)}
+                    className="rounded-lg border border-stone-300 bg-white px-3 py-2 font-black text-steel outline-none focus:border-leaf focus:ring-2 focus:ring-leaf/20"
+                  >
+                    {roleOptions.map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-xs font-black uppercase text-stone-400">Store ID</span>
+                  <input
+                    value={lookupStoreId}
+                    onChange={(event) => setLookupStoreId(event.target.value)}
+                    placeholder="storeId，可留空"
+                    className="rounded-lg border border-stone-300 bg-white px-3 py-2 font-bold text-steel outline-none focus:border-leaf focus:ring-2 focus:ring-leaf/20"
+                  />
+                </label>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  onClick={saveLookupUser}
+                  disabled={savingId === lookupUser.id}
+                  className="rounded-lg bg-leaf px-4 py-3 font-black text-white disabled:opacity-60"
+                >
+                  {savingId === lookupUser.id ? "儲存中..." : "儲存"}
+                </button>
+                {lookupMessage && <p className="font-bold text-leaf">{lookupMessage}</p>}
+              </div>
+            </div>
+          )}
+        </section>
 
         <section className="mt-5 rounded-lg bg-white shadow-sm">
           <div className="border-b border-stone-200 p-5">
