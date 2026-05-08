@@ -8,10 +8,28 @@ import {
   signOut,
   type User as FirebaseUser
 } from "firebase/auth";
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { doc, getDocFromServer, onSnapshot, setDoc, type DocumentSnapshot } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { auth, firebaseEnabled, firestore } from "./firebase";
-import type { User } from "./types";
+import type { User, UserRole } from "./types";
+
+const supportedRoles: UserRole[] = ["user", "merchant", "kitchen", "admin", "owner", "staff"];
+
+function profileFromSnapshot(snapshot: DocumentSnapshot): User | null {
+  if (!snapshot.exists()) return null;
+
+  const data = snapshot.data();
+  const rawRole = typeof data.role === "string" ? data.role.trim() : "user";
+  const role = supportedRoles.includes(rawRole as UserRole) ? (rawRole as UserRole) : "user";
+
+  return {
+    id: snapshot.id,
+    storeId: typeof data.storeId === "string" ? data.storeId : null,
+    name: typeof data.name === "string" ? data.name : "",
+    email: typeof data.email === "string" ? data.email : "",
+    role
+  };
+}
 
 export type AuthState = {
   firebaseUser: FirebaseUser | null;
@@ -49,11 +67,22 @@ export function useAuthState(): AuthState {
       }
 
       setLoading(true);
-      unsubscribeProfile = onSnapshot(
-        doc(db, "users", user.uid),
-        (snapshot) => {
-          setProfile(snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as User) : null);
+      const userRef = doc(db, "users", user.uid);
+
+      getDocFromServer(userRef)
+        .then((snapshot) => {
+          setProfile(profileFromSnapshot(snapshot));
           setLoading(false);
+        })
+        .catch((snapshotError) => {
+          setError(snapshotError.message);
+          setLoading(false);
+        });
+
+      unsubscribeProfile = onSnapshot(
+        userRef,
+        (snapshot) => {
+          setProfile(profileFromSnapshot(snapshot));
         },
         (snapshotError) => {
           setError(snapshotError.message);
