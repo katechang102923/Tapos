@@ -1,4 +1,4 @@
-import type { Category, Product, StoreType } from "./types";
+import type { Category, Product, ProductOptionGroup, StoreType } from "./types";
 
 const image = {
   burger: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=900&q=80",
@@ -80,8 +80,132 @@ function product(key: string, categoryKey: string, name: string, description: st
     options: [
       { name: "加料", values: ["不加", "加蛋 +15", "加起司 +10"] },
       { name: "備註", values: ["正常", "少醬", "不加醬"] }
+    ],
+    optionGroups: categoryKey === "burger" || categoryKey === "egg" ? breakfastMealOptionGroups(key) : basicDrinkOptionGroups(key, categoryKey)
+  };
+}
+
+function breakfastMealOptionGroups(productKey: string): ProductOptionGroup[] {
+  return [
+    {
+      id: `${productKey}-seasoning`,
+      name: "調味",
+      required: true,
+      minSelect: 1,
+      maxSelect: 1,
+      options: [
+        { id: `${productKey}-seasoning-normal`, name: "正常", priceDelta: 0, isAvailable: true },
+        { id: `${productKey}-seasoning-no-onion`, name: "不加洋蔥", priceDelta: 0, isAvailable: true },
+        { id: `${productKey}-seasoning-no-sauce`, name: "不加醬", priceDelta: 0, isAvailable: true },
+        { id: `${productKey}-seasoning-spicy`, name: "加辣", priceDelta: 0, isAvailable: true }
+      ]
+    },
+    {
+      id: `${productKey}-addons`,
+      name: "加購",
+      required: false,
+      minSelect: 0,
+      maxSelect: 3,
+      options: [
+        { id: `${productKey}-addon-egg`, name: "加蛋", priceDelta: 15, isAvailable: true },
+        { id: `${productKey}-addon-cheese`, name: "加起司", priceDelta: 15, isAvailable: true },
+        { id: `${productKey}-addon-meat`, name: "加肉", priceDelta: 30, isAvailable: true }
+      ]
+    },
+    {
+      id: `${productKey}-bundle`,
+      name: "升級套餐",
+      required: false,
+      minSelect: 0,
+      maxSelect: 1,
+      options: [
+        { id: `${productKey}-bundle-none`, name: "不升級", priceDelta: 0, isAvailable: true },
+        {
+          id: `${productKey}-bundle-a`,
+          name: "A 套餐",
+          priceDelta: 49,
+          isAvailable: true,
+          children: [drinkGroup(`${productKey}-bundle-a`, "A 套餐飲料")]
+        },
+        {
+          id: `${productKey}-bundle-b`,
+          name: "B 套餐",
+          priceDelta: 69,
+          isAvailable: true,
+          children: [
+            drinkGroup(`${productKey}-bundle-b`, "B 套餐飲料"),
+            {
+              id: `${productKey}-bundle-b-side`,
+              name: "B 套餐點心",
+              required: true,
+              minSelect: 1,
+              maxSelect: 1,
+              options: [
+                { id: `${productKey}-bundle-b-nuggets`, name: "雞塊", priceDelta: 0, isAvailable: true }
+              ]
+            }
+          ]
+        },
+        {
+          id: `${productKey}-bundle-c`,
+          name: "C 套餐",
+          priceDelta: 89,
+          isAvailable: true,
+          children: [
+            drinkGroup(`${productKey}-bundle-c`, "C 套餐飲料"),
+            {
+              id: `${productKey}-bundle-c-side`,
+              name: "C 套餐點心",
+              required: true,
+              minSelect: 1,
+              maxSelect: 1,
+              options: [
+                { id: `${productKey}-bundle-c-fries`, name: "薯條", priceDelta: 0, isAvailable: true }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ];
+}
+
+function drinkGroup(prefix: string, name: string): ProductOptionGroup {
+  return {
+    id: `${prefix}-drink`,
+    name,
+    required: true,
+    minSelect: 1,
+    maxSelect: 1,
+    options: [
+      { id: `${prefix}-black-tea`, name: "紅茶", priceDelta: 0, isAvailable: true },
+      { id: `${prefix}-milk-tea`, name: "奶茶", priceDelta: 10, isAvailable: true },
+      { id: `${prefix}-fresh-milk-tea`, name: "鮮奶茶", priceDelta: 20, isAvailable: true },
+      { id: `${prefix}-coffee`, name: "咖啡", priceDelta: 25, isAvailable: true }
     ]
   };
+}
+
+function basicDrinkOptionGroups(productKey: string, categoryKey: string): ProductOptionGroup[] {
+  if (categoryKey !== "drink" && categoryKey !== "tea" && categoryKey !== "milk" && categoryKey !== "fresh") return [];
+  return [
+    {
+      id: `${productKey}-sweetness`,
+      name: "甜度",
+      required: true,
+      minSelect: 1,
+      maxSelect: 1,
+      options: ["正常糖", "半糖", "微糖", "無糖"].map((name, index) => ({ id: `${productKey}-sweetness-${index}`, name, priceDelta: 0, isAvailable: true }))
+    },
+    {
+      id: `${productKey}-ice`,
+      name: "冰量",
+      required: true,
+      minSelect: 1,
+      maxSelect: 1,
+      options: ["正常冰", "少冰", "微冰", "去冰", "熱飲"].map((name, index) => ({ id: `${productKey}-ice-${index}`, name, priceDelta: 0, isAvailable: true }))
+    }
+  ];
 }
 
 export function createDefaultMenu(storeId: string, storeType: StoreType) {
@@ -105,7 +229,8 @@ export function createDefaultMenu(storeId: string, storeType: StoreType) {
     isAvailable: item.isAvailable,
     isSoldOut: item.isSoldOut,
     sort: item.sort,
-    options: item.options
+    options: item.options,
+    optionGroups: item.optionGroups ?? []
   }));
   return { categories, products };
 }

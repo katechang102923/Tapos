@@ -17,11 +17,12 @@ type CartLine = {
   selectedOptions: OrderItemOption[];
 };
 
-const orderTabs: Array<{ key: "open" | "pending" | "cooking" | "completed"; label: string; statuses: OrderStatus[] }> = [
+const orderTabs: Array<{ key: "open" | "pending" | "cooking" | "completed" | "cancelled"; label: string; statuses: OrderStatus[] }> = [
   { key: "open", label: "未處理", statuses: ["pending", "accepted"] },
   { key: "pending", label: "新訂單", statuses: ["pending"] },
   { key: "cooking", label: "處理中", statuses: ["cooking", "ready"] },
-  { key: "completed", label: "已完成", statuses: ["completed"] }
+  { key: "completed", label: "已完成", statuses: ["completed"] },
+  { key: "cancelled", label: "已取消", statuses: ["cancelled"] }
 ];
 
 export default function MerchantPosPage() {
@@ -168,7 +169,7 @@ function MerchantPosContent({ storeId }: { storeId: string }) {
               </div>
               <Clock3 className="size-7 text-tomato" />
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
               {orderTabs.map((tab) => (
                 <button key={tab.key} onClick={() => setActiveOrderTab(tab.key)} className={`rounded-lg px-3 py-3 font-black ${activeOrderTab === tab.key ? "bg-ink text-white" : "bg-stone-100 text-steel"}`}>
                   {tab.label}
@@ -287,10 +288,13 @@ function OrderWorkCard({ order, updateOrderStatus }: { order: Order; updateOrder
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-3xl font-black">#{order.orderNumber}</p>
-          <p className="mt-1 text-sm font-bold text-steel">{order.mode === "takeout" ? "外帶" : `內用 ${order.tableNo}`} · {new Date(order.createdAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}</p>
+          <p className="mt-1 text-sm font-bold text-steel">
+            {order.source === "qr" ? "QR 進單" : "POS 建單"} · {order.mode === "takeout" ? "外帶" : `內用 ${order.tableNo}`} · {new Date(order.createdAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}
+          </p>
         </div>
         <StatusPill status={order.status} />
       </div>
+      {order.customerNote && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-black text-amber-800">整單備註：{order.customerNote}</p>}
       <div className="mt-3 space-y-2 text-sm font-bold text-steel">
         {order.items.map((item) => {
           const selectedOptions = normalizeSelectedOptions(item.selectedOptions);
@@ -304,7 +308,8 @@ function OrderWorkCard({ order, updateOrderStatus }: { order: Order; updateOrder
       </div>
       <p className="mt-3 text-lg font-black text-tomato">總金額 ${order.totalAmount ?? order.total}</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        {(order.status === "pending" || order.status === "accepted") && <button onClick={() => updateOrderStatus(order.id, "cooking")} className="inline-flex items-center gap-2 rounded-lg bg-amber-100 px-3 py-2 font-black text-amber-700"><TimerReset className="size-4" />製作中</button>}
+        {order.status === "pending" && <button onClick={() => updateOrderStatus(order.id, "accepted")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white"><CheckCircle2 className="size-4" />接單</button>}
+        {order.status === "accepted" && <button onClick={() => updateOrderStatus(order.id, "cooking")} className="inline-flex items-center gap-2 rounded-lg bg-amber-100 px-3 py-2 font-black text-amber-700"><TimerReset className="size-4" />製作中</button>}
         {(order.status === "cooking" || order.status === "ready") && <button onClick={() => updateOrderStatus(order.id, "completed")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white"><CheckCircle2 className="size-4" />已完成</button>}
         {!["completed", "cancelled"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "cancelled")} className="inline-flex items-center gap-2 rounded-lg bg-tomato px-3 py-2 font-black text-white"><XCircle className="size-4" />取消</button>}
       </div>

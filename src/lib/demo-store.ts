@@ -16,6 +16,7 @@ import {
 } from "firebase/firestore";
 import { initialData } from "./mock-data";
 import { firebaseEnabled, firestore } from "./firebase";
+import { createDefaultMenu } from "./menu-templates";
 import { legacySelections } from "./product-options";
 import type { Category, DemoDatabase, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, User } from "./types";
 
@@ -188,7 +189,8 @@ export function useDemoStore(options: StoreOptions = {}) {
     };
 
     if (useFirestore && firestore) {
-      setDoc(doc(firestore, "orders", id), nextOrder);
+      setDb((current) => ({ ...current, orders: [nextOrder, ...current.orders.filter((item) => item.id !== id)] }));
+      setDoc(doc(firestore, "orders", id), nextOrder).catch((writeError: Error) => setError(writeError.message));
     } else {
       setDb((current) => ({ ...current, orders: [nextOrder, ...current.orders] }));
     }
@@ -196,14 +198,19 @@ export function useDemoStore(options: StoreOptions = {}) {
   }
 
   function updateOrderStatus(orderId: string, status: OrderStatus) {
+    const updatedAt = new Date().toISOString();
     if (useFirestore && firestore) {
-      updateDoc(doc(firestore, "orders", orderId), { status, updatedAt: new Date().toISOString() });
+      setDb((current) => ({
+        ...current,
+        orders: current.orders.map((order) => (order.id === orderId ? { ...order, status, updatedAt } : order))
+      }));
+      updateDoc(doc(firestore, "orders", orderId), { status, updatedAt }).catch((writeError: Error) => setError(writeError.message));
       return;
     }
     setDb((current) => ({
       ...current,
       orders: current.orders.map((order) =>
-        order.id === orderId ? { ...order, status, updatedAt: new Date().toISOString() } : order
+        order.id === orderId ? { ...order, status, updatedAt } : order
       )
     }));
   }
@@ -281,6 +288,42 @@ export function useDemoStore(options: StoreOptions = {}) {
           : [{ ...store, id: newId("store") }, ...current.stores]
       };
     });
+  }
+
+  function importBreakfastMenu(targetStoreId = storeId) {
+    if (!targetStoreId) return;
+    const targetStore = db.stores.find((item) => item.id === targetStoreId);
+    if (targetStore?.demoBreakfastMenuImported) return;
+
+    const menu = createDefaultMenu(targetStoreId, "breakfast");
+    const nextStore = targetStore
+      ? { ...targetStore, storeType: targetStore.storeType ?? "breakfast", demoBreakfastMenuImported: true }
+      : undefined;
+
+    if (useFirestore && firestore) {
+      const db = firestore;
+      const writes = [
+        ...menu.categories.map((category) => setDoc(doc(db, "categories", category.id), category, { merge: true })),
+        ...menu.products.map((product) => setDoc(doc(db, "products", product.id), product, { merge: true }))
+      ];
+      if (nextStore) writes.push(setDoc(doc(db, "stores", targetStoreId), nextStore, { merge: true }));
+      Promise.all(writes).catch((writeError: Error) => setError(writeError.message));
+    }
+
+    setDb((current) => ({
+      ...current,
+      stores: current.stores.map((item) =>
+        item.id === targetStoreId ? { ...item, storeType: item.storeType ?? "breakfast", demoBreakfastMenuImported: true } : item
+      ),
+      categories: [
+        ...current.categories.filter((category) => !(category.storeId === targetStoreId && menu.categories.some((item) => item.id === category.id))),
+        ...menu.categories
+      ],
+      products: [
+        ...current.products.filter((product) => !(product.storeId === targetStoreId && menu.products.some((item) => item.id === product.id))),
+        ...menu.products
+      ]
+    }));
   }
 
   async function deleteStoreCascade(targetStoreId: string) {
@@ -370,6 +413,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     deleteStoreCascade,
     resetDemo,
     seedDemoData,
+    importBreakfastMenu,
     updateOrderStatus,
     rejectOrder,
     upsertCategory,

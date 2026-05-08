@@ -18,7 +18,7 @@ export function MerchantDashboard({ view = "dashboard" }: { view?: MerchantView 
 }
 
 function MerchantDashboardContent({ storeId, role, view, onSignOut }: { storeId: string; role: UserRole; view: MerchantView; onSignOut: () => Promise<void> }) {
-  const { db, upsertCategory, upsertStore, upsertProduct } = useDemoStore({ storeId, skipOrderList: true });
+  const { db, upsertCategory, upsertStore, upsertProduct, importBreakfastMenu } = useDemoStore({ storeId, skipOrderList: true });
   const [categoryName, setCategoryName] = useState("");
   const [notice, setNotice] = useState("");
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -97,7 +97,15 @@ function MerchantDashboardContent({ storeId, role, view, onSignOut }: { storeId:
         )}
 
         {view === "menu" && canManageStore && (
-          <MenuManagement categories={categories} categoryName={categoryName} setCategoryName={setCategoryName} addCategory={addCategory} upsertCategory={upsertCategory} />
+          <MenuManagement 
+            categories={categories} 
+            categoryName={categoryName} 
+            setCategoryName={setCategoryName} 
+            addCategory={addCategory} 
+            upsertCategory={upsertCategory} 
+            hasBreakfastMenu={hasBreakfastMenu}
+            onImportBreakfastMenu={importBreakfastMenu} 
+          />
         )}
       </section>
     </main>
@@ -179,13 +187,17 @@ function MenuManagement({
   categoryName,
   setCategoryName,
   addCategory,
-  upsertCategory
+  upsertCategory,
+  hasBreakfastMenu,
+  onImportBreakfastMenu
 }: {
   categories: Category[];
   categoryName: string;
   setCategoryName: (value: string) => void;
   addCategory: () => void;
   upsertCategory: (category: Category) => void;
+  hasBreakfastMenu?: boolean;
+  onImportBreakfastMenu?: () => void;
 }) {
   return (
     <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_360px]">
@@ -196,10 +208,18 @@ function MenuManagement({
               <h2 className="text-2xl font-black">菜單管理概覽</h2>
               <p className="mt-2 text-sm font-bold leading-6 text-steel">分類、商品、商品上下架和排序設定；商品選項（套餐、加購、加料）的設定請前往「商品選項管理」頁面。</p>
             </div>
-            <Link href="/merchant/options" className="inline-flex items-center justify-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white">
-              <Plus className="size-5" />
-              管理商品選項
-            </Link>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              {!hasBreakfastMenu && onImportBreakfastMenu && (
+                <button onClick={onImportBreakfastMenu} className="inline-flex items-center justify-center gap-2 rounded-lg bg-leaf px-4 py-3 font-black text-white">
+                  <Plus className="size-5" />
+                  匯入早餐範例菜單
+                </button>
+              )}
+              <Link href="/merchant/options" className="inline-flex items-center justify-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white">
+                <Plus className="size-5" />
+                管理商品選項
+              </Link>
+            </div>
           </div>
         </div>
       </section>

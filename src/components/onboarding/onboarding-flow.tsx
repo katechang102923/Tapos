@@ -68,6 +68,7 @@ function OnboardingContent({ uid, currentStoreId }: { uid: string; currentStoreI
       bannerUrl,
       storeType,
       isOpen: true,
+      demoBreakfastMenuImported: storeType === "breakfast",
       notice: "歡迎線上點餐，尖峰時段請稍候。",
       createdAt: new Date().toISOString()
     };
