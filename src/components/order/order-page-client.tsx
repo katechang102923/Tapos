@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { doc, onSnapshot } from "firebase/firestore";
 import { CheckCircle2, ChevronLeft, Minus, Plus, Search, Send, ShoppingCart } from "lucide-react";
 import { useDemoStore } from "@/lib/demo-store";
-import type { OrderItem, OrderMode, OrderStatus, Product } from "@/lib/types";
+import { firebaseEnabled, firestore } from "@/lib/firebase";
+import type { Order, OrderItem, OrderMode, OrderStatus, Product } from "@/lib/types";
 
 type CartLine = {
   product: Product;
@@ -16,8 +18,8 @@ type CartLine = {
 const statusSteps: Array<{ status: OrderStatus; label: string }> = [
   { status: "pending", label: "等待接單" },
   { status: "accepted", label: "店家已接單" },
-  { status: "preparing", label: "餐點製作中" },
-  { status: "completed", label: "可取餐" }
+  { status: "cooking", label: "餐點製作中" },
+  { status: "ready", label: "可取餐" }
 ];
 
 function optionDefaults(product: Product) {
@@ -33,22 +35,32 @@ function lineUnitPrice(line: CartLine) {
 }
 
 function statusRank(status: OrderStatus) {
-  if (status === "completed") return 3;
-  if (status === "preparing") return 2;
+  if (status === "completed" || status === "ready") return 3;
+  if (status === "cooking") return 2;
   if (status === "accepted") return 1;
   return 0;
 }
 
 function customerStatusMessage(status: OrderStatus, rejectReason?: string) {
   if (status === "accepted") return "店家已接單";
-  if (status === "preparing") return "餐點製作中";
-  if (status === "completed") return "可取餐";
-  if (status === "rejected") return `店家已拒單${rejectReason ? `：${rejectReason}` : ""}`;
+  if (status === "cooking") return "餐點製作中";
+  if (status === "ready") return "可取餐";
+  if (status === "completed") return "訂單已完成";
+  if (status === "cancelled") return `店家已取消訂單${rejectReason ? `：${rejectReason}` : ""}`;
   return "等待店家接單";
 }
 
 export function OrderPageClient({ storeId }: { storeId: string }) {
-  const { db, createOrder } = useDemoStore({ storeId });
+  const [customerSessionId] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const key = `qr-order-session-${storeId}`;
+    const current = window.localStorage.getItem(key);
+    if (current) return current;
+    const next = `customer-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    window.localStorage.setItem(key, next);
+    return next;
+  });
+  const { db, createOrder } = useDemoStore({ storeId, customerSessionId, skipOrderList: true });
   const [mode, setMode] = useState<OrderMode>("takeout");
   const [tableNo, setTableNo] = useState("1");
   const [activeCategory, setActiveCategory] = useState("all");
@@ -56,9 +68,10 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerNote, setCustomerNote] = useState("");
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
+  const [trackedOrder, setTrackedOrder] = useState<Order | null>(null);
 
   const store = db.stores.find((item) => item.id === storeId);
-  const lastOrder = lastOrderId ? db.orders.find((order) => order.id === lastOrderId) ?? null : null;
+  const lastOrder = trackedOrder ?? (lastOrderId ? db.orders.find((order) => order.id === lastOrderId) ?? null : null);
   const categories = db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort);
   const products = db.products
     .filter((item) => item.storeId === storeId)
@@ -68,6 +81,13 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
 
   const totalQuantity = cart.reduce((sum, item) => sum + item.quantity, 0);
   const total = useMemo(() => cart.reduce((sum, item) => sum + lineUnitPrice(item) * item.quantity, 0), [cart]);
+
+  useEffect(() => {
+    if (!lastOrderId || !firebaseEnabled || !firestore) return;
+    return onSnapshot(doc(firestore, "orders", lastOrderId), (snapshot) => {
+      if (snapshot.exists()) setTrackedOrder({ id: snapshot.id, ...snapshot.data() } as Order);
+    });
+  }, [lastOrderId]);
 
   function addToCart(product: Product) {
     if (!store?.isOpen || product.isSoldOut || !product.isAvailable) return;
@@ -84,8 +104,10 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
       storeId,
       mode,
       tableNo: mode === "takeout" ? "外帶" : tableNo,
+      customerSessionId,
       customerNote,
       total,
+      source: "qr",
       items: cart.map<OrderItem>((line) => ({
         id: "",
         orderId: "",
@@ -99,6 +121,7 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
       }))
     });
     setLastOrderId(order.id);
+    setTrackedOrder(order);
     setCart([]);
     setCustomerNote("");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -128,7 +151,7 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
               <img src={store.bannerUrl || store.logoUrl} alt={store.name} className="h-full w-full object-cover opacity-70" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/75 to-transparent" />
               <div className="absolute inset-x-0 bottom-0 p-5 text-white">
-                <p className="text-sm font-black text-white/80">早餐點餐</p>
+                <p className="text-sm font-black text-white/80">顧客 QR 點餐</p>
                 <h1 className="text-4xl font-black">{store.name}</h1>
                 <p className="mt-2 text-base font-bold text-white/90">{store.temporaryNotice || store.notice || "送出後請等待店家接單"}</p>
               </div>
@@ -146,10 +169,10 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
           </div>
 
           {lastOrder && (
-            <div className={`animate-success-pop mt-4 rounded-lg border-2 bg-white p-5 shadow-soft ${lastOrder.status === "rejected" ? "border-tomato" : "border-leaf"}`}>
+            <div className={`animate-success-pop mt-4 rounded-lg border-2 bg-white p-5 shadow-soft ${lastOrder.status === "cancelled" ? "border-tomato" : "border-leaf"}`}>
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className={`flex items-center gap-2 text-base font-black ${lastOrder.status === "rejected" ? "text-tomato" : "text-leaf"}`}>
+                  <p className={`flex items-center gap-2 text-base font-black ${lastOrder.status === "cancelled" ? "text-tomato" : "text-leaf"}`}>
                     <CheckCircle2 className="size-5" />
                     {customerStatusMessage(lastOrder.status, lastOrder.rejectReason)}
                   </p>
@@ -159,11 +182,11 @@ export function OrderPageClient({ storeId }: { storeId: string }) {
               </div>
               <div className="mt-5 grid grid-cols-4 gap-2">
                 {statusSteps.map((step, index) => {
-                  const done = lastOrder.status !== "rejected" && statusRank(lastOrder.status) >= index;
+                  const done = lastOrder.status !== "cancelled" && statusRank(lastOrder.status) >= index;
                   return <div key={step.status} className={`rounded-lg px-3 py-4 text-center text-base font-black ${done ? "bg-leaf text-white" : "bg-stone-100 text-stone-400"}`}>{step.label}</div>;
                 })}
               </div>
-              {lastOrder.status === "rejected" && <p className="mt-3 rounded-lg bg-tomato/10 p-3 font-black text-tomato">拒單原因：{lastOrder.rejectReason || "店家無法接單"}</p>}
+              {lastOrder.status === "cancelled" && <p className="mt-3 rounded-lg bg-tomato/10 p-3 font-black text-tomato">取消原因：{lastOrder.rejectReason || "店家無法接單"}</p>}
             </div>
           )}
 

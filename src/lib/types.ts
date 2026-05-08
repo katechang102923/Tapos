@@ -1,4 +1,4 @@
-export type OrderStatus = "pending" | "accepted" | "rejected" | "preparing" | "completed";
+export type OrderStatus = "pending" | "accepted" | "cooking" | "ready" | "completed" | "cancelled";
 export type OrderMode = "dine-in" | "takeout";
 export type UserRole = "user" | "merchant" | "kitchen" | "admin";
 export type StoreType = "breakfast" | "drink" | "snack" | "hotpot";
@@ -8,6 +8,10 @@ export type Store = {
   name: string;
   logoUrl: string;
   bannerUrl?: string;
+  phone?: string;
+  address?: string;
+  businessHours?: string;
+  description?: string;
   ownerId?: string;
   storeType?: StoreType;
   isOpen: boolean;
@@ -46,6 +50,7 @@ export type Product = {
   name: string;
   description: string;
   imageUrl: string;
+  originalPrice?: number;
   price: number;
   isAvailable: boolean;
   isSoldOut: boolean;
@@ -72,10 +77,14 @@ export type Order = {
   pickupNumber: string;
   mode: OrderMode;
   tableNo: string;
+  customerName?: string;
+  customerSessionId?: string;
   customerNote: string;
   status: OrderStatus;
+  source: "qr" | "pos";
   rejectReason?: string;
   total: number;
+  totalAmount?: number;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];

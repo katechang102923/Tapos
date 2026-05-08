@@ -21,10 +21,10 @@ const templates: Record<StoreType, { categories: Array<{ key: string; name: stri
       { key: "side", name: "點心" }
     ],
     products: [
-      product("pork-burger", "burger", "招牌豬肉蛋堡", "豬肉排、煎蛋、生菜與早餐醬。", image.burger, 65, 1),
+      product("pork-burger", "burger", "招牌豬肉蛋堡", "豬肉排、煎蛋、生菜與店家特製醬。", image.burger, 65, 1),
       product("chicken-burger", "burger", "卡拉雞腿堡", "酥脆雞腿排搭配美生菜。", image.burger, 85, 2),
       product("corn-egg", "egg", "玉米起司蛋餅", "玉米、起司與新鮮雞蛋。", image.egg, 55, 3),
-      product("milk-tea", "drink", "招牌奶茶", "早餐店經典奶茶。", image.tea, 35, 4),
+      product("milk-tea", "drink", "招牌奶茶", "店家經典奶茶。", image.tea, 35, 4),
       product("fries", "side", "黃金脆薯", "現炸薯條，附番茄醬。", image.fries, 45, 5)
     ]
   },

@@ -49,7 +49,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" | "forgot" }) {
     mode === "register" ? "建立店家帳號" : mode === "forgot" ? "忘記密碼" : "店家登入";
   const description =
     mode === "register"
-      ? "註冊後即可建立店面、產生 QR Code，開始早餐店試營運。"
+      ? "註冊後即可建立店家、產生 QR Code，開始餐飲店線上點餐。"
       : mode === "forgot"
         ? "輸入 Email，我們會寄送重設密碼連結。"
         : "登入後管理菜單、訂單、廚房看板與店家設定。";

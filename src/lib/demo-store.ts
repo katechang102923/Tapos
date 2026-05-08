@@ -6,15 +6,17 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
   onSnapshot,
   query,
   setDoc,
   updateDoc,
+  writeBatch,
   where
 } from "firebase/firestore";
 import { initialData } from "./mock-data";
 import { firebaseEnabled, firestore } from "./firebase";
-import type { Category, DemoDatabase, Order, OrderStatus, Product, Store } from "./types";
+import type { Category, DemoDatabase, Order, OrderStatus, Product, Store, User } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -22,7 +24,11 @@ const syncEventName = "light-qr-ordering-db-updated";
 type StoreOptions = {
   storeId?: string;
   admin?: boolean;
+  customerSessionId?: string;
+  skipOrderList?: boolean;
 };
+
+type OrderPayload = Omit<Order, "id" | "orderNumber" | "pickupNumber" | "createdAt" | "updatedAt"> & Partial<Pick<Order, "status" | "source">>;
 
 function loadLocalData(): DemoDatabase {
   if (typeof window === "undefined") return initialData;
@@ -56,15 +62,16 @@ function optionDefaults(product: Product) {
   return Object.fromEntries(product.options.map((option) => [option.name, option.values[0] ?? ""]));
 }
 
-function scopedQuery(collectionName: string, storeId?: string, admin?: boolean) {
+function scopedQuery(collectionName: string, storeId?: string, admin?: boolean, customerSessionId?: string) {
   if (!firestore) return null;
   const ref = collection(firestore, collectionName);
   if (admin || !storeId || collectionName === "stores") return ref;
+  if (collectionName === "orders" && customerSessionId) return query(ref, where("customerSessionId", "==", customerSessionId));
   return query(ref, where("storeId", "==", storeId));
 }
 
 export function useDemoStore(options: StoreOptions = {}) {
-  const { storeId, admin = false } = options;
+  const { storeId, admin = false, customerSessionId, skipOrderList = false } = options;
   const [db, setDb] = useState<DemoDatabase>(initialData);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
@@ -112,8 +119,9 @@ export function useDemoStore(options: StoreOptions = {}) {
       handleError
     );
 
-    const unsubscribers = ["categories", "products", "orders"].map((collectionName) => {
-      const ref = scopedQuery(collectionName, storeId, admin);
+    const collectionNames = skipOrderList ? ["categories", "products"] : ["categories", "products", "orders"];
+    const unsubscribers = collectionNames.map((collectionName) => {
+      const ref = scopedQuery(collectionName, storeId, admin, customerSessionId);
       if (!ref) return () => undefined;
       return onSnapshot(
         ref,
@@ -124,12 +132,23 @@ export function useDemoStore(options: StoreOptions = {}) {
         handleError
       );
     });
+    const unsubUsers = admin
+      ? onSnapshot(
+          collection(firestore, "users"),
+          (snapshot) => {
+            next.users = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as User);
+            commit();
+          },
+          handleError
+        )
+      : () => undefined;
 
     return () => {
       unsubStores();
       unsubscribers.forEach((unsubscribe) => unsubscribe());
+      unsubUsers();
     };
-  }, [admin, storeId, useFirestore]);
+  }, [admin, customerSessionId, skipOrderList, storeId, useFirestore]);
 
   useEffect(() => {
     if (!ready || useFirestore) return;
@@ -145,7 +164,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     setDb(initialData);
   }
 
-  function createOrder(order: Omit<Order, "id" | "orderNumber" | "pickupNumber" | "status" | "createdAt" | "updatedAt">) {
+  function createOrder(order: OrderPayload) {
     const now = new Date();
     const createdAt = now.toISOString();
     const dayKey = orderDayKey(now);
@@ -157,9 +176,11 @@ export function useDemoStore(options: StoreOptions = {}) {
       id,
       orderNumber,
       pickupNumber: orderNumber,
-      status: "pending",
+      status: order.status ?? "pending",
+      source: order.source ?? "qr",
       createdAt,
       updatedAt: createdAt,
+      totalAmount: order.total,
       items: order.items.map((item) => ({
         ...item,
         id: item.id || newId("oi"),
@@ -190,13 +211,13 @@ export function useDemoStore(options: StoreOptions = {}) {
 
   function rejectOrder(orderId: string, rejectReason: string) {
     if (useFirestore && firestore) {
-      updateDoc(doc(firestore, "orders", orderId), { status: "rejected", rejectReason, updatedAt: new Date().toISOString() });
+      updateDoc(doc(firestore, "orders", orderId), { status: "cancelled", rejectReason, updatedAt: new Date().toISOString() });
       return;
     }
     setDb((current) => ({
       ...current,
       orders: current.orders.map((order) =>
-        order.id === orderId ? { ...order, status: "rejected", rejectReason, updatedAt: new Date().toISOString() } : order
+        order.id === orderId ? { ...order, status: "cancelled", rejectReason, updatedAt: new Date().toISOString() } : order
       )
     }));
   }
@@ -263,6 +284,36 @@ export function useDemoStore(options: StoreOptions = {}) {
     });
   }
 
+  async function deleteStoreCascade(targetStoreId: string) {
+    if (useFirestore && firestore) {
+      const db = firestore;
+      const batch = writeBatch(db);
+      batch.delete(doc(db, "stores", targetStoreId));
+
+      const relatedCollections = ["products", "categories", "orders"];
+      const snapshots = await Promise.all(
+        relatedCollections.map((collectionName) =>
+          getDocs(query(collection(db, collectionName), where("storeId", "==", targetStoreId)))
+        )
+      );
+      snapshots.forEach((snapshot) => snapshot.docs.forEach((item) => batch.delete(item.ref)));
+
+      const linkedUsers = await getDocs(query(collection(db, "users"), where("storeId", "==", targetStoreId)));
+      linkedUsers.docs.forEach((item) => batch.update(item.ref, { storeId: null }));
+      await batch.commit();
+      return;
+    }
+
+    setDb((current) => ({
+      ...current,
+      stores: current.stores.filter((store) => store.id !== targetStoreId),
+      categories: current.categories.filter((category) => category.storeId !== targetStoreId),
+      products: current.products.filter((product) => product.storeId !== targetStoreId),
+      orders: current.orders.filter((order) => order.storeId !== targetStoreId),
+      users: current.users.map((user) => (user.storeId === targetStoreId ? { ...user, storeId: null } : user))
+    }));
+  }
+
   function createMockOrder(targetStoreId: string) {
     const availableProducts = db.products.filter((product) => product.storeId === targetStoreId && product.isAvailable && !product.isSoldOut);
     if (availableProducts.length === 0) return null;
@@ -317,6 +368,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     createMockOrder,
     createOrder,
     deleteProduct,
+    deleteStoreCascade,
     resetDemo,
     seedDemoData,
     updateOrderStatus,

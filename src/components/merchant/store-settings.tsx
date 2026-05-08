@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { QrCode, Save } from "lucide-react";
+import { Copy, ExternalLink, QrCode, Save } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { getAppUrl } from "@/lib/app-url";
@@ -63,6 +63,10 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
     });
   }
 
+  function copyOrderUrl() {
+    navigator.clipboard?.writeText(orderUrl);
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f4f2] p-4 sm:p-6">
       <div className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-[1fr_360px]">
@@ -89,14 +93,22 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
           <div className="flex items-center gap-3">
             <QrCode className="size-8" />
             <div>
-              <p className="text-xl font-black">店家 QR Code</p>
+              <p className="text-xl font-black">QR Code 管理</p>
               <p className="text-sm font-bold text-white/60">{getAppUrl()}/order/{storeId}</p>
             </div>
           </div>
           <img src={qrUrl} alt="Store QR Code" className="mt-5 w-full rounded-lg bg-white p-4" />
           <p className="mt-4 break-all rounded-lg bg-white/10 p-3 text-sm font-bold">{orderUrl}</p>
-          <a href={qrUrl} download={`qr-${storeId}.png`} className="mt-4 inline-flex w-full justify-center rounded-lg bg-white px-4 py-3 font-black text-ink">
-            下載 PNG
+          <button onClick={copyOrderUrl} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-white px-4 py-3 font-black text-ink">
+            <Copy className="size-5" />
+            複製點餐連結
+          </button>
+          <a href={`/order/${storeId}`} target="_blank" rel="noreferrer" className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-white/10 px-4 py-3 font-black text-white">
+            <ExternalLink className="size-5" />
+            預覽點餐頁
+          </a>
+          <a href={qrUrl} download={`qr-${storeId}.png`} className="mt-3 inline-flex w-full justify-center rounded-lg bg-white/10 px-4 py-3 font-black text-white">
+            下載 QR Code 圖片
           </a>
           <Link href="/merchant" className="mt-3 inline-flex w-full justify-center rounded-lg bg-white/10 px-4 py-3 font-black text-white">
             回後台

@@ -1,14 +1,10 @@
 import Link from "next/link";
-import { ChefHat, LayoutDashboard, LogIn, QrCode, ShieldCheck, Store } from "lucide-react";
-import { demoStoreId } from "@/lib/mock-data";
+import { LayoutDashboard, QrCode, ShoppingCart, Store } from "lucide-react";
 
 const links = [
   { href: "/register", label: "註冊開店", icon: Store },
-  { href: "/login", label: "登入", icon: LogIn },
-  { href: `/order/${demoStoreId}`, label: "顧客點餐", icon: QrCode },
   { href: "/merchant", label: "店家後台", icon: LayoutDashboard },
-  { href: `/kitchen/${demoStoreId}`, label: "廚房 KDS", icon: ChefHat },
-  { href: "/admin", label: "管理員", icon: ShieldCheck }
+  { href: "/merchant/pos", label: "POS 前台點餐", icon: ShoppingCart }
 ];
 
 export function TopNav() {
@@ -20,8 +16,8 @@ export function TopNav() {
             <QrCode className="size-5" />
           </div>
           <div>
-            <p className="text-base font-black text-ink">QR 點餐 SaaS MVP</p>
-            <p className="text-sm font-semibold text-steel">註冊、建店、菜單、QR Code、KDS</p>
+            <p className="text-base font-black text-ink">餐飲 QR 點餐系統</p>
+            <p className="text-sm font-semibold text-steel">註冊、開店、菜單、QR Code、KDS</p>
           </div>
         </Link>
         <nav className="flex gap-2 overflow-x-auto">

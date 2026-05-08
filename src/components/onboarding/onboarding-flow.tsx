@@ -10,7 +10,7 @@ import { createDefaultMenu } from "@/lib/menu-templates";
 import type { Store, StoreType } from "@/lib/types";
 
 const storeTypes: Array<{ value: StoreType; label: string }> = [
-  { value: "breakfast", label: "早餐店" },
+  { value: "breakfast", label: "餐飲店" },
   { value: "drink", label: "飲料店" },
   { value: "snack", label: "小吃店" },
   { value: "hotpot", label: "火鍋店" }

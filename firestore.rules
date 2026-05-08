@@ -54,6 +54,11 @@ service cloud.firestore {
         && role() in ["merchant", "kitchen"];
     }
 
+    function validOrderStatusUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "rejectReason"])
+        && request.resource.data.status in ["pending", "accepted", "cooking", "ready", "completed", "cancelled"];
+    }
+
     function validOwnerUserCreate(userId) {
       return signedIn()
         && request.auth.uid == userId
@@ -99,6 +104,7 @@ service cloud.firestore {
         && request.resource.data.status == "pending"
         && request.resource.data.items is list
         && request.resource.data.total is number
+        && request.resource.data.totalAmount is number
         && request.resource.data.createdAt is string
         && request.resource.data.updatedAt is string;
     }
@@ -134,9 +140,10 @@ service cloud.firestore {
     }
 
     match /orders/{orderId} {
-      allow read: if isAdmin() || canHandleOrders(resource.data.storeId);
+      allow get: if isAdmin() || canHandleOrders(resource.data.storeId) || (resource.data.customerSessionId is string);
+      allow list: if isAdmin() || canHandleOrders(resource.data.storeId);
       allow create: if validCustomerOrderCreate();
-      allow update: if isAdmin() || canHandleOrders(resource.data.storeId);
+      allow update: if isAdmin() || (canHandleOrders(resource.data.storeId) && validOrderStatusUpdate());
       allow delete: if isAdmin();
     }
   }
