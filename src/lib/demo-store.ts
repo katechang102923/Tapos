@@ -21,7 +21,7 @@ import { firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { Category, DemoDatabase, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, StoreMemberRole, User } from "./types";
+import type { Category, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, StoreMemberRole, User } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -113,7 +113,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
 
     setReady(false);
-    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [] };
+    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], devices: [] };
     const commit = () => {
       setDb({ ...next });
       setReady(true);
@@ -141,7 +141,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       handleError
       );
 
-    const collectionNames = skipOrderList ? ["categories", "products"] : ["categories", "products", "orders"];
+    const collectionNames = skipOrderList ? ["categories", "products", "devices"] : ["categories", "products", "orders", "devices"];
     const unsubscribers = collectionNames.map((collectionName) => {
       const ref = scopedQuery(collectionName, storeId, admin, customerSessionId);
       if (!ref) return () => undefined;
@@ -331,6 +331,40 @@ export function useDemoStore(options: StoreOptions = {}) {
           : [{ ...store, id: newId("store") }, ...current.stores]
       };
     });
+  }
+
+  function upsertDevice(device: Device) {
+    const now = new Date().toISOString();
+    const nextDevice = {
+      ...device,
+      id: device.id,
+      createdAt: device.createdAt || now,
+      updatedAt: now
+    };
+    if (useFirestore && firestore) {
+      const id = device.id || doc(collection(firestore, "devices")).id;
+      setDoc(doc(firestore, "devices", id), { ...nextDevice, id }, { merge: true }).catch((writeError: Error) => setError(writeError.message));
+      return;
+    }
+    setDb((current) => {
+      const devices = current.devices ?? [];
+      const id = device.id || newId("device");
+      const exists = devices.some((item) => item.id === id);
+      return {
+        ...current,
+        devices: exists
+          ? devices.map((item) => (item.id === id ? { ...nextDevice, id } : item))
+          : [{ ...nextDevice, id }, ...devices]
+      };
+    });
+  }
+
+  function deleteDevice(deviceId: string) {
+    if (useFirestore && firestore) {
+      deleteDoc(doc(firestore, "devices", deviceId)).catch((writeError: Error) => setError(writeError.message));
+      return;
+    }
+    setDb((current) => ({ ...current, devices: (current.devices ?? []).filter((device) => device.id !== deviceId) }));
   }
 
   async function bindStoreUser(email: string, targetStoreId: string, memberRole: StoreMemberRole) {
@@ -657,11 +691,13 @@ export function useDemoStore(options: StoreOptions = {}) {
     seedDemoData,
     importBreakfastMenu,
     bindStoreUser,
+    deleteDevice,
     unbindStoreUser,
     updateOrderStatus,
     rejectOrder,
     upsertCategory,
     upsertProduct,
-    upsertStore
+    upsertStore,
+    upsertDevice
   };
 }

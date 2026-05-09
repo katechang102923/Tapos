@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { LayoutDashboard, Menu as MenuIcon, Plus, Power, PowerOff, QrCode, ReceiptText, Settings, ShoppingCart, Table2, Flame } from "lucide-react";
+import { Cpu, LayoutDashboard, Menu as MenuIcon, Plus, Power, PowerOff, QrCode, ReceiptText, Settings, ShoppingCart, Table2, Flame } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { accessibleStoreIds, defaultStoreId } from "@/lib/store-access";
@@ -118,6 +118,7 @@ function MerchantDashboardContent({ profile, role, view, onSignOut }: { profile:
           <SidebarItem href="/merchant/options" icon={ShoppingCart} label="商品選項管理" active={false} />
           <SidebarItem href="/merchant/qr" icon={QrCode} label="QR 管理" active={false} />
           <SidebarItem href="/merchant/tables" icon={Table2} label="桌號設定" active={false} />
+          <SidebarItem href="/merchant/devices" icon={Cpu} label="設備與列印設定" active={false} />
           {canManageStore && <SidebarItem href="/merchant/settings" icon={Settings} label="店家設定" active={false} />}
           <Link href="/merchant/pos" className="inline-flex items-center gap-3 rounded-lg bg-leaf px-4 py-3 font-black text-white"><ShoppingCart className="size-5" />進入 POS 工作台</Link>
         </nav>
@@ -202,6 +203,7 @@ function DashboardOverview({
           <SettingsCard href="/merchant/options" title="商品選項管理" description="套餐、加購、加料、調味、飲料補差價與多層子選項。" />
           <SettingsCard href="/merchant/qr" title="QR 管理" description="顧客點餐連結、QR Code 預覽、複製、桌號 QR 與外帶 QR。" />
           <SettingsCard href="/merchant/tables" title="桌號 QR 管理" description="為每張餐桌產生獨立 QR Code，顧客掃碼進入內用點餐。" />
+          <SettingsCard href="/merchant/devices" title="設備與列印設定" description="管理出單機、標籤機、電子發票機、列印分類與測試單。" />
         </div>
 
         <div className="rounded-lg bg-white p-5 shadow-sm">

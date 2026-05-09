@@ -4,6 +4,9 @@ export type StoreMemberRole = "owner" | "manager" | "staff" | "viewer";
 export type UserRole = "user" | "merchant" | "kitchen" | "admin" | StoreMemberRole;
 export type StoreType = "breakfast" | "drink" | "snack" | "hotpot";
 export type DiscountType = "none" | "percent" | "amount" | "specialPrice";
+export type DeviceType = "kitchen" | "label" | "invoice" | "display" | "scanner";
+export type DeviceConnectionType = "bluetooth" | "usb" | "lan";
+export type PrinterStation = "kitchen" | "counter" | "bar";
 
 export type Store = {
   id: string;
@@ -184,6 +187,35 @@ export type DailySalesSummary = {
   }>;
 };
 
+export type Device = {
+  id: string;
+  storeId: string;
+  type: DeviceType;
+  name: string;
+  brand: string;
+  model: string;
+  connectionType: DeviceConnectionType;
+  ipAddress?: string;
+  port?: string;
+  macAddress?: string;
+  usbVendorId?: string;
+  usbProductId?: string;
+  bluetoothName?: string;
+  paperWidth?: "58mm" | "80mm";
+  station?: PrinterStation;
+  categoryIds?: string[];
+  labelMode?: "cup" | "takeout" | "pickup";
+  labelSize?: string;
+  autoPrint?: boolean;
+  invoiceMachineNo?: string;
+  invoiceTrack?: string;
+  apiKey?: string;
+  enabled: boolean;
+  connectionStatus?: "not_tested" | "online" | "offline" | "mock";
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type OrderItemPayload = Omit<OrderItem, "id" | "orderId"> & {
   id?: string;
   orderId?: string;
@@ -227,4 +259,5 @@ export type DemoDatabase = {
   bundleItems?: BundleItem[];
   tables?: Table[];
   dailySalesSummaries?: DailySalesSummary[];
+  devices?: Device[];
 };
