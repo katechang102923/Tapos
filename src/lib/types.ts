@@ -4,9 +4,38 @@ export type StoreMemberRole = "owner" | "manager" | "staff" | "viewer";
 export type UserRole = "user" | "merchant" | "kitchen" | "admin" | StoreMemberRole;
 export type StoreType = "breakfast" | "drink" | "snack" | "hotpot";
 export type DiscountType = "none" | "percent" | "amount" | "specialPrice";
-export type DeviceType = "kitchen" | "label" | "invoice" | "display" | "scanner";
+export type DeviceType = "kitchen" | "label" | "display" | "scanner";
 export type DeviceConnectionType = "bluetooth" | "usb" | "lan";
-export type PrinterStation = "kitchen" | "counter" | "bar";
+export type PrinterStation = "kitchen" | "counter" | "bar" | "custom";
+export type PrintTemplateSize = "small" | "medium" | "large" | "xlarge";
+export type PrintOrderType = "dineIn" | "takeout" | "qr" | "pos";
+
+export type PrintTemplateField = {
+  visible: boolean;
+  size: PrintTemplateSize;
+  bold?: boolean;
+};
+
+export type PrintTemplate = {
+  orderNumber: PrintTemplateField;
+  tableNumber: PrintTemplateField;
+  orderType: PrintTemplateField;
+  productName: PrintTemplateField;
+  quantity: PrintTemplateField;
+  modifiers: PrintTemplateField;
+  note: PrintTemplateField;
+  price: PrintTemplateField;
+  total: PrintTemplateField;
+  storeName: PrintTemplateField;
+  createdAt: PrintTemplateField;
+};
+
+export type PrintRouting = {
+  stationName: string;
+  categoryIds: string[];
+  productIds: string[];
+  orderTypes: PrintOrderType[];
+};
 
 export type Store = {
   id: string;
@@ -204,12 +233,11 @@ export type Device = {
   paperWidth?: "58mm" | "80mm";
   station?: PrinterStation;
   categoryIds?: string[];
+  printRouting?: PrintRouting;
+  printTemplate?: PrintTemplate;
   labelMode?: "cup" | "takeout" | "pickup";
   labelSize?: string;
   autoPrint?: boolean;
-  invoiceMachineNo?: string;
-  invoiceTrack?: string;
-  apiKey?: string;
   enabled: boolean;
   connectionStatus?: "not_tested" | "online" | "offline" | "mock";
   createdAt: string;
