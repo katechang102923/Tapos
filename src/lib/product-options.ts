@@ -5,7 +5,7 @@ function legacyPriceDelta(value: string) {
 }
 
 export function legacySelections(product: Product): OrderItemOption[] {
-  return product.options.flatMap((option, index) => {
+  return (product.options ?? []).flatMap((option, index) => {
     const value = option.values[0];
     if (!value) return [];
     return [{
@@ -20,7 +20,7 @@ export function legacySelections(product: Product): OrderItemOption[] {
 
 export function productOptionGroups(product: Product): ProductOptionGroup[] {
   if (product.optionGroups?.length) return product.optionGroups;
-  return product.options.map((option, index) => ({
+  return (product.options ?? []).map((option, index) => ({
     id: `legacy-${index}`,
     name: option.name,
     required: Boolean(option.required),

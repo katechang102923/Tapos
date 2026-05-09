@@ -2,69 +2,50 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Cpu, LayoutDashboard, Menu as MenuIcon, Plus, Power, PowerOff, QrCode, ReceiptText, Settings, ShoppingCart, Table2, Flame } from "lucide-react";
+import { Cpu, LayoutDashboard, Menu as MenuIcon, Plus, Power, QrCode, ReceiptText, Settings, ShoppingCart, SlidersHorizontal } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
-import { accessibleStoreIds, defaultStoreId } from "@/lib/store-access";
-import type { Category, Store, UserRole, User } from "@/lib/types";
+import { accessibleStoreIds, defaultStoreId, storeRoleFor } from "@/lib/store-access";
+import type { Category, Store, User } from "@/lib/types";
 
 type MerchantView = "dashboard" | "menu";
 
 export function MerchantDashboard({ view = "dashboard" }: { view?: MerchantView }) {
   return (
-    <LoginGate allowedRoles={["merchant", "admin", "owner", "manager", "staff", "viewer"]} title="店家後台登入">
+    <LoginGate allowedRoles={["merchant", "admin", "owner", "manager", "staff", "viewer"]} title="店家後台管理">
       {({ profile, signOutUser }) => {
-        if (profile?.status === "pending" || profile?.status === "rejected") {
+        if (!profile) return null;
+        if (profile.status === "pending" || profile.status === "rejected") {
           return (
             <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4">
               <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-soft">
-                <div className="grid size-12 place-items-center rounded-lg bg-amber-100 text-amber-700">
-                  <QrCode className="size-6" />
-                </div>
-                <h1 className="mt-4 text-3xl font-black text-ink">
-                  {profile.status === "rejected" ? "帳號已被拒絕" : "等待管理員審核"}
-                </h1>
-                <p className="mt-2 text-sm font-semibold text-steel">
-                  {profile.status === "rejected"
-                    ? "您的帳號註冊已被管理員拒絕。如有疑問請聯繫管理員。"
-                    : "您的帳號已提交審核，管理員將盡快處理。請耐心等候。"
-                  }
-                </p>
-                <p className="mt-3 text-xs text-steel">
-                  審核通過後，您將可以管理店家並開始使用系統。
-                </p>
-                <button onClick={signOutUser} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white">
-                  <Power className="size-4" />
-                  登出
-                </button>
+                <QrCode className="size-10 text-leaf" />
+                <h1 className="mt-4 text-3xl font-black text-ink">{profile.status === "rejected" ? "帳號未通過審核" : "帳號等待審核"}</h1>
+                <p className="mt-2 text-sm font-semibold text-steel">請等待平台管理員核准後再進入店家後台。</p>
+                <button onClick={signOutUser} className="mt-5 rounded-lg bg-ink px-4 py-3 font-black text-white">登出</button>
               </div>
             </main>
           );
         }
-        const hasStoreAccess = accessibleStoreIds(profile).length > 0;
-        if (!hasStoreAccess) {
+        if (accessibleStoreIds(profile).length === 0) {
           return (
             <main className="grid min-h-screen place-items-center bg-[#fff7e8] p-4">
               <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-soft">
                 <p className="text-sm font-black text-leaf">尚未綁定店家</p>
                 <h1 className="mt-2 text-3xl font-black text-ink">請先完成店家設定</h1>
-                <p className="mt-3 leading-7 text-steel">您需要被管理員綁定到店家後才能使用 POS 系統。</p>
-                <button onClick={signOutUser} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-ink px-5 py-3 font-black text-white">
-                  <Power className="size-4" />
-                  登出
-                </button>
+                <p className="mt-3 leading-7 text-steel">此帳號目前沒有可管理的店家，請由平台管理員綁定店家權限。</p>
+                <button onClick={signOutUser} className="mt-5 rounded-lg bg-ink px-5 py-3 font-black text-white">登出</button>
               </div>
             </main>
           );
         }
-        if (!profile) return null;
-        return <MerchantDashboardContent role={profile.role} profile={profile} view={view} onSignOut={signOutUser} />;
+        return <MerchantDashboardContent profile={profile} view={view} onSignOut={signOutUser} />;
       }}
     </LoginGate>
   );
 }
 
-function MerchantDashboardContent({ profile, role, view, onSignOut }: { profile: User; role: UserRole; view: MerchantView; onSignOut: () => Promise<void> }) {
+function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User; view: MerchantView; onSignOut: () => Promise<void> }) {
   const storeIds = accessibleStoreIds(profile);
   const [selectedStoreId, setSelectedStoreId] = useState(defaultStoreId(profile));
   const { db, upsertCategory, upsertStore } = useDemoStore({ storeId: selectedStoreId, skipOrderList: true });
@@ -73,19 +54,8 @@ function MerchantDashboardContent({ profile, role, view, onSignOut }: { profile:
 
   const store = db.stores.find((item) => item.id === selectedStoreId);
   const categories = db.categories.filter((item) => item.storeId === selectedStoreId).sort((a, b) => a.sort - b.sort);
-  const canManageStore = role === "merchant" || role === "admin";
-
-  if (!selectedStoreId) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-[#fff7e8] p-4">
-        <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-soft">
-          <p className="text-sm font-black text-leaf">首次登入</p>
-          <h1 className="mt-2 text-3xl font-black text-ink">先建立店家</h1>
-          <Link href="/onboarding" className="mt-5 inline-flex rounded-lg bg-leaf px-5 py-3 font-black text-white">開始建店</Link>
-        </div>
-      </main>
-    );
-  }
+  const role = profile.role === "admin" ? "admin" : storeRoleFor(profile, selectedStoreId);
+  const canManageStore = role === "admin" || role === "owner" || role === "manager" || profile.role === "merchant";
 
   function updateStore(patch: Partial<Store>) {
     if (!store) return;
@@ -108,59 +78,59 @@ function MerchantDashboardContent({ profile, role, view, onSignOut }: { profile:
         <div className="flex items-center gap-3">
           <div className="grid size-11 place-items-center rounded-lg bg-tomato"><ReceiptText className="size-5" /></div>
           <div>
-            <p className="font-black">{store?.name ?? "餐飲店"}</p>
-            <p className="text-xs font-bold text-white/55">店家管理後台</p>
+            <p className="font-black">{store?.name ?? "店家後台"}</p>
+            <p className="text-xs font-bold text-white/55">資料設定中心</p>
           </div>
         </div>
         <nav className="mt-6 grid gap-2">
-          <SidebarItem href="/merchant/dashboard" icon={LayoutDashboard} label="後台概覽" active={view === "dashboard"} />
+          <SidebarItem href="/merchant/dashboard" icon={LayoutDashboard} label="設定中心" active={view === "dashboard"} />
           <SidebarItem href="/merchant/menu" icon={MenuIcon} label="菜單管理" active={view === "menu"} />
-          <SidebarItem href="/merchant/options" icon={ShoppingCart} label="商品選項管理" active={false} />
-          <SidebarItem href="/merchant/qr" icon={QrCode} label="線上點餐 QR Code" active={false} />
-          <SidebarItem href="/merchant/devices" icon={Cpu} label="設備與列印設定" active={false} />
-          {canManageStore && <SidebarItem href="/merchant/settings" icon={Settings} label="店家設定" active={false} />}
-          <Link href="/merchant/pos" className="inline-flex items-center gap-3 rounded-lg bg-leaf px-4 py-3 font-black text-white"><ShoppingCart className="size-5" />進入 POS 工作台</Link>
+          <SidebarItem href="/merchant/options" icon={SlidersHorizontal} label="商品選項管理" />
+          <SidebarItem href="/merchant/qr" icon={QrCode} label="線上點餐 QR Code" />
+          <SidebarItem href="/merchant/devices" icon={Cpu} label="設備與列印設定" />
+          {canManageStore && <SidebarItem href="/merchant/settings" icon={Settings} label="店家設定" />}
+          <Link href="/merchant/pos" className="inline-flex items-center gap-3 rounded-lg bg-leaf px-4 py-3 font-black text-white"><ShoppingCart className="size-5" />前往 POS 前台</Link>
         </nav>
       </aside>
 
       <section className="min-w-0 p-4 sm:p-6">
         <header className="flex flex-col gap-4 rounded-lg bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-sm font-black text-steel">{view === "dashboard" ? "店家後台概覽" : "菜單編輯"}</p>
-            <h1 className="text-3xl font-black text-ink">{view === "dashboard" ? "後台設定中心" : "菜單管理"}</h1>
+            <p className="text-sm font-black text-steel">{view === "dashboard" ? "店家後台設定" : "菜單分類管理"}</p>
+            <h1 className="text-3xl font-black text-ink">{view === "dashboard" ? "設定中心" : "菜單管理"}</h1>
             {storeIds.length > 1 && (
-              <div className="mt-2">
-                <label className="block text-sm font-bold text-steel">選擇店家</label>
-                <select
-                  value={selectedStoreId}
-                  onChange={(e) => setSelectedStoreId(e.target.value)}
-                  className="mt-1 rounded-lg border border-stone-300 px-3 py-2 text-sm"
-                >
+              <label className="mt-3 block text-sm font-bold text-steel">
+                選擇店家
+                <select value={selectedStoreId} onChange={(event) => setSelectedStoreId(event.target.value)} className="mt-1 block rounded-lg border border-stone-300 px-3 py-2 text-sm">
                   {storeIds.map((id) => {
-                    const s = db.stores.find((st) => st.id === id);
-                    return <option key={id} value={id}>{s?.name || id}</option>;
+                    const optionStore = db.stores.find((item) => item.id === id);
+                    return <option key={id} value={id}>{optionStore?.name ?? id}</option>;
                   })}
                 </select>
-              </div>
+              </label>
             )}
             {(store?.temporaryNotice || store?.notice) && <p className="mt-2 font-bold text-tomato">公告：{store.temporaryNotice || store.notice}</p>}
           </div>
           <div className="flex flex-wrap gap-2">
-            {canManageStore && <button onClick={() => updateStore({ isOpen: !store?.isOpen })} className={`inline-flex items-center gap-2 rounded-lg px-4 py-3 font-black text-white ${store?.isOpen ? "bg-leaf" : "bg-tomato"}`}>{store?.isOpen ? <Power className="size-5" /> : <PowerOff className="size-5" />}{store?.isOpen ? "營業中" : "休息中"}</button>}
-            {canManageStore && <button onClick={() => updateStore({ peakMode: !store?.peakMode })} className="inline-flex items-center gap-2 rounded-lg bg-amber-400 px-4 py-3 font-black text-ink"><Flame className="size-5" />{store?.peakMode ? "尖峰模式中" : "尖峰模式"}</button>}
+            {canManageStore && <StoreStatusButtons store={store} updateStore={updateStore} />}
             <button onClick={onSignOut} className="rounded-lg border border-orange-200 bg-white px-4 py-3 font-black text-steel">登出</button>
           </div>
         </header>
 
-        {view === "dashboard" && canManageStore && (
-          <DashboardOverview store={store} updateStore={updateStore} notice={notice} setNotice={setNotice} saveNotice={saveNotice} />
-        )}
-
-        {view === "menu" && canManageStore && (
-          <MenuManagement categories={categories} categoryName={categoryName} setCategoryName={setCategoryName} addCategory={addCategory} upsertCategory={upsertCategory} />
-        )}
+        {view === "dashboard" && canManageStore && <DashboardOverview store={store} updateStore={updateStore} notice={notice} setNotice={setNotice} saveNotice={saveNotice} />}
+        {view === "menu" && canManageStore && <MenuManagement categories={categories} categoryName={categoryName} setCategoryName={setCategoryName} addCategory={addCategory} upsertCategory={upsertCategory} />}
       </section>
     </main>
+  );
+}
+
+function StoreStatusButtons({ store, updateStore }: { store?: Store; updateStore: (patch: Partial<Store>) => void }) {
+  return (
+    <>
+      <button onClick={() => updateStore({ isOpen: true, orderStatus: "open", temporaryNotice: "" })} className={`rounded-lg px-4 py-3 font-black text-white ${store?.isOpen && store.orderStatus !== "paused" ? "bg-leaf" : "bg-stone-400"}`}>營業中</button>
+      <button onClick={() => updateStore({ isOpen: true, orderStatus: "paused", temporaryNotice: "目前暫停接單，請稍候再試" })} className={`rounded-lg px-4 py-3 font-black ${store?.orderStatus === "paused" ? "bg-amber-400 text-ink" : "bg-amber-100 text-amber-700"}`}>暫停接單</button>
+      <button onClick={() => updateStore({ isOpen: false, orderStatus: "closed" })} className={`rounded-lg px-4 py-3 font-black text-white ${store?.isOpen ? "bg-stone-400" : "bg-tomato"}`}>休息中</button>
+    </>
   );
 }
 
@@ -168,51 +138,39 @@ function SidebarItem({ href, icon: Icon, label, active = false }: { href: string
   return <Link href={href} className={`inline-flex items-center gap-3 rounded-lg px-4 py-3 font-black ${active ? "bg-white text-ink" : "text-white/70 hover:bg-white/10"}`}><Icon className="size-5" />{label}</Link>;
 }
 
-function DashboardOverview({
-  store,
-  updateStore,
-  notice,
-  setNotice,
-  saveNotice
-}: {
-  store?: Store;
-  updateStore: (patch: Partial<Store>) => void;
-  notice: string;
-  setNotice: (value: string) => void;
-  saveNotice: () => void;
-}) {
+function DashboardOverview({ store, updateStore, notice, setNotice, saveNotice }: { store?: Store; updateStore: (patch: Partial<Store>) => void; notice: string; setNotice: (value: string) => void; saveNotice: () => void }) {
   return (
     <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_420px]">
       <section className="space-y-5">
         <div className="rounded-lg bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-2xl font-black">後台設定中心</h2>
-              <p className="mt-2 text-sm font-bold leading-6 text-steel">本頁負責店家狀態、營運公告、營業狀態設定；商品、選項、桌號、QR Code 管理請前往各子頁面；每日營運請前往 POS 工作台。</p>
+              <h2 className="text-2xl font-black">店家設定中心</h2>
+              <p className="mt-2 text-sm font-bold leading-6 text-steel">管理店家資料、菜單、商品選項、QR Code、設備設定與營業狀態。</p>
             </div>
             <Link href="/merchant/pos" className="inline-flex items-center justify-center gap-2 rounded-lg bg-ink px-5 py-3 font-black text-white">
               <ShoppingCart className="size-5" />
-              進入 POS 工作台
+              前往 POS 前台
             </Link>
           </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <SettingsCard href="/merchant/menu" title="菜單資訊管理" description="分類、商品、價格、圖片、排序與商品上下架。" />
-          <SettingsCard href="/merchant/options" title="商品選項管理" description="套餐、加購、加料、調味、飲料補差價與多層子選項。" />
+          <SettingsCard href="/merchant/menu" title="菜單管理" description="管理分類、商品排序、上下架與菜單預覽。" />
+          <SettingsCard href="/merchant/options" title="商品選項管理" description="管理套餐、加購、加料、調味與飲料補差價。" />
           <SettingsCard href="/merchant/qr" title="線上點餐 QR Code" description="管理外帶點餐連結、內用桌號 QR Code、QR Code 預覽與下載。" />
-          <SettingsCard href="/merchant/devices" title="設備與列印設定" description="管理出單機、標籤機、電子發票機、列印分類與測試單。" />
+          <SettingsCard href="/merchant/devices" title="設備與列印設定" description="管理出單機、標籤機、列印站點與列印模板。" />
         </div>
 
         <div className="rounded-lg bg-white p-5 shadow-sm">
           <h2 className="text-2xl font-black">營業狀態設定</h2>
           <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <button onClick={() => updateStore({ isOpen: true, temporaryNotice: "" })} className={`rounded-lg px-4 py-4 font-black ${store?.isOpen ? "bg-leaf text-white" : "bg-stone-100 text-steel"}`}>營業中</button>
-            <button onClick={() => updateStore({ isOpen: true, temporaryNotice: "目前暫停接單，請稍候。" })} className="rounded-lg bg-amber-100 px-4 py-4 font-black text-amber-700">暫停接單</button>
-            <button onClick={() => updateStore({ isOpen: false })} className={`rounded-lg px-4 py-4 font-black ${store?.isOpen ? "bg-stone-100 text-steel" : "bg-tomato text-white"}`}>休息中</button>
+            <button onClick={() => updateStore({ isOpen: true, orderStatus: "open", temporaryNotice: "" })} className={`rounded-lg px-4 py-4 font-black ${store?.isOpen && store.orderStatus !== "paused" ? "bg-leaf text-white" : "bg-stone-100 text-steel"}`}>營業中</button>
+            <button onClick={() => updateStore({ isOpen: true, orderStatus: "paused", temporaryNotice: "目前暫停接單，請稍候再試" })} className={`rounded-lg px-4 py-4 font-black ${store?.orderStatus === "paused" ? "bg-amber-400 text-ink" : "bg-amber-100 text-amber-700"}`}>暫停接單</button>
+            <button onClick={() => updateStore({ isOpen: false, orderStatus: "closed" })} className={`rounded-lg px-4 py-4 font-black ${store?.isOpen ? "bg-stone-100 text-steel" : "bg-tomato text-white"}`}>休息中</button>
           </div>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-            <input value={notice} onChange={(event) => setNotice(event.target.value)} placeholder="例如：奶茶售完、餐點需等 15 分鐘" className="min-w-0 flex-1 rounded-lg border border-orange-100 px-4 py-3 font-bold" />
+            <input value={notice} onChange={(event) => setNotice(event.target.value)} placeholder="例如：現場客滿，餐點需等候 15 分鐘" className="min-w-0 flex-1 rounded-lg border border-orange-100 px-4 py-3 font-bold" />
             <button onClick={saveNotice} className="rounded-lg bg-ink px-5 py-3 font-black text-white">發布臨時公告</button>
           </div>
         </div>
@@ -220,12 +178,12 @@ function DashboardOverview({
 
       <aside className="space-y-5">
         <div className="rounded-lg bg-white p-5 shadow-sm">
-          <h2 className="text-2xl font-black">管理功能</h2>
+          <h2 className="text-2xl font-black">設定項目</h2>
           <div className="mt-4 grid gap-2 text-sm font-bold text-steel">
-            <p className="rounded-lg bg-orange-50 px-3 py-2">菜單資訊管理</p>
-            <p className="rounded-lg bg-orange-50 px-3 py-2">商品選項管理</p>
-            <p className="rounded-lg bg-orange-50 px-3 py-2">QR Code 產出</p>
-            <p className="rounded-lg bg-orange-50 px-3 py-2">桌號設定</p>
+            <p className="rounded-lg bg-orange-50 px-3 py-2">菜單與商品</p>
+            <p className="rounded-lg bg-orange-50 px-3 py-2">商品選項</p>
+            <p className="rounded-lg bg-orange-50 px-3 py-2">QR Code</p>
+            <p className="rounded-lg bg-orange-50 px-3 py-2">設備與列印</p>
             <p className="rounded-lg bg-orange-50 px-3 py-2">店家設定</p>
           </div>
         </div>
@@ -234,50 +192,30 @@ function DashboardOverview({
   );
 }
 
-function MenuManagement({
-  categories,
-  categoryName,
-  setCategoryName,
-  addCategory,
-  upsertCategory
-}: {
-  categories: Category[];
-  categoryName: string;
-  setCategoryName: (value: string) => void;
-  addCategory: () => void;
-  upsertCategory: (category: Category) => void;
-}) {
+function MenuManagement({ categories, categoryName, setCategoryName, addCategory, upsertCategory }: { categories: Category[]; categoryName: string; setCategoryName: (value: string) => void; addCategory: () => void; upsertCategory: (category: Category) => void }) {
   return (
     <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_360px]">
-      <section className="space-y-5">
-        <div className="rounded-lg bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-2xl font-black">菜單管理概覽</h2>
-              <p className="mt-2 text-sm font-bold leading-6 text-steel">分類、商品、商品上下架和排序設定；商品選項（套餐、加購、加料）的設定請前往「商品選項管理」頁面。</p>
-            </div>
-            <Link href="/merchant/options" className="inline-flex items-center justify-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white">
-              <Plus className="size-5" />
-              管理商品選項
-            </Link>
-          </div>
-        </div>
+      <section className="rounded-lg bg-white p-5 shadow-sm">
+        <h2 className="text-2xl font-black">菜單管理概覽</h2>
+        <p className="mt-2 text-sm font-bold leading-6 text-steel">管理分類、商品排序、商品上下架與菜單預覽；商品選項請前往商品選項管理。</p>
+        <Link href="/merchant/options" className="mt-5 inline-flex items-center justify-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white">
+          <Plus className="size-5" />
+          前往商品選項管理
+        </Link>
       </section>
 
-      <aside className="space-y-5">
-        <div className="rounded-lg bg-white p-5 shadow-sm">
-          <h2 className="text-2xl font-black">分類管理</h2>
-          <div className="mt-4 flex gap-2">
-            <input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} placeholder="新增分類" className="min-w-0 flex-1 rounded-lg border border-orange-100 px-4 py-3 font-bold" />
-            <button onClick={addCategory} className="rounded-lg bg-ink px-4 py-3 font-black text-white">新增</button>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {categories.map((category) => (
-              <button key={category.id} onClick={() => upsertCategory({ ...category, isActive: !category.isActive })} className={`rounded-lg px-4 py-3 font-black ${category.isActive ? "bg-leaf/10 text-leaf" : "bg-stone-100 text-stone-400"}`}>
-                {category.name}
-              </button>
-            ))}
-          </div>
+      <aside className="rounded-lg bg-white p-5 shadow-sm">
+        <h2 className="text-2xl font-black">分類管理</h2>
+        <div className="mt-4 flex gap-2">
+          <input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} placeholder="新增分類" className="min-w-0 flex-1 rounded-lg border border-orange-100 px-4 py-3 font-bold" />
+          <button onClick={addCategory} className="rounded-lg bg-ink px-4 py-3 font-black text-white">新增</button>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {categories.map((category) => (
+            <button key={category.id} onClick={() => upsertCategory({ ...category, isActive: !category.isActive })} className={`rounded-lg px-4 py-3 font-black ${category.isActive ? "bg-leaf/10 text-leaf" : "bg-stone-100 text-stone-400"}`}>
+              {category.name}
+            </button>
+          ))}
         </div>
       </aside>
     </div>

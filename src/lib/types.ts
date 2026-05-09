@@ -1,5 +1,6 @@
 export type OrderStatus = "pending" | "waiting" | "unprocessed" | "accepted" | "cooking" | "preparing" | "ready" | "completed" | "cancelled";
 export type OrderMode = "dine-in" | "takeout";
+export type StoreOrderStatus = "open" | "paused" | "closed";
 export type StoreMemberRole = "owner" | "manager" | "staff" | "viewer";
 export type UserRole = "user" | "merchant" | "kitchen" | "admin" | StoreMemberRole;
 export type StoreType = "breakfast" | "drink" | "snack" | "hotpot";
@@ -51,6 +52,7 @@ export type Store = {
   ownerId?: string;
   storeType?: StoreType;
   isOpen: boolean;
+  orderStatus?: StoreOrderStatus;
   peakMode?: boolean;
   demoBreakfastMenuImported?: boolean;
   temporaryNotice?: string;
@@ -162,7 +164,7 @@ export type Product = {
   isAvailable: boolean;
   isSoldOut: boolean;
   sort: number;
-  options: ProductOption[];
+  options?: ProductOption[];
   optionGroups?: ProductOptionGroup[];
 };
 
@@ -274,6 +276,7 @@ export type Order = {
   status: OrderStatus;
   source: "qr" | "pos";
   rejectReason?: string;
+  cancelReason?: string;
   total: number;
   totalAmount?: number;
   createdAt: string;
@@ -293,6 +296,7 @@ export type DemoDatabase = {
   categories: Category[];
   products: Product[];
   orders: Order[];
+  cashFlows?: CashFlow[];
   optionGroups?: ProductOptionGroup[];
   optionItems?: OptionItem[];
   bundleGroups?: BundleGroup[];
@@ -300,4 +304,17 @@ export type DemoDatabase = {
   tables?: Table[];
   dailySalesSummaries?: DailySalesSummary[];
   devices?: Device[];
+};
+
+export type CashFlowType = "income" | "expense";
+
+export type CashFlow = {
+  id: string;
+  storeId: string;
+  type: CashFlowType;
+  amount: number;
+  category: string;
+  note: string;
+  createdAt: string;
+  createdBy?: string;
 };

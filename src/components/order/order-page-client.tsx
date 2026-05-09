@@ -45,6 +45,10 @@ function customerStatusMessage(status: OrderStatus, rejectReason?: string) {
   return "等待店家接單";
 }
 
+function storePaused(store?: { isOpen: boolean; orderStatus?: string; temporaryNotice?: string }) {
+  return Boolean(store?.isOpen && (store.orderStatus === "paused" || store.temporaryNotice?.includes("暫停接單")));
+}
+
 export function OrderPageClient({ storeId, tableId, orderType }: { storeId: string; tableId?: string; orderType?: OrderMode }) {
   const [customerSessionId] = useState(() => {
     if (typeof window === "undefined") return "";
@@ -75,6 +79,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
 
   const store = db.stores.find((item) => item.id === storeId);
   const announcement = (store?.temporaryNotice || store?.notice || "").trim();
+  const isPaused = storePaused(store);
   const lastOrder = liveOrder ?? submittedOrder ?? (lastOrderId ? db.orders.find((order) => order.id === lastOrderId) ?? null : null);
   const categories = db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort);
   const products = db.products
@@ -126,6 +131,10 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
   async function submitOrder() {
     if (cart.length === 0 || !store?.isOpen || isSubmitting) return;
     setSubmitError("");
+    if (isPaused) {
+      setSubmitError("目前暫停接單，請稍候再試");
+      return;
+    }
     setIsSubmitting(true);
     try {
       const tableValue = mode === "takeout" ? "外帶" : tableId ?? tableNo;
@@ -194,7 +203,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
           </Link>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-black text-ink sm:text-xl">{store.name}</p>
-            <p className={`text-xs font-black sm:text-sm ${store.isOpen ? "text-leaf" : "text-tomato"}`}>{store.isOpen ? "營業中" : "休息中"}</p>
+            <p className={`text-xs font-black sm:text-sm ${store.isOpen && !isPaused ? "text-leaf" : "text-tomato"}`}>{!store.isOpen ? "休息中" : isPaused ? "暫停接單" : "營業中"}</p>
           </div>
           <div className="shrink-0 rounded-lg bg-tomato px-2 py-1 text-xs font-black text-white sm:px-4 sm:py-3 sm:text-base">{mode === "takeout" ? "外帶" : `${tableId ?? tableNo} 桌`}</div>
         </div>
@@ -238,7 +247,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
                 <div className="min-w-0 flex-1">
                   <p className={`flex items-center gap-2 text-sm font-black sm:text-base ${lastOrder.status === "cancelled" ? "text-tomato" : "text-leaf"}`}>
                     <CheckCircle2 className="size-4 shrink-0 sm:size-5" />
-                    {customerStatusMessage(lastOrder.status, lastOrder.rejectReason)}
+                    {customerStatusMessage(lastOrder.status, lastOrder.cancelReason ?? lastOrder.rejectReason)}
                   </p>
                   <p className="mt-2 text-3xl font-black text-ink sm:text-4xl">取餐號 {lastOrder.pickupNumber}</p>
                   <p className="mt-1 font-mono text-xs font-bold text-steel">訂單編號 {lastOrder.orderNumber}</p>

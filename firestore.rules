@@ -81,8 +81,16 @@ service cloud.firestore {
         && ((userStoreId() == storeId && role() in ["merchant", "kitchen", "owner", "manager", "staff"]) || membershipRole(storeId) in ["owner", "manager", "staff"]);
     }
 
+    function canViewStoreData(storeId) {
+      return isAdmin() || canHandleOrders(storeId) || membershipRole(storeId) == "viewer";
+    }
+
+    function canWriteCashFlow(storeId) {
+      return isAdmin() || membershipRole(storeId) in ["owner", "manager", "staff"];
+    }
+
     function validOrderStatusUpdate() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "rejectReason"])
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "rejectReason", "cancelReason"])
         && request.resource.data.status in ["pending", "waiting", "unprocessed", "accepted", "cooking", "preparing", "ready", "completed", "cancelled"];
     }
 
@@ -141,7 +149,13 @@ service cloud.firestore {
     function validQrOrderCreate() {
       return validOrderCreateCommon()
         && request.resource.data.source == "qr"
-        && request.resource.data.status == "pending"
+        && (
+          request.resource.data.status == "pending"
+          || (
+            request.resource.data.status == "cancelled"
+            && request.resource.data.cancelReason is string
+          )
+        )
         && request.resource.data.customerSessionId is string;
     }
 
@@ -164,7 +178,7 @@ service cloud.firestore {
       allow get: if true;
       allow list: if isAdmin();
       allow create: if isAdmin();
-      allow update: if isAdmin();
+      allow update: if isAdmin() || canManageStore(storeId);
       allow delete: if isAdmin();
     }
 
@@ -196,6 +210,18 @@ service cloud.firestore {
       allow read: if true;
       allow create: if request.resource.data.storeId is string
         && (isAdmin() || membershipRole(request.resource.data.storeId) in ["owner", "manager"]);
+      allow update, delete: if resource.data.storeId is string
+        && (isAdmin() || membershipRole(resource.data.storeId) in ["owner", "manager"]);
+    }
+
+    match /cashFlows/{cashFlowId} {
+      allow read: if resource.data.storeId is string && canViewStoreData(resource.data.storeId);
+      allow create: if request.resource.data.storeId is string
+        && request.resource.data.type in ["income", "expense"]
+        && request.resource.data.amount is number
+        && request.resource.data.category is string
+        && request.resource.data.createdAt is string
+        && canWriteCashFlow(request.resource.data.storeId);
       allow update, delete: if resource.data.storeId is string
         && (isAdmin() || membershipRole(resource.data.storeId) in ["owner", "manager"]);
     }

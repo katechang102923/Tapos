@@ -21,7 +21,7 @@ import { firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { Category, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, StoreMemberRole, Table, User } from "./types";
+import type { CashFlow, Category, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, StoreMemberRole, Table, User } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -76,6 +76,10 @@ function formatOrderNumber(source: "qr" | "pos", sequence: number) {
   return `${source === "pos" ? "P" : "Q"}${String(sequence).padStart(3, "0")}`;
 }
 
+function isStorePaused(store?: Store) {
+  return Boolean(store && store.isOpen && (store.orderStatus === "paused" || store.temporaryNotice?.includes("暫停接單")));
+}
+
 function optionDefaults(product: Product) {
   return legacySelections(product);
 }
@@ -113,7 +117,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
 
     setReady(false);
-    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], devices: [], tables: [] };
+    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], devices: [], tables: [] };
     const commit = () => {
       setDb({ ...next });
       setReady(true);
@@ -141,7 +145,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       handleError
       );
 
-    const collectionNames = skipOrderList ? ["categories", "products", "devices", "tables"] : ["categories", "products", "orders", "devices", "tables"];
+    const collectionNames = skipOrderList ? ["categories", "products", "devices", "tables"] : ["categories", "products", "orders", "cashFlows", "devices", "tables"];
     const unsubscribers = collectionNames.map((collectionName) => {
       const ref = scopedQuery(collectionName, storeId, admin, customerSessionId);
       if (!ref) return () => undefined;
@@ -182,6 +186,11 @@ export function useDemoStore(options: StoreOptions = {}) {
     return db.orders.filter((order) => new Date(order.createdAt).toDateString() === today);
   }, [db.orders]);
 
+  const todayCashFlows = useMemo(() => {
+    const today = new Date().toDateString();
+    return (db.cashFlows ?? []).filter((cashFlow) => cashFlow.storeId === storeId && new Date(cashFlow.createdAt).toDateString() === today);
+  }, [db.cashFlows, storeId]);
+
   function resetDemo() {
     setDb(initialData);
   }
@@ -190,14 +199,19 @@ export function useDemoStore(options: StoreOptions = {}) {
     const now = new Date();
     const createdAt = now.toISOString();
     const source = order.source ?? "qr";
+    const store = db.stores.find((item) => item.id === order.storeId);
+    const paused = source === "qr" && isStorePaused(store);
+    const cancelReason = "店家暫停接單，系統自動拒單";
     const id = useFirestore && firestore ? doc(collection(firestore, "orders")).id : newId("o");
     const buildOrder = (orderNumber: string): Order => ({
       ...order,
       id,
       orderNumber,
       pickupNumber: orderNumber,
-      status: order.status ?? "pending",
+      status: paused ? "cancelled" : order.status ?? "pending",
       source,
+      rejectReason: paused ? "店家暫停接單" : order.rejectReason,
+      cancelReason: paused ? cancelReason : order.cancelReason,
       createdAt,
       updatedAt: createdAt,
       totalAmount: order.total,
@@ -238,6 +252,30 @@ export function useDemoStore(options: StoreOptions = {}) {
       setDb((current) => ({ ...current, orders: [nextOrder, ...current.orders] }));
       return nextOrder;
     }
+  }
+
+  async function createCashFlow(cashFlow: Omit<CashFlow, "id" | "createdAt"> & { id?: string; createdAt?: string }) {
+    const now = new Date().toISOString();
+    const id = cashFlow.id || (useFirestore && firestore ? doc(collection(firestore, "cashFlows")).id : newId("cashflow"));
+    const nextCashFlow: CashFlow = {
+      id,
+      storeId: cashFlow.storeId,
+      type: cashFlow.type,
+      amount: Number(cashFlow.amount),
+      category: cashFlow.category,
+      note: cashFlow.note,
+      createdBy: cashFlow.createdBy,
+      createdAt: cashFlow.createdAt || now
+    };
+
+    if (useFirestore && firestore) {
+      await setDoc(doc(firestore, "cashFlows", id), nextCashFlow);
+      setDb((current) => ({ ...current, cashFlows: [nextCashFlow, ...(current.cashFlows ?? []).filter((item) => item.id !== id)] }));
+      return nextCashFlow;
+    }
+
+    setDb((current) => ({ ...current, cashFlows: [nextCashFlow, ...(current.cashFlows ?? []).filter((item) => item.id !== id)] }));
+    return nextCashFlow;
   }
 
   function updateOrderStatus(orderId: string, status: OrderStatus) {
@@ -718,17 +756,20 @@ export function useDemoStore(options: StoreOptions = {}) {
       ...initialData.stores.map((item) => setDoc(doc(db, "stores", item.id), item, { merge: true })),
       ...initialData.categories.map((item) => setDoc(doc(db, "categories", item.id), item, { merge: true })),
       ...initialData.products.map((item) => setDoc(doc(db, "products", item.id), item, { merge: true })),
-      ...initialData.orders.map((item) => setDoc(doc(db, "orders", item.id), item, { merge: true }))
+      ...initialData.orders.map((item) => setDoc(doc(db, "orders", item.id), item, { merge: true })),
+      ...(initialData.cashFlows ?? []).map((item) => setDoc(doc(db, "cashFlows", item.id), item, { merge: true }))
     ]);
   }
 
   return {
     db,
     todayOrders,
+    todayCashFlows,
     ready,
     error,
     usingFirestore: useFirestore,
     createMockOrder,
+    createCashFlow,
     createOrder,
     deleteProduct,
     deleteStoreCascade,
