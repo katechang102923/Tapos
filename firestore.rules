@@ -192,6 +192,14 @@ service cloud.firestore {
         && (isAdmin() || membershipRole(resource.data.storeId) in ["owner", "manager"]);
     }
 
+    match /tables/{tableId} {
+      allow read: if true;
+      allow create: if request.resource.data.storeId is string
+        && (isAdmin() || membershipRole(request.resource.data.storeId) in ["owner", "manager"]);
+      allow update, delete: if resource.data.storeId is string
+        && (isAdmin() || membershipRole(resource.data.storeId) in ["owner", "manager"]);
+    }
+
     match /orders/{orderId} {
       allow get: if isAdmin() || canHandleOrders(resource.data.storeId) || (resource.data.customerSessionId is string);
       allow list: if isAdmin() || canHandleOrders(resource.data.storeId);

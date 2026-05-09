@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { doc, onSnapshot } from "firebase/firestore";
-import { CheckCircle2, ChevronLeft, Minus, Plus, Search, Send, ShoppingCart } from "lucide-react";
+import { CheckCircle2, ChevronLeft, Megaphone, Minus, Plus, Search, Send, ShoppingCart } from "lucide-react";
 import { ProductOptionModal } from "@/components/product-option-modal";
 import { useDemoStore } from "@/lib/demo-store";
 import { firebaseEnabled, firestore } from "@/lib/firebase";
@@ -46,7 +46,7 @@ function customerStatusMessage(status: OrderStatus, rejectReason?: string) {
   return "等待店家接單";
 }
 
-export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId?: string }) {
+export function OrderPageClient({ storeId, tableId, orderType }: { storeId: string; tableId?: string; orderType?: OrderMode }) {
   const [customerSessionId] = useState(() => {
     if (typeof window === "undefined") return "";
     const key = `qr-order-session-${storeId}`;
@@ -57,7 +57,7 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
     return next;
   });
   const { db, createOrder } = useDemoStore({ storeId, customerSessionId, skipOrderList: true });
-  const [mode, setMode] = useState<OrderMode>(tableId ? "dine-in" : "takeout");
+  const [mode, setMode] = useState<OrderMode>(orderType ?? (tableId ? "dine-in" : "takeout"));
   const [tableNo, setTableNo] = useState(tableId ?? "1");
   const [activeCategory, setActiveCategory] = useState("all");
   const [query, setQuery] = useState("");
@@ -75,6 +75,7 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const store = db.stores.find((item) => item.id === storeId);
+  const announcement = (store?.temporaryNotice || store?.notice || "").trim();
   const lastOrder = liveOrder ?? submittedOrder ?? (lastOrderId ? db.orders.find((order) => order.id === lastOrderId) ?? null : null);
   const categories = db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort);
   const products = db.products
@@ -132,6 +133,10 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
       storeId,
       mode,
       tableNo: mode === "takeout" ? "外帶" : tableId ?? tableNo,
+      customerName: mode === "takeout" ? "外帶" : tableId ?? tableNo,
+      tableName: mode === "takeout" ? "外帶" : tableId ?? tableNo,
+      tableNumber: mode === "takeout" ? "外帶" : tableId ?? tableNo,
+      orderType: mode,
       customerSessionId,
       customerNote,
       total,
@@ -203,9 +208,18 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
               <div className="absolute inset-0 bg-gradient-to-t from-black/75 to-transparent" />
               <div className="absolute inset-x-0 bottom-0 p-3 text-white sm:p-4">
                 <h1 className="text-2xl font-black sm:text-3xl">{store.name}</h1>
-                <p className="mt-1 text-xs font-bold text-white/90 sm:text-sm">{store.temporaryNotice || store.notice || "送出後請等待店家接單"}</p>
+                <p className="mt-1 text-xs font-bold text-white/90 sm:text-sm">送出後請等待店家接單</p>
               </div>
             </div>
+            {announcement && (
+              <div className="m-3 rounded-lg border border-amber-200 border-l-4 border-l-amber-500 bg-amber-50 p-3 text-amber-900 sm:m-4 sm:p-4">
+                <p className="flex items-center gap-2 text-sm font-black sm:text-base">
+                  <Megaphone className="size-5 shrink-0" />
+                  今日公告
+                </p>
+                <p className="mt-2 text-base font-black leading-7 sm:text-xl">{announcement}</p>
+              </div>
+            )}
             <div className="grid gap-2 p-3 sm:grid-cols-[1fr_1fr] sm:gap-3 sm:p-4">
               <div className="grid grid-cols-2 rounded-lg bg-orange-50 p-1">
                 {(["takeout", "dine-in"] as OrderMode[]).map((item) => (

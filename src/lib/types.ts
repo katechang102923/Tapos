@@ -197,11 +197,17 @@ export type OrderItem = {
 export type Table = {
   id: string;
   storeId: string;
-  tableNo: string;
-  name: string;
+  tableNo?: string;
+  name?: string;
+  tableName: string;
+  area?: string;
+  number?: number;
+  enabled: boolean;
   qrUrl: string;
-  isActive: boolean;
+  isActive?: boolean;
   sort: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type DailySalesSummary = {
@@ -261,6 +267,9 @@ export type Order = {
   tableNo: string;
   customerName?: string;
   customerSessionId?: string;
+  orderType?: OrderMode;
+  tableName?: string;
+  tableNumber?: string;
   customerNote: string;
   status: OrderStatus;
   source: "qr" | "pos";
