@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { KitchenBoard } from "@/components/kitchen/kitchen-board";
 import { LoginGate } from "@/components/auth/login-gate";
+import { defaultStoreId } from "@/lib/store-access";
 
 export default function KdsPage() {
   return (
     <LoginGate allowedRoles={["merchant", "kitchen", "admin"]} title="廚房 KDS 登入">
       {({ profile }) => {
-        if (!profile?.storeId) {
+        const storeId = defaultStoreId(profile);
+        if (!storeId) {
           return (
             <main className="grid min-h-screen place-items-center bg-[#111111] p-4 text-white">
               <div className="rounded-lg bg-white p-6 text-ink shadow-soft">
@@ -19,7 +21,7 @@ export default function KdsPage() {
             </main>
           );
         }
-        return <KitchenBoard storeId={profile.storeId} />;
+        return <KitchenBoard storeId={storeId} />;
       }}
     </LoginGate>
   );

@@ -7,6 +7,7 @@ import { LoginGate } from "@/components/auth/login-gate";
 import { StatusPill } from "@/components/status-pill";
 import { useDemoStore } from "@/lib/demo-store";
 import { normalizeSelectedOptions } from "@/lib/product-options";
+import { storeRoleFor } from "@/lib/store-access";
 import type { Order, OrderItem, OrderStatus } from "@/lib/types";
 
 type Station = "all" | "hot" | "drink";
@@ -40,7 +41,8 @@ export function KitchenBoard({ storeId }: { storeId: string }) {
   return (
     <LoginGate allowedRoles={["merchant", "kitchen", "admin"]} title="廚房 KDS 登入">
       {({ profile }) => {
-        if (profile?.role !== "admin" && profile?.storeId !== storeId) {
+        const storeRole = storeRoleFor(profile, storeId);
+        if (!storeRole || !["owner", "manager", "staff"].includes(storeRole)) {
           return (
             <main className="grid min-h-screen place-items-center bg-[#111111] p-4 text-white">
               <div className="rounded-lg bg-white p-6 text-ink shadow-soft">

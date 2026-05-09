@@ -9,7 +9,8 @@ import { StatusPill } from "@/components/status-pill";
 import { useDemoStore } from "@/lib/demo-store";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { normalizeSelectedOptions, selectionsTotal } from "@/lib/product-options";
-import type { Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product } from "@/lib/types";
+import { accessibleStoreIds, canUseStorePos, defaultStoreId, storeRoleFor } from "@/lib/store-access";
+import type { Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, User } from "@/lib/types";
 
 type CartLine = {
   product: Product;
@@ -29,12 +30,51 @@ const orderTabs: Array<{ key: "open" | "pending" | "cooking" | "completed" | "ca
 export default function MerchantPosPage() {
   return (
     <LoginGate allowedRoles={["merchant", "kitchen", "admin"]} title="POS 前台登入">
-      {({ profile }) => <MerchantPosContent storeId={profile?.storeId ?? ""} />}
+      {({ profile }) => <MerchantPosShell profile={profile} />}
     </LoginGate>
   );
 }
 
-function MerchantPosContent({ storeId }: { storeId: string }) {
+function MerchantPosShell({ profile }: { profile: User | null }) {
+  const storeIds = accessibleStoreIds(profile);
+  const [activeStoreId, setActiveStoreId] = useState(defaultStoreId(profile));
+  const selectedStoreId = storeIds.includes(activeStoreId) ? activeStoreId : storeIds[0] ?? "";
+
+  if (selectedStoreId && !canUseStorePos(profile, selectedStoreId)) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4">
+        <div className="rounded-lg bg-white p-6 shadow-soft">
+          <h1 className="text-2xl font-black text-ink">此帳號沒有 POS 工作台權限</h1>
+          <p className="mt-3 text-steel">請平台管理員在多店家管理中將此帳號綁定為 owner、manager 或 staff。</p>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <MerchantPosContent
+      storeId={selectedStoreId}
+      storeIds={storeIds}
+      activeStoreId={selectedStoreId}
+      activeStoreRole={storeRoleFor(profile, selectedStoreId)}
+      onStoreChange={setActiveStoreId}
+    />
+  );
+}
+
+function MerchantPosContent({
+  storeId,
+  storeIds = [],
+  activeStoreId,
+  activeStoreRole,
+  onStoreChange
+}: {
+  storeId: string;
+  storeIds?: string[];
+  activeStoreId?: string;
+  activeStoreRole?: string | null;
+  onStoreChange?: (storeId: string) => void;
+}) {
   const { db, createOrder, todayOrders, updateOrderStatus } = useDemoStore({ storeId });
   const store = db.stores.find((item) => item.id === storeId);
   const categories = useMemo(
@@ -153,6 +193,18 @@ function MerchantPosContent({ storeId }: { storeId: string }) {
             <p className="mt-2 max-w-3xl text-sm font-bold leading-6 text-white/65">接單、處理訂單、查看今日銷售，並保留櫃台快速建立訂單。</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {storeIds.length > 1 && onStoreChange && (
+              <select
+                value={activeStoreId ?? storeId}
+                onChange={(event) => onStoreChange(event.target.value)}
+                className="rounded-lg border border-white/20 bg-white px-4 py-3 font-black text-ink"
+              >
+                {storeIds.map((id) => {
+                  const optionStore = db.stores.find((item) => item.id === id);
+                  return <option key={id} value={id}>{optionStore?.name ?? id}</option>;
+                })}
+              </select>
+            )}
             <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-3 font-black text-ink">
               <ArrowLeft className="size-4" /> 回設定後台
             </Link>

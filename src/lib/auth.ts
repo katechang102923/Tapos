@@ -11,11 +11,11 @@ import {
 import { collection, deleteDoc, doc, getDocFromServer, getDocs, onSnapshot, query, setDoc, where, type DocumentSnapshot } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { auth, firebaseEnabled, firestore } from "./firebase";
+import { isPlatformAdminEmail, platformAdminEmail } from "./store-access";
 import type { StoreMemberRole, User, UserRole } from "./types";
 
 const supportedRoles: UserRole[] = ["user", "merchant", "kitchen", "admin", "owner", "manager", "staff", "viewer"];
 const storeRoles: StoreMemberRole[] = ["owner", "manager", "staff", "viewer"];
-const platformAdminEmail = "ciut0000@gmail.com";
 
 function normalizeMemberships(value: unknown): Record<string, StoreMemberRole> {
   if (!value || typeof value !== "object") return {};
@@ -59,21 +59,26 @@ function missingProfileMessage(uid: string) {
   return `找不到 Firestore users/${uid} 使用者資料，請先在 users collection 建立該使用者文件。`;
 }
 
-function adminProfile(uid: string, email = platformAdminEmail, createdAt?: string): User {
+function adminProfile(uid: string, email = platformAdminEmail, data?: Record<string, unknown>): User {
   const now = new Date().toISOString();
+  const memberships = normalizeMemberships(data?.memberships);
+  const normalizedStoreRoles = normalizeMemberships(data?.storeRoles);
+  const explicitStoreIds = Array.isArray(data?.storeIds) ? data.storeIds.filter((item): item is string => typeof item === "string") : [];
+  const legacyStoreId = typeof data?.storeId === "string" ? data.storeId : null;
+  const mergedStoreIds = Array.from(new Set([...explicitStoreIds, ...Object.keys(memberships), ...Object.keys(normalizedStoreRoles), ...(legacyStoreId ? [legacyStoreId] : [])]));
   return {
     id: uid,
     email,
-    name: "Platform Admin",
+    name: typeof data?.name === "string" && data.name ? data.name : "Platform Admin",
     role: "admin",
-    storeId: null,
-    storeIds: [],
-    memberships: {},
-    storeRoles: {},
+    storeId: legacyStoreId ?? mergedStoreIds[0] ?? null,
+    storeIds: mergedStoreIds,
+    memberships,
+    storeRoles: normalizedStoreRoles,
     status: "active",
     approved: true,
     pending: false,
-    createdAt: createdAt ?? now,
+    createdAt: typeof data?.createdAt === "string" ? data.createdAt : now,
     updatedAt: now
   };
 }
@@ -82,9 +87,47 @@ async function ensureFixedAdminUser(uid: string, email: string) {
   if (!firestore) throw new Error("Firebase 尚未設定");
   const userRef = doc(firestore, "users", uid);
   const snapshot = await getDocFromServer(userRef);
-  const existingCreatedAt = snapshot.exists() && typeof snapshot.data().createdAt === "string" ? snapshot.data().createdAt as string : undefined;
-  const profile = adminProfile(uid, email, existingCreatedAt);
-  await setDoc(userRef, profile, { merge: true });
+  const existingData = snapshot.exists() ? snapshot.data() : {};
+  const bindingSnapshots = await Promise.all([
+    getDocs(query(collection(firestore, "storeUserBindings"), where("email", "==", email.toLowerCase()))),
+    getDocs(query(collection(firestore, "storeUsers"), where("email", "==", email.toLowerCase())))
+  ]);
+  const bindingRoles = bindingSnapshots.flatMap((result) => result.docs).reduce<Record<string, StoreMemberRole>>((roles, item) => {
+    const data = item.data();
+    const storeId = typeof data.storeId === "string" ? data.storeId : "";
+    const memberRole = typeof data.storeRole === "string" ? data.storeRole : typeof data.role === "string" ? data.role : "";
+    if (storeId && storeRoles.includes(memberRole as StoreMemberRole)) {
+      roles[storeId] = memberRole as StoreMemberRole;
+    }
+    return roles;
+  }, {});
+  const existingMemberships = normalizeMemberships(existingData.memberships);
+  const existingStoreRoles = normalizeMemberships(existingData.storeRoles);
+  const mergedStoreRoles = { ...bindingRoles, ...existingMemberships, ...existingStoreRoles };
+  const existingStoreIds = Array.isArray(existingData.storeIds) ? existingData.storeIds.filter((item): item is string => typeof item === "string") : [];
+  const mergedStoreIds = Array.from(new Set([...existingStoreIds, ...Object.keys(mergedStoreRoles), ...(typeof existingData.storeId === "string" ? [existingData.storeId] : [])]));
+  const profile = adminProfile(uid, email, {
+    ...existingData,
+    storeId: typeof existingData.storeId === "string" ? existingData.storeId : mergedStoreIds[0] ?? null,
+    storeIds: mergedStoreIds,
+    memberships: mergedStoreRoles,
+    storeRoles: mergedStoreRoles
+  });
+  await setDoc(userRef, {
+    id: uid,
+    email,
+    name: profile.name,
+    role: "admin",
+    storeId: profile.storeId,
+    storeIds: profile.storeIds,
+    memberships: profile.memberships,
+    storeRoles: profile.storeRoles,
+    status: "active",
+    approved: true,
+    pending: false,
+    createdAt: profile.createdAt,
+    updatedAt: profile.updatedAt
+  }, { merge: true });
   return profile;
 }
 
@@ -128,7 +171,7 @@ export function useAuthState(): AuthState {
 
       setLoading(true);
       const userRef = doc(db, "users", user.uid);
-      const isFixedAdmin = user.email?.toLowerCase() === platformAdminEmail;
+      const isFixedAdmin = isPlatformAdminEmail(user.email);
 
       if (isFixedAdmin) {
         ensureFixedAdminUser(user.uid, user.email ?? platformAdminEmail)
@@ -165,8 +208,12 @@ export function useAuthState(): AuthState {
         (snapshot) => {
           if (!active) return;
           if (isFixedAdmin) {
-            const data = snapshot.exists() ? snapshot.data() : {};
-            setProfile(adminProfile(user.uid, user.email ?? platformAdminEmail, typeof data.createdAt === "string" ? data.createdAt : undefined));
+            const nextProfile = profileFromSnapshot(snapshot);
+            if (nextProfile) {
+              setProfile(adminProfile(user.uid, user.email ?? platformAdminEmail, nextProfile as unknown as Record<string, unknown>));
+            } else {
+              setProfile(adminProfile(user.uid, user.email ?? platformAdminEmail));
+            }
             setError("");
             setLoading(false);
             return;
@@ -209,13 +256,13 @@ export function useAuthState(): AuthState {
     const defaultStoreId = typeof pendingData?.storeId === "string" ? pendingData.storeId : storeIds[0] ?? null;
     const pendingRole = typeof pendingData?.role === "string" && supportedRoles.includes(pendingData.role as UserRole) ? pendingData.role as UserRole : "user";
     const now = new Date().toISOString();
-    const isFixedAdmin = email.trim().toLowerCase() === platformAdminEmail;
+    const isFixedAdmin = isPlatformAdminEmail(email);
     await setDoc(doc(firestore, "users", credential.user.uid), {
       id: credential.user.uid,
-      storeId: isFixedAdmin ? null : defaultStoreId,
-      storeIds: isFixedAdmin ? [] : storeIds,
-      memberships: isFixedAdmin ? {} : mergedStoreRoles,
-      storeRoles: isFixedAdmin ? {} : mergedStoreRoles,
+      storeId: defaultStoreId,
+      storeIds,
+      memberships: mergedStoreRoles,
+      storeRoles: mergedStoreRoles,
       name,
       email,
       role: isFixedAdmin ? "admin" : (Object.keys(mergedStoreRoles).length ? platformRoleFromStoreRoles(mergedStoreRoles) : pendingRole),

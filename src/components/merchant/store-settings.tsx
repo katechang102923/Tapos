@@ -5,11 +5,12 @@ import { ArrowLeft, Save } from "lucide-react";
 import { useEffect, useState } from "react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
+import { defaultStoreId } from "@/lib/store-access";
 
 export function StoreSettings() {
   return (
     <LoginGate allowedRoles={["merchant", "admin"]} title="店家設定">
-      {({ profile }) => <StoreSettingsContent storeId={profile?.storeId ?? ""} />}
+      {({ profile }) => <StoreSettingsContent storeId={defaultStoreId(profile)} />}
     </LoginGate>
   );
 }

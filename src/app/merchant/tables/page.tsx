@@ -5,11 +5,12 @@ import { ArrowLeft, Copy, Download, ExternalLink, QrCode } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { getAppUrl } from "@/lib/app-url";
+import { defaultStoreId } from "@/lib/store-access";
 
 export default function MerchantTablesPage() {
   return (
     <LoginGate allowedRoles={["merchant", "admin"]} title="桌號設定登入">
-      {({ profile }) => <MerchantTablesContent storeId={profile?.storeId ?? ""} />}
+      {({ profile }) => <MerchantTablesContent storeId={defaultStoreId(profile)} />}
     </LoginGate>
   );
 }

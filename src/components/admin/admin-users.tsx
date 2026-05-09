@@ -8,15 +8,15 @@ import { LoginGate } from "@/components/auth/login-gate";
 import { firestore } from "@/lib/firebase";
 import type { User, UserRole } from "@/lib/types";
 
-const roleOptions: UserRole[] = ["user", "owner", "manager", "staff", "viewer", "merchant", "kitchen", "admin"];
+const roleOptions: UserRole[] = ["user", "merchant", "kitchen", "admin", "owner", "manager", "staff", "viewer"];
 
 function editableRole(role: UserRole) {
-  return roleOptions.includes(role) ? role : "merchant";
+  return roleOptions.includes(role) ? role : "user";
 }
 
 export function AdminUsers() {
   return (
-    <LoginGate allowedRoles={["admin"]} title="管理員登入">
+    <LoginGate allowedRoles={["admin"]} title="平台管理中心登入">
       {() => <AdminUsersContent />}
     </LoginGate>
   );
@@ -54,19 +54,6 @@ function AdminUsersContent() {
     );
   }, []);
 
-  async function changeRole(userId: string, role: UserRole) {
-    if (!firestore) return;
-    setSavingId(userId);
-    setError("");
-    try {
-      await updateDoc(doc(firestore, "users", userId), { role, updatedAt: new Date().toISOString() });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "更新角色失敗");
-    } finally {
-      setSavingId("");
-    }
-  }
-
   async function approveUser(user: User) {
     if (!firestore) return;
     setSavingId(user.id);
@@ -93,10 +80,24 @@ function AdminUsersContent() {
       await updateDoc(doc(firestore, "users", user.id), {
         approved: false,
         status: "rejected",
+        pending: false,
         updatedAt: new Date().toISOString()
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "拒絕帳號失敗");
+    } finally {
+      setSavingId("");
+    }
+  }
+
+  async function changeRole(userId: string, role: UserRole) {
+    if (!firestore) return;
+    setSavingId(userId);
+    setError("");
+    try {
+      await updateDoc(doc(firestore, "users", userId), { role, updatedAt: new Date().toISOString() });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新角色失敗");
     } finally {
       setSavingId("");
     }
@@ -117,7 +118,7 @@ function AdminUsersContent() {
 
     try {
       const snapshot = value.includes("@")
-        ? await getDocs(query(collection(firestore, "users"), where("email", "==", value), limit(1)))
+        ? await getDocs(query(collection(firestore, "users"), where("email", "==", value.toLowerCase()), limit(1)))
         : await getDoc(doc(firestore, "users", value));
 
       const foundUser = "docs" in snapshot
@@ -156,9 +157,9 @@ function AdminUsersContent() {
         updatedAt: new Date().toISOString()
       });
       setLookupUser({ ...lookupUser, role: lookupRole, storeId: lookupStoreId.trim() || null });
-      setLookupMessage("已更新使用者權限");
+      setLookupMessage("已更新使用者");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "儲存使用者失敗");
+      setError(err instanceof Error ? err.message : "更新使用者失敗");
     } finally {
       setSavingId("");
     }
@@ -174,13 +175,13 @@ function AdminUsersContent() {
                 <Users className="size-6" />
               </div>
               <div>
-                <p className="text-sm font-black text-leaf">User Role Management</p>
-                <h1 className="text-3xl font-black text-ink">使用者角色管理</h1>
+                <p className="text-sm font-black text-leaf">使用者權限管理</p>
+                <h1 className="text-3xl font-black text-ink">平台使用者管理</h1>
               </div>
             </div>
             <Link href="/admin" className="inline-flex items-center justify-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white">
               <ArrowLeft className="size-4" />
-              回管理後台
+              回平台管理中心
             </Link>
           </div>
         </header>
@@ -210,18 +211,9 @@ function AdminUsersContent() {
           {lookupUser && (
             <div className="mt-5 rounded-lg border border-stone-200 bg-stone-50 p-4">
               <div className="grid gap-3 text-sm font-bold text-steel md:grid-cols-2 xl:grid-cols-5">
-                <div>
-                  <p className="text-xs font-black uppercase text-stone-400">Email</p>
-                  <p className="mt-1 break-all text-ink">{lookupUser.email || "-"}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-black uppercase text-stone-400">Name</p>
-                  <p className="mt-1 text-ink">{lookupUser.name || "-"}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-black uppercase text-stone-400">UID</p>
-                  <p className="mt-1 break-all font-mono text-xs text-ink">{lookupUser.id}</p>
-                </div>
+                <Info label="Email" value={lookupUser.email || "-"} mono={false} />
+                <Info label="Name" value={lookupUser.name || "-"} mono={false} />
+                <Info label="UID" value={lookupUser.id} />
                 <label className="grid gap-1">
                   <span className="text-xs font-black uppercase text-stone-400">Role</span>
                   <select
@@ -229,11 +221,7 @@ function AdminUsersContent() {
                     onChange={(event) => setLookupRole(event.target.value as UserRole)}
                     className="rounded-lg border border-stone-300 bg-white px-3 py-2 font-black text-steel outline-none focus:border-leaf focus:ring-2 focus:ring-leaf/20"
                   >
-                    {roleOptions.map((role) => (
-                      <option key={role} value={role}>
-                        {role}
-                      </option>
-                    ))}
+                    {roleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
                   </select>
                 </label>
                 <label className="grid gap-1">
@@ -247,11 +235,7 @@ function AdminUsersContent() {
                 </label>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-3">
-                <button
-                  onClick={saveLookupUser}
-                  disabled={savingId === lookupUser.id}
-                  className="rounded-lg bg-leaf px-4 py-3 font-black text-white disabled:opacity-60"
-                >
+                <button onClick={saveLookupUser} disabled={savingId === lookupUser.id} className="rounded-lg bg-leaf px-4 py-3 font-black text-white disabled:opacity-60">
                   {savingId === lookupUser.id ? "儲存中..." : "儲存"}
                 </button>
                 {lookupMessage && <p className="font-bold text-leaf">{lookupMessage}</p>}
@@ -264,7 +248,7 @@ function AdminUsersContent() {
           <div className="border-b border-stone-200 p-5">
             <div className="flex items-center gap-2 text-sm font-black text-steel">
               <ShieldCheck className="size-4 text-leaf" />
-              Role changes are saved to Firestore in realtime.
+              權限變更會即時寫入 Firestore。
             </div>
             {error && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-sm font-bold text-tomato">{error}</p>}
           </div>
@@ -279,8 +263,9 @@ function AdminUsersContent() {
                     <th className="px-5 py-4">姓名</th>
                     <th className="px-5 py-4">Email</th>
                     <th className="px-5 py-4">Store ID</th>
-                    <th className="px-5 py-4">目前角色</th>
-                    <th className="px-5 py-4">修改角色</th>
+                    <th className="px-5 py-4">狀態</th>
+                    <th className="px-5 py-4">角色</th>
+                    <th className="px-5 py-4">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
@@ -290,8 +275,12 @@ function AdminUsersContent() {
                       <td className="px-5 py-4">{user.email}</td>
                       <td className="px-5 py-4 font-mono text-xs text-steel">{user.storeId || "-"}</td>
                       <td className="px-5 py-4">
-                        <span className={`rounded-full px-3 py-1 text-xs font-black ${user.status === "active" ? "bg-leaf/10 text-leaf" : user.status === "rejected" ? "bg-tomato/10 text-tomato" : "bg-amber-100 text-amber-700"}`}>
-                          {user.status ?? "pending"} / {user.approved ? "approved" : "not approved"}
+                        <span className={`rounded-full px-3 py-1 text-xs font-black ${
+                          user.status === "active" ? "bg-leaf/10 text-leaf" :
+                          user.status === "rejected" ? "bg-tomato/10 text-tomato" :
+                          "bg-amber-100 text-amber-700"
+                        }`}>
+                          {user.status ?? "pending"}
                         </span>
                       </td>
                       <td className="px-5 py-4">
@@ -299,20 +288,16 @@ function AdminUsersContent() {
                       </td>
                       <td className="px-5 py-4">
                         <div className="flex flex-wrap gap-2">
-                        <select
-                          value={editableRole(user.role)}
-                          disabled={savingId === user.id}
-                          onChange={(event) => changeRole(user.id, event.target.value as UserRole)}
-                          className="rounded-lg border border-stone-300 bg-white px-3 py-2 font-black text-steel outline-none focus:border-leaf focus:ring-2 focus:ring-leaf/20 disabled:opacity-60"
-                        >
-                          {roleOptions.map((role) => (
-                            <option key={role} value={role}>
-                              {role}
-                            </option>
-                          ))}
-                        </select>
-                          <button onClick={() => approveUser(user)} disabled={savingId === user.id || user.role === "admin"} className="rounded-lg bg-leaf px-3 py-2 font-black text-white disabled:opacity-50">核准</button>
-                          <button onClick={() => rejectUser(user)} disabled={savingId === user.id || user.role === "admin"} className="rounded-lg bg-tomato px-3 py-2 font-black text-white disabled:opacity-50">拒絕</button>
+                          <select
+                            value={editableRole(user.role)}
+                            onChange={(event) => changeRole(user.id, event.target.value as UserRole)}
+                            disabled={savingId === user.id}
+                            className="rounded-lg border border-stone-300 bg-white px-2 py-1 text-xs font-bold text-steel outline-none focus:border-leaf focus:ring-2 focus:ring-leaf/20"
+                          >
+                            {roleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
+                          </select>
+                          <button onClick={() => approveUser(user)} disabled={savingId === user.id || user.role === "admin"} className="rounded-lg bg-leaf px-3 py-1 text-xs font-black text-white disabled:opacity-50">核准</button>
+                          <button onClick={() => rejectUser(user)} disabled={savingId === user.id || user.role === "admin"} className="rounded-lg bg-tomato px-3 py-1 text-xs font-black text-white disabled:opacity-50">拒絕</button>
                         </div>
                       </td>
                     </tr>
@@ -324,5 +309,14 @@ function AdminUsersContent() {
         </section>
       </div>
     </main>
+  );
+}
+
+function Info({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div>
+      <p className="text-xs font-black uppercase text-stone-400">{label}</p>
+      <p className={`mt-1 break-all text-ink ${mono ? "font-mono text-xs" : ""}`}>{value}</p>
+    </div>
   );
 }

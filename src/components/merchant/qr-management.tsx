@@ -5,11 +5,12 @@ import { ArrowLeft, Copy, Download, ExternalLink, QrCode } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { getAppUrl } from "@/lib/app-url";
 import { useDemoStore } from "@/lib/demo-store";
+import { defaultStoreId } from "@/lib/store-access";
 
 export function QrManagement() {
   return (
     <LoginGate allowedRoles={["merchant", "admin"]} title="QR 管理">
-      {({ profile }) => <QrManagementContent storeId={profile?.storeId ?? ""} />}
+      {({ profile }) => <QrManagementContent storeId={defaultStoreId(profile)} />}
     </LoginGate>
   );
 }

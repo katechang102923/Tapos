@@ -5,13 +5,14 @@ import { ArrowLeft, Eye, EyeOff, GripVertical, Layers3, Plus } from "lucide-reac
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
+import { defaultStoreId } from "@/lib/store-access";
 import type { Category } from "@/lib/types";
 import { useState } from "react";
 
 export default function MerchantMenuPage() {
   return (
     <LoginGate allowedRoles={["merchant", "admin"]} title="菜單管理">
-      {({ profile }) => <MerchantMenuContent storeId={profile?.storeId ?? ""} />}
+      {({ profile }) => <MerchantMenuContent storeId={defaultStoreId(profile)} />}
     </LoginGate>
   );
 }

@@ -5,28 +5,77 @@ import Link from "next/link";
 import { LayoutDashboard, Menu as MenuIcon, Plus, Power, PowerOff, QrCode, ReceiptText, Settings, ShoppingCart, Table2, Flame } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
-import type { Category, Store, UserRole } from "@/lib/types";
+import { accessibleStoreIds, defaultStoreId } from "@/lib/store-access";
+import type { Category, Store, UserRole, User } from "@/lib/types";
 
 type MerchantView = "dashboard" | "menu";
 
 export function MerchantDashboard({ view = "dashboard" }: { view?: MerchantView }) {
   return (
-    <LoginGate allowedRoles={["merchant", "admin"]} title="店家後台登入">
-      {({ profile, signOutUser }) => <MerchantDashboardContent role={profile?.role ?? "user"} storeId={profile?.storeId ?? ""} view={view} onSignOut={signOutUser} />}
+    <LoginGate allowedRoles={["merchant", "admin", "owner", "manager", "staff", "viewer"]} title="店家後台登入">
+      {({ profile, signOutUser }) => {
+        if (profile?.status === "pending" || profile?.status === "rejected") {
+          return (
+            <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4">
+              <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-soft">
+                <div className="grid size-12 place-items-center rounded-lg bg-amber-100 text-amber-700">
+                  <QrCode className="size-6" />
+                </div>
+                <h1 className="mt-4 text-3xl font-black text-ink">
+                  {profile.status === "rejected" ? "帳號已被拒絕" : "等待管理員審核"}
+                </h1>
+                <p className="mt-2 text-sm font-semibold text-steel">
+                  {profile.status === "rejected"
+                    ? "您的帳號註冊已被管理員拒絕。如有疑問請聯繫管理員。"
+                    : "您的帳號已提交審核，管理員將盡快處理。請耐心等候。"
+                  }
+                </p>
+                <p className="mt-3 text-xs text-steel">
+                  審核通過後，您將可以管理店家並開始使用系統。
+                </p>
+                <button onClick={signOutUser} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white">
+                  <Power className="size-4" />
+                  登出
+                </button>
+              </div>
+            </main>
+          );
+        }
+        const hasStoreAccess = accessibleStoreIds(profile).length > 0;
+        if (!hasStoreAccess) {
+          return (
+            <main className="grid min-h-screen place-items-center bg-[#fff7e8] p-4">
+              <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-soft">
+                <p className="text-sm font-black text-leaf">尚未綁定店家</p>
+                <h1 className="mt-2 text-3xl font-black text-ink">請先完成店家設定</h1>
+                <p className="mt-3 leading-7 text-steel">您需要被管理員綁定到店家後才能使用 POS 系統。</p>
+                <button onClick={signOutUser} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-ink px-5 py-3 font-black text-white">
+                  <Power className="size-4" />
+                  登出
+                </button>
+              </div>
+            </main>
+          );
+        }
+        if (!profile) return null;
+        return <MerchantDashboardContent role={profile.role} profile={profile} view={view} onSignOut={signOutUser} />;
+      }}
     </LoginGate>
   );
 }
 
-function MerchantDashboardContent({ storeId, role, view, onSignOut }: { storeId: string; role: UserRole; view: MerchantView; onSignOut: () => Promise<void> }) {
-  const { db, upsertCategory, upsertStore } = useDemoStore({ storeId, skipOrderList: true });
+function MerchantDashboardContent({ profile, role, view, onSignOut }: { profile: User; role: UserRole; view: MerchantView; onSignOut: () => Promise<void> }) {
+  const storeIds = accessibleStoreIds(profile);
+  const [selectedStoreId, setSelectedStoreId] = useState(defaultStoreId(profile));
+  const { db, upsertCategory, upsertStore } = useDemoStore({ storeId: selectedStoreId, skipOrderList: true });
   const [categoryName, setCategoryName] = useState("");
   const [notice, setNotice] = useState("");
 
-  const store = db.stores.find((item) => item.id === storeId);
-  const categories = db.categories.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
+  const store = db.stores.find((item) => item.id === selectedStoreId);
+  const categories = db.categories.filter((item) => item.storeId === selectedStoreId).sort((a, b) => a.sort - b.sort);
   const canManageStore = role === "merchant" || role === "admin";
 
-  if (!storeId) {
+  if (!selectedStoreId) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#fff7e8] p-4">
         <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-soft">
@@ -49,7 +98,7 @@ function MerchantDashboardContent({ storeId, role, view, onSignOut }: { storeId:
 
   function addCategory() {
     if (!categoryName.trim()) return;
-    upsertCategory({ id: "", storeId, name: categoryName.trim(), sort: categories.length + 1, isActive: true });
+    upsertCategory({ id: "", storeId: selectedStoreId, name: categoryName.trim(), sort: categories.length + 1, isActive: true });
     setCategoryName("");
   }
 
@@ -79,6 +128,21 @@ function MerchantDashboardContent({ storeId, role, view, onSignOut }: { storeId:
           <div>
             <p className="text-sm font-black text-steel">{view === "dashboard" ? "店家後台概覽" : "菜單編輯"}</p>
             <h1 className="text-3xl font-black text-ink">{view === "dashboard" ? "後台設定中心" : "菜單管理"}</h1>
+            {storeIds.length > 1 && (
+              <div className="mt-2">
+                <label className="block text-sm font-bold text-steel">選擇店家</label>
+                <select
+                  value={selectedStoreId}
+                  onChange={(e) => setSelectedStoreId(e.target.value)}
+                  className="mt-1 rounded-lg border border-stone-300 px-3 py-2 text-sm"
+                >
+                  {storeIds.map((id) => {
+                    const s = db.stores.find((st) => st.id === id);
+                    return <option key={id} value={id}>{s?.name || id}</option>;
+                  })}
+                </select>
+              </div>
+            )}
             {(store?.temporaryNotice || store?.notice) && <p className="mt-2 font-bold text-tomato">公告：{store.temporaryNotice || store.notice}</p>}
           </div>
           <div className="flex flex-wrap gap-2">

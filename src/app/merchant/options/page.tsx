@@ -7,6 +7,7 @@ import { LoginGate } from "@/components/auth/login-gate";
 import { ProductEditorDialog } from "@/components/merchant/product-editor-dialog";
 import { useDemoStore } from "@/lib/demo-store";
 import { productFinalPrice } from "@/lib/pricing";
+import { defaultStoreId } from "@/lib/store-access";
 import type { Product, ProductOptionChoice, ProductOptionGroup } from "@/lib/types";
 
 const blankProduct: Product = {
@@ -37,7 +38,7 @@ const imagePresets = [
 export default function MerchantOptionsPage() {
   return (
     <LoginGate allowedRoles={["merchant", "admin"]} title="商品選項管理登入">
-      {({ profile }) => <MerchantOptionsContent storeId={profile?.storeId ?? ""} />}
+      {({ profile }) => <MerchantOptionsContent storeId={defaultStoreId(profile)} />}
     </LoginGate>
   );
 }

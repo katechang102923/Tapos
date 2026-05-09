@@ -405,16 +405,21 @@ export function useDemoStore(options: StoreOptions = {}) {
           }, { merge: true });
         }
         const bindingUserId = targetDoc?.id ?? pendingUserId(normalizedEmail);
-        await setDoc(doc(firestore, "storeUserBindings", `${targetStoreId}_${bindingUserId}`), {
+        const bindingPayload = {
           id: `${targetStoreId}_${bindingUserId}`,
           email: normalizedEmail,
           userId: targetDoc?.id ?? null,
           storeId: targetStoreId,
+          role: memberRole,
           storeRole: memberRole,
           status: targetDoc ? "active" : "pending",
           updatedAt: new Date().toISOString(),
           createdAt: new Date().toISOString()
-        }, { merge: true });
+        };
+        await Promise.all([
+          setDoc(doc(firestore, "storeUserBindings", `${targetStoreId}_${bindingUserId}`), bindingPayload, { merge: true }),
+          setDoc(doc(firestore, "storeUsers", `${targetStoreId}_${bindingUserId}`), bindingPayload, { merge: true })
+        ]);
       } catch (writeError) {
         console.error("bindUserToStore failed", writeError);
         setError(writeError instanceof Error ? writeError.message : "bindUserToStore failed");
@@ -474,7 +479,11 @@ export function useDemoStore(options: StoreOptions = {}) {
         const userRef = doc(firestore, "users", userId);
         const user = db.users.find((item) => item.id === userId);
         if (!user) return;
-        await setDoc(userRef, nextUser(user), { merge: true });
+        await Promise.all([
+          setDoc(userRef, nextUser(user), { merge: true }),
+          deleteDoc(doc(firestore, "storeUserBindings", `${targetStoreId}_${userId}`)),
+          deleteDoc(doc(firestore, "storeUsers", `${targetStoreId}_${userId}`))
+        ]);
       } catch (writeError) {
         console.error("bindUserToStore failed", writeError);
         setError(writeError instanceof Error ? writeError.message : "unbindStoreUser failed");
@@ -529,7 +538,7 @@ export function useDemoStore(options: StoreOptions = {}) {
         const batch = writeBatch(db);
         batch.delete(doc(db, "stores", targetStoreId));
 
-        const relatedCollections = ["products", "categories", "orders"];
+        const relatedCollections = ["products", "categories", "orders", "storeUserBindings", "storeUsers", "pendingInvites", "pendingUsers"];
         const snapshots = await Promise.all(
           relatedCollections.map((collectionName) =>
             getDocs(query(collection(db, collectionName), where("storeId", "==", targetStoreId)))

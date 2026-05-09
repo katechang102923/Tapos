@@ -7,7 +7,7 @@ import { ArrowRight, ImagePlus, QrCode } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { firestore } from "@/lib/firebase";
 import { createDefaultMenu } from "@/lib/menu-templates";
-import type { Store, StoreType } from "@/lib/types";
+import type { Store, StoreType, User } from "@/lib/types";
 
 const storeTypes: Array<{ value: StoreType; label: string }> = [
   { value: "breakfast", label: "餐飲店" },
@@ -22,12 +22,12 @@ const defaultBanner = "https://images.unsplash.com/photo-1514933651103-005eec06c
 export function OnboardingFlow() {
   return (
     <LoginGate allowedRoles={["user", "merchant", "admin"]} title="開始建立店家">
-      {({ profile, firebaseUser }) => <OnboardingContent uid={firebaseUser?.uid ?? ""} currentStoreId={profile?.storeId ?? null} />}
+      {({ profile, firebaseUser }) => <OnboardingContent uid={firebaseUser?.uid ?? ""} profile={profile} />}
     </LoginGate>
   );
 }
 
-function OnboardingContent({ uid, currentStoreId }: { uid: string; currentStoreId: string | null }) {
+function OnboardingContent({ uid, profile }: { uid: string; profile: User | null }) {
   const router = useRouter();
   const [storeName, setStoreName] = useState("");
   const [storeType, setStoreType] = useState<StoreType>("breakfast");
@@ -36,7 +36,32 @@ function OnboardingContent({ uid, currentStoreId }: { uid: string; currentStoreI
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  if (currentStoreId) {
+  if (profile?.status === "pending" || profile?.status === "rejected") {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4">
+        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-soft">
+          <div className="grid size-12 place-items-center rounded-lg bg-amber-100 text-amber-700">
+            <QrCode className="size-6" />
+          </div>
+          <h1 className="mt-4 text-3xl font-black text-ink">
+            {profile.status === "rejected" ? "帳號已被拒絕" : "等待管理員審核"}
+          </h1>
+          <p className="mt-2 text-sm font-semibold text-steel">
+            {profile.status === "rejected"
+              ? "您的帳號註冊已被管理員拒絕。如有疑問請聯繫管理員。"
+              : "您的帳號已提交審核，管理員將盡快處理。請耐心等候。"
+            }
+          </p>
+          <p className="mt-3 text-xs text-steel">
+            審核通過後，您將可以建立店家並開始使用系統。
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  // 如果已經有店家且不是 admin，跳轉到 merchant
+  if (profile?.storeId && profile.role !== "admin") {
     router.replace("/merchant");
   }
 
