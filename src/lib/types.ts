@@ -1,4 +1,4 @@
-export type OrderStatus = "pending" | "waiting" | "accepted" | "cooking" | "preparing" | "ready" | "completed" | "cancelled";
+export type OrderStatus = "pending" | "waiting" | "unprocessed" | "accepted" | "cooking" | "preparing" | "ready" | "completed" | "cancelled";
 export type OrderMode = "dine-in" | "takeout";
 export type StoreMemberRole = "owner" | "manager" | "staff" | "viewer";
 export type UserRole = "user" | "merchant" | "kitchen" | "admin" | StoreMemberRole;
@@ -181,14 +181,17 @@ export type OrderItem = {
   storeId: string;
   productId: string;
   productName: string;
+  name?: string;
   quantity: number;
   unitPrice: number;
+  price?: number;
   originalPrice?: number;
   discountType?: DiscountType;
   discountValue?: number;
   finalPrice?: number;
   selectedOptions: OrderItemOption[];
   note: string;
+  itemNote?: string;
 };
 
 export type Table = {

@@ -83,7 +83,7 @@ service cloud.firestore {
 
     function validOrderStatusUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "rejectReason"])
-        && request.resource.data.status in ["pending", "waiting", "accepted", "cooking", "preparing", "ready", "completed", "cancelled"];
+        && request.resource.data.status in ["pending", "waiting", "unprocessed", "accepted", "cooking", "preparing", "ready", "completed", "cancelled"];
     }
 
     function validOwnerUserCreate(userId) {

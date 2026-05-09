@@ -37,7 +37,7 @@ function statusRank(status: OrderStatus) {
 }
 
 function customerStatusMessage(status: OrderStatus, rejectReason?: string) {
-  if (status === "pending" || status === "waiting") return "等待店家接單";
+  if (status === "pending" || status === "waiting" || status === "unprocessed") return "等待店家接單";
   if (status === "accepted") return "店家已接單";
   if (status === "cooking" || status === "preparing") return "餐點製作中";
   if (status === "ready") return "可取餐";
@@ -142,14 +142,17 @@ export function OrderPageClient({ storeId, tableId }: { storeId: string; tableId
         storeId,
         productId: line.product.id,
         productName: line.product.name,
+        name: line.product.name,
         quantity: line.quantity,
           unitPrice: lineUnitPrice(line),
+          price: lineUnitPrice(line),
           originalPrice: line.product.price,
           discountType: line.product.discountType ?? "none",
           discountValue: Number(line.product.discountValue ?? 0),
           finalPrice: productFinalPrice(line.product),
           selectedOptions: line.selectedOptions,
-        note: line.note
+        note: line.note,
+        itemNote: line.note
       }))
       });
       setLastOrderId(order.id);

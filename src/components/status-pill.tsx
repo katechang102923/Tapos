@@ -3,6 +3,7 @@ import type { OrderStatus } from "@/lib/types";
 const styles: Record<OrderStatus, string> = {
   pending: "bg-tomato/10 text-tomato ring-tomato/20",
   waiting: "bg-tomato/10 text-tomato ring-tomato/20",
+  unprocessed: "bg-tomato/10 text-tomato ring-tomato/20",
   accepted: "bg-sky-100 text-sky-700 ring-sky-200",
   cooking: "bg-amber-100 text-amber-700 ring-amber-200",
   preparing: "bg-amber-100 text-amber-700 ring-amber-200",
@@ -12,12 +13,13 @@ const styles: Record<OrderStatus, string> = {
 };
 
 const labels: Record<OrderStatus, string> = {
-  pending: "待接單",
-  waiting: "待接單",
-  accepted: "已接單",
-  cooking: "製作中",
-  preparing: "製作中",
-  ready: "可取餐",
+  pending: "新訂單",
+  waiting: "新訂單",
+  unprocessed: "新訂單",
+  accepted: "處理中",
+  cooking: "處理中",
+  preparing: "處理中",
+  ready: "處理中",
   completed: "已完成",
   cancelled: "已取消"
 };
