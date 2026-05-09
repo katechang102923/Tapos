@@ -367,7 +367,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     setDb((current) => ({ ...current, devices: (current.devices ?? []).filter((device) => device.id !== deviceId) }));
   }
 
-  function upsertTable(table: Table) {
+  async function upsertTable(table: Table) {
     const now = new Date().toISOString();
     const nextTable = {
       ...table,
@@ -378,21 +378,35 @@ export function useDemoStore(options: StoreOptions = {}) {
       updatedAt: now
     };
     if (useFirestore && firestore) {
-      const id = table.id || doc(collection(firestore, "tables")).id;
-      setDoc(doc(firestore, "tables", id), { ...nextTable, id }, { merge: true }).catch((writeError: Error) => setError(writeError.message));
-      return;
+      try {
+        const id = table.id || doc(collection(firestore, "tables")).id;
+        const payload = { ...nextTable, id };
+        await setDoc(doc(firestore, "tables", id), payload, { merge: true });
+        return payload as Table;
+      } catch (writeError) {
+        setError(writeError instanceof Error ? writeError.message : "Failed to save table");
+        throw writeError;
+      }
     }
+    let savedTable: Table | undefined;
     setDb((current) => {
       const tables = current.tables ?? [];
       const id = table.id || newId("table");
       const exists = tables.some((item) => item.id === id);
-      return { ...current, tables: exists ? tables.map((item) => (item.id === id ? { ...nextTable, id } : item)) : [{ ...nextTable, id }, ...tables] };
+      savedTable = { ...nextTable, id } as Table;
+      return { ...current, tables: exists ? tables.map((item) => (item.id === id ? savedTable! : item)) : [savedTable, ...tables] };
     });
+    return savedTable;
   }
 
-  function deleteTable(tableId: string) {
+  async function deleteTable(tableId: string) {
     if (useFirestore && firestore) {
-      deleteDoc(doc(firestore, "tables", tableId)).catch((writeError: Error) => setError(writeError.message));
+      try {
+        await deleteDoc(doc(firestore, "tables", tableId));
+      } catch (writeError) {
+        setError(writeError instanceof Error ? writeError.message : "Failed to delete table");
+        throw writeError;
+      }
       return;
     }
     setDb((current) => ({ ...current, tables: (current.tables ?? []).filter((table) => table.id !== tableId) }));

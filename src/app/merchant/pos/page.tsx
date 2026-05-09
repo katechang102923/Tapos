@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowLeft, BarChart3, CheckCircle2, Clock3, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, TimerReset, XCircle } from "lucide-react";
+import { ArrowLeft, BarChart3, CheckCircle2, Clock3, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, XCircle } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { ProductOptionModal } from "@/components/product-option-modal";
 import { StatusPill } from "@/components/status-pill";
@@ -328,8 +328,7 @@ function OrderWorkCard({ order, updateOrderStatus }: { order: Order; updateOrder
       <p className="mt-3 text-lg font-black text-tomato">總金額 ${order.totalAmount ?? order.total}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {["pending", "waiting", "unprocessed"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "accepted")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white"><CheckCircle2 className="size-4" />接單</button>}
-        {order.status === "accepted" && <button onClick={() => updateOrderStatus(order.id, "preparing")} className="inline-flex items-center gap-2 rounded-lg bg-amber-100 px-3 py-2 font-black text-amber-700"><TimerReset className="size-4" />開始製作</button>}
-        {["cooking", "preparing", "ready"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "completed")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white"><CheckCircle2 className="size-4" />完成</button>}
+        {["accepted", "cooking", "preparing", "ready"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "completed")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white"><CheckCircle2 className="size-4" />餐點完成</button>}
         {!["completed", "cancelled"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "cancelled")} className="inline-flex items-center gap-2 rounded-lg bg-tomato px-3 py-2 font-black text-white"><XCircle className="size-4" />取消</button>}
       </div>
     </article>
