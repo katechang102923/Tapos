@@ -49,7 +49,16 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return signedIn() && request.auth.token.email == "ciut0000@gmail.com";
+      return signedIn()
+        && (
+          request.auth.token.email == "ciut0000@gmail.com"
+          || (
+            hasUserDoc()
+            && userDoc().data.role == "admin"
+            && userDoc().data.approved == true
+            && userDoc().data.status == "active"
+          )
+        );
     }
 
     function isOwner(storeId) {
@@ -201,15 +210,19 @@ service cloud.firestore {
 
     match /counters/orderNumbers {
       allow read: if true;
-      allow create: if request.resource.data.keys().hasOnly(["qr", "pos"])
+      allow create: if isAdmin() || (request.resource.data.keys().hasOnly(["qr", "pos"])
         && request.resource.data.qr is number
-        && request.resource.data.pos is number;
-      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(["qr", "pos"])
+        && request.resource.data.pos is number);
+      allow update: if isAdmin() || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["qr", "pos"])
         && request.resource.data.qr is number
         && request.resource.data.pos is number
         && request.resource.data.qr >= resource.data.qr
-        && request.resource.data.pos >= resource.data.pos;
+        && request.resource.data.pos >= resource.data.pos);
       allow delete: if isAdmin();
+    }
+
+    match /counters/{counterId} {
+      allow read, create, update, delete: if isAdmin();
     }
   }
 }
