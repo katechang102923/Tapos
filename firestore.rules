@@ -217,13 +217,25 @@ service cloud.firestore {
     match /cashFlows/{cashFlowId} {
       allow read: if resource.data.storeId is string && canViewStoreData(resource.data.storeId);
       allow create: if request.resource.data.storeId is string
+        && request.resource.data.itemId is string
+        && request.resource.data.itemName is string
         && request.resource.data.type in ["income", "expense"]
         && request.resource.data.amount is number
-        && request.resource.data.category is string
         && request.resource.data.createdAt is string
         && canWriteCashFlow(request.resource.data.storeId);
       allow update, delete: if resource.data.storeId is string
         && (isAdmin() || membershipRole(resource.data.storeId) in ["owner", "manager"]);
+    }
+
+    match /cashFlowItems/{itemId} {
+      allow read: if resource.data.storeId is string && canViewStoreData(resource.data.storeId);
+      allow create: if request.resource.data.storeId is string
+        && request.resource.data.name is string
+        && request.resource.data.type in ["income", "expense"]
+        && request.resource.data.amountMode in ["open", "fixed"]
+        && canManageStore(request.resource.data.storeId);
+      allow update, delete: if resource.data.storeId is string
+        && canManageStore(resource.data.storeId);
     }
 
     match /orders/{orderId} {

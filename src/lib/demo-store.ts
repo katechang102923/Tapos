@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -21,7 +21,7 @@ import { firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { CashFlow, Category, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, StoreMemberRole, Table, User } from "./types";
+import type { CashFlow, CashFlowItem, Category, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, StoreMemberRole, Table, User } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -76,8 +76,26 @@ function formatOrderNumber(source: "qr" | "pos", sequence: number) {
   return `${source === "pos" ? "P" : "Q"}${String(sequence).padStart(3, "0")}`;
 }
 
-function isStorePaused(store?: Store) {
-  return Boolean(store && store.isOpen && (store.orderStatus === "paused" || store.temporaryNotice?.includes("暫停接單")));
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((item) => stripUndefined(item)) as T;
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .map(([key, entryValue]) => [key, stripUndefined(entryValue)])
+  ) as T;
+}
+
+function isStoreClosed(store?: Store) {
+  return !store || !store.isOpen || store.orderStatus === "closed";
+}
+
+function qrBlockReason(store: Store | undefined, mode: OrderPayload["mode"]) {
+  if (isStoreClosed(store)) return "店家休息中";
+  if (!store) return "店家休息中";
+  if (mode === "takeout" && (store.takeoutOrderingEnabled ?? store.takeoutEnabled ?? true) === false) return "店家暫停外帶接單";
+  if (mode === "dine-in" && (store.dineInOrderingEnabled ?? store.dineInEnabled ?? true) === false) return "店家暫停內用接單";
+  return "";
 }
 
 function optionDefaults(product: Product) {
@@ -117,7 +135,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
 
     setReady(false);
-    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], devices: [], tables: [] };
+    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [] };
     const commit = () => {
       setDb({ ...next });
       setReady(true);
@@ -145,7 +163,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       handleError
       );
 
-    const collectionNames = skipOrderList ? ["categories", "products", "devices", "tables"] : ["categories", "products", "orders", "cashFlows", "devices", "tables"];
+    const collectionNames = skipOrderList ? ["categories", "products", "devices", "tables"] : ["categories", "products", "orders", "cashFlows", "cashFlowItems", "devices", "tables"];
     const unsubscribers = collectionNames.map((collectionName) => {
       const ref = scopedQuery(collectionName, storeId, admin, customerSessionId);
       if (!ref) return () => undefined;
@@ -200,28 +218,26 @@ export function useDemoStore(options: StoreOptions = {}) {
     const createdAt = now.toISOString();
     const source = order.source ?? "qr";
     const store = db.stores.find((item) => item.id === order.storeId);
-    const paused = source === "qr" && isStorePaused(store);
-    const cancelReason = "店家暫停接單，系統自動拒單";
+    const blockReason = source === "qr" ? qrBlockReason(store, order.mode) : "";
     const id = useFirestore && firestore ? doc(collection(firestore, "orders")).id : newId("o");
-    const buildOrder = (orderNumber: string): Order => ({
+    const buildOrder = (orderNumber: string): Order => stripUndefined({
       ...order,
       id,
       orderNumber,
       pickupNumber: orderNumber,
-      status: paused ? "cancelled" : order.status ?? "pending",
+      status: blockReason ? "cancelled" : order.status ?? "pending",
       source,
-      rejectReason: paused ? "店家暫停接單" : order.rejectReason,
-      cancelReason: paused ? cancelReason : order.cancelReason,
+      rejectReason: blockReason || order.rejectReason,
+      cancelReason: blockReason ? `${blockReason}，系統自動拒單` : order.cancelReason,
       createdAt,
       updatedAt: createdAt,
       totalAmount: order.total,
-      items: order.items.map((item) => ({
+      items: order.items.map((item) => stripUndefined({
         ...item,
         id: item.id || newId("oi"),
         orderId: id
       })) as OrderItem[]
-    });
-
+    } as Order);
     if (useFirestore && firestore) {
       const db = firestore;
       const orderRef = doc(db, "orders", id);
@@ -240,7 +256,7 @@ export function useDemoStore(options: StoreOptions = {}) {
         };
 
         transaction.set(counterRef, nextCounters, { merge: true });
-        transaction.set(orderRef, createdOrder);
+        transaction.set(orderRef, stripUndefined(createdOrder));
         return createdOrder;
       });
       setDb((current) => ({ ...current, orders: [nextOrder, ...current.orders.filter((item) => item.id !== id)] }));
@@ -269,13 +285,42 @@ export function useDemoStore(options: StoreOptions = {}) {
     };
 
     if (useFirestore && firestore) {
-      await setDoc(doc(firestore, "cashFlows", id), nextCashFlow);
+      await setDoc(doc(firestore, "cashFlows", id), stripUndefined(nextCashFlow));
       setDb((current) => ({ ...current, cashFlows: [nextCashFlow, ...(current.cashFlows ?? []).filter((item) => item.id !== id)] }));
       return nextCashFlow;
     }
 
     setDb((current) => ({ ...current, cashFlows: [nextCashFlow, ...(current.cashFlows ?? []).filter((item) => item.id !== id)] }));
     return nextCashFlow;
+  }
+
+  async function upsertCashFlowItem(item: Omit<CashFlowItem, "id" | "createdAt" | "updatedAt"> & { id?: string; createdAt?: string; updatedAt?: string }) {
+    const now = new Date().toISOString();
+    const id = item.id || (useFirestore && firestore ? doc(collection(firestore, "cashFlowItems")).id : newId("cashflowitem"));
+    const nextItem: CashFlowItem = {
+      id,
+      storeId: item.storeId,
+      name: item.name,
+      type: item.type,
+      amountMode: item.amountMode,
+      fixedAmount: item.fixedAmount,
+      enabled: item.enabled,
+      createdAt: item.createdAt || now,
+      updatedAt: now
+    };
+
+    if (useFirestore && firestore) {
+      await setDoc(doc(firestore, "cashFlowItems", id), stripUndefined(nextItem), { merge: true });
+      setDb((current) => ({ ...current, cashFlowItems: [nextItem, ...(current.cashFlowItems ?? []).filter((cashItem) => cashItem.id !== id)] }));
+      return nextItem;
+    }
+
+    setDb((current) => {
+      const items = current.cashFlowItems ?? [];
+      const exists = items.some((cashItem) => cashItem.id === id);
+      return { ...current, cashFlowItems: exists ? items.map((cashItem) => (cashItem.id === id ? nextItem : cashItem)) : [nextItem, ...items] };
+    });
+    return nextItem;
   }
 
   function updateOrderStatus(orderId: string, status: OrderStatus) {
@@ -718,7 +763,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     const count = Math.min(3, Math.max(1, Math.floor(Math.random() * 4)));
     const selected = [...availableProducts].sort(() => Math.random() - 0.5).slice(0, count);
     const mode = Math.random() > 0.35 ? "dine-in" : "takeout";
-    const tableNo = mode === "takeout" ? "外帶" : String(Math.floor(Math.random() * 12) + 1);
+    const tableNo = mode === "takeout" ? "憭葆" : String(Math.floor(Math.random() * 12) + 1);
     const items = selected.map((product) => {
       const quantity = Math.floor(Math.random() * 2) + 1;
       return {
@@ -734,7 +779,7 @@ export function useDemoStore(options: StoreOptions = {}) {
         discountValue: Number(product.discountValue ?? 0),
         finalPrice: productFinalPrice(product),
         selectedOptions: optionDefaults(product),
-        note: Math.random() > 0.7 ? "少醬" : ""
+        note: Math.random() > 0.7 ? "撠" : ""
       };
     });
     const total = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
@@ -743,7 +788,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       storeId: targetStoreId,
       mode,
       tableNo,
-      customerNote: Math.random() > 0.65 ? "趕時間，謝謝" : "",
+      customerNote: Math.random() > 0.65 ? "頞???雓?" : "",
       total,
       items
     });
@@ -757,7 +802,8 @@ export function useDemoStore(options: StoreOptions = {}) {
       ...initialData.categories.map((item) => setDoc(doc(db, "categories", item.id), item, { merge: true })),
       ...initialData.products.map((item) => setDoc(doc(db, "products", item.id), item, { merge: true })),
       ...initialData.orders.map((item) => setDoc(doc(db, "orders", item.id), item, { merge: true })),
-      ...(initialData.cashFlows ?? []).map((item) => setDoc(doc(db, "cashFlows", item.id), item, { merge: true }))
+      ...(initialData.cashFlows ?? []).map((item) => setDoc(doc(db, "cashFlows", item.id), item, { merge: true })),
+      ...(initialData.cashFlowItems ?? []).map((item) => setDoc(doc(db, "cashFlowItems", item.id), item, { merge: true }))
     ]);
   }
 
@@ -771,6 +817,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     createMockOrder,
     createCashFlow,
     createOrder,
+    upsertCashFlowItem,
     deleteProduct,
     deleteStoreCascade,
     resetDemo,
@@ -789,3 +836,4 @@ export function useDemoStore(options: StoreOptions = {}) {
     upsertTable
   };
 }
+

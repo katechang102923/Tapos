@@ -29,7 +29,10 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
     notice: "",
     isOpen: true,
     takeoutEnabled: true,
-    dineInEnabled: true
+    dineInEnabled: true,
+    takeoutOrderingEnabled: true,
+    dineInOrderingEnabled: true,
+    posOrderingEnabled: true
   });
 
   useEffect(() => {
@@ -45,7 +48,10 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
       notice: store.notice ?? "",
       isOpen: store.isOpen,
       takeoutEnabled: store.takeoutEnabled ?? true,
-      dineInEnabled: store.dineInEnabled ?? true
+      dineInEnabled: store.dineInEnabled ?? true,
+      takeoutOrderingEnabled: store.takeoutOrderingEnabled ?? store.takeoutEnabled ?? true,
+      dineInOrderingEnabled: store.dineInOrderingEnabled ?? store.dineInEnabled ?? true,
+      posOrderingEnabled: store.posOrderingEnabled ?? true
     });
   }, [store]);
 
@@ -122,8 +128,9 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
             <h2 className="text-2xl font-black text-ink">營業狀態</h2>
             <div className="mt-4 grid gap-3">
               <Toggle label="營業中" checked={form.isOpen} onChange={(value) => update("isOpen", value)} />
-              <Toggle label="開放外帶" checked={form.takeoutEnabled} onChange={(value) => update("takeoutEnabled", value)} />
-              <Toggle label="開放內用" checked={form.dineInEnabled} onChange={(value) => update("dineInEnabled", value)} />
+              <Toggle label="開放外帶 QR 接單" checked={form.takeoutOrderingEnabled} onChange={(value) => update("takeoutOrderingEnabled", value)} />
+              <Toggle label="開放內用 QR 接單" checked={form.dineInOrderingEnabled} onChange={(value) => update("dineInOrderingEnabled", value)} />
+              <Toggle label="開放 POS 現場單" checked={form.posOrderingEnabled} onChange={(value) => update("posOrderingEnabled", value)} />
             </div>
           </div>
           <div className="overflow-hidden rounded-lg bg-white shadow-sm">

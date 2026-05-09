@@ -127,8 +127,7 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
 function StoreStatusButtons({ store, updateStore }: { store?: Store; updateStore: (patch: Partial<Store>) => void }) {
   return (
     <>
-      <button onClick={() => updateStore({ isOpen: true, orderStatus: "open", temporaryNotice: "" })} className={`rounded-lg px-4 py-3 font-black text-white ${store?.isOpen && store.orderStatus !== "paused" ? "bg-leaf" : "bg-stone-400"}`}>營業中</button>
-      <button onClick={() => updateStore({ isOpen: true, orderStatus: "paused", temporaryNotice: "目前暫停接單，請稍候再試" })} className={`rounded-lg px-4 py-3 font-black ${store?.orderStatus === "paused" ? "bg-amber-400 text-ink" : "bg-amber-100 text-amber-700"}`}>暫停接單</button>
+      <button onClick={() => updateStore({ isOpen: true, orderStatus: "open" })} className={`rounded-lg px-4 py-3 font-black text-white ${store?.isOpen ? "bg-leaf" : "bg-stone-400"}`}>營業中</button>
       <button onClick={() => updateStore({ isOpen: false, orderStatus: "closed" })} className={`rounded-lg px-4 py-3 font-black text-white ${store?.isOpen ? "bg-stone-400" : "bg-tomato"}`}>休息中</button>
     </>
   );
@@ -136,6 +135,15 @@ function StoreStatusButtons({ store, updateStore }: { store?: Store; updateStore
 
 function SidebarItem({ href, icon: Icon, label, active = false }: { href: string; icon: React.ElementType; label: string; active?: boolean }) {
   return <Link href={href} className={`inline-flex items-center gap-3 rounded-lg px-4 py-3 font-black ${active ? "bg-white text-ink" : "text-white/70 hover:bg-white/10"}`}><Icon className="size-5" />{label}</Link>;
+}
+
+function ToggleButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className={`rounded-lg px-4 py-4 text-left font-black ${active ? "bg-leaf/10 text-leaf" : "bg-tomato/10 text-tomato"}`}>
+      <span className="block text-xs">{active ? "已開放" : "已暫停"}</span>
+      {label}
+    </button>
+  );
 }
 
 function DashboardOverview({ store, updateStore, notice, setNotice, saveNotice }: { store?: Store; updateStore: (patch: Partial<Store>) => void; notice: string; setNotice: (value: string) => void; saveNotice: () => void }) {
@@ -163,11 +171,15 @@ function DashboardOverview({ store, updateStore, notice, setNotice, saveNotice }
         </div>
 
         <div className="rounded-lg bg-white p-5 shadow-sm">
-          <h2 className="text-2xl font-black">營業狀態設定</h2>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <button onClick={() => updateStore({ isOpen: true, orderStatus: "open", temporaryNotice: "" })} className={`rounded-lg px-4 py-4 font-black ${store?.isOpen && store.orderStatus !== "paused" ? "bg-leaf text-white" : "bg-stone-100 text-steel"}`}>營業中</button>
-            <button onClick={() => updateStore({ isOpen: true, orderStatus: "paused", temporaryNotice: "目前暫停接單，請稍候再試" })} className={`rounded-lg px-4 py-4 font-black ${store?.orderStatus === "paused" ? "bg-amber-400 text-ink" : "bg-amber-100 text-amber-700"}`}>暫停接單</button>
+          <h2 className="text-2xl font-black">營業與接單設定</h2>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <button onClick={() => updateStore({ isOpen: true, orderStatus: "open" })} className={`rounded-lg px-4 py-4 font-black ${store?.isOpen ? "bg-leaf text-white" : "bg-stone-100 text-steel"}`}>營業中</button>
             <button onClick={() => updateStore({ isOpen: false, orderStatus: "closed" })} className={`rounded-lg px-4 py-4 font-black ${store?.isOpen ? "bg-stone-100 text-steel" : "bg-tomato text-white"}`}>休息中</button>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <ToggleButton label="開放外帶 QR 接單" active={store?.takeoutOrderingEnabled ?? store?.takeoutEnabled ?? true} onClick={() => updateStore({ takeoutOrderingEnabled: !(store?.takeoutOrderingEnabled ?? store?.takeoutEnabled ?? true) })} />
+            <ToggleButton label="開放內用 QR 接單" active={store?.dineInOrderingEnabled ?? store?.dineInEnabled ?? true} onClick={() => updateStore({ dineInOrderingEnabled: !(store?.dineInOrderingEnabled ?? store?.dineInEnabled ?? true) })} />
+            <ToggleButton label="開放 POS 現場單" active={store?.posOrderingEnabled ?? true} onClick={() => updateStore({ posOrderingEnabled: !(store?.posOrderingEnabled ?? true) })} />
           </div>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <input value={notice} onChange={(event) => setNotice(event.target.value)} placeholder="例如：現場客滿，餐點需等候 15 分鐘" className="min-w-0 flex-1 rounded-lg border border-orange-100 px-4 py-3 font-bold" />

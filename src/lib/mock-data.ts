@@ -17,6 +17,9 @@ export const initialData: DemoDatabase = {
       orderStatus: "open",
       takeoutEnabled: true,
       dineInEnabled: true,
+      takeoutOrderingEnabled: true,
+      dineInOrderingEnabled: true,
+      posOrderingEnabled: true,
       notice: "尖峰時段餐點約需等候 10-15 分鐘。",
       createdAt: now.toISOString()
     }
@@ -261,5 +264,12 @@ export const initialData: DemoDatabase = {
     }
   ],
   cashFlows: [],
+  cashFlowItems: [
+    { id: "cash-opening", storeId: demoStoreId, name: "開店備用金", type: "income", amountMode: "open", enabled: true, createdAt: now.toISOString(), updatedAt: now.toISOString() },
+    { id: "cash-extra", storeId: demoStoreId, name: "額外收入", type: "income", amountMode: "open", enabled: true, createdAt: now.toISOString(), updatedAt: now.toISOString() },
+    { id: "cash-supply", storeId: demoStoreId, name: "採買", type: "expense", amountMode: "open", enabled: true, createdAt: now.toISOString(), updatedAt: now.toISOString() },
+    { id: "cash-change", storeId: demoStoreId, name: "找零", type: "expense", amountMode: "open", enabled: true, createdAt: now.toISOString(), updatedAt: now.toISOString() },
+    { id: "cash-refund", storeId: demoStoreId, name: "退款", type: "expense", amountMode: "open", enabled: true, createdAt: now.toISOString(), updatedAt: now.toISOString() }
+  ],
   tables: []
 };

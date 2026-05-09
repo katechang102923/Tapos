@@ -49,6 +49,9 @@ export type Store = {
   description?: string;
   takeoutEnabled?: boolean;
   dineInEnabled?: boolean;
+  takeoutOrderingEnabled?: boolean;
+  dineInOrderingEnabled?: boolean;
+  posOrderingEnabled?: boolean;
   ownerId?: string;
   storeType?: StoreType;
   isOpen: boolean;
@@ -297,6 +300,7 @@ export type DemoDatabase = {
   products: Product[];
   orders: Order[];
   cashFlows?: CashFlow[];
+  cashFlowItems?: CashFlowItem[];
   optionGroups?: ProductOptionGroup[];
   optionItems?: OptionItem[];
   bundleGroups?: BundleGroup[];
@@ -311,10 +315,26 @@ export type CashFlowType = "income" | "expense";
 export type CashFlow = {
   id: string;
   storeId: string;
+  itemId?: string;
+  itemName?: string;
   type: CashFlowType;
   amount: number;
-  category: string;
+  category?: string;
   note: string;
   createdAt: string;
   createdBy?: string;
+};
+
+export type CashFlowAmountMode = "open" | "fixed";
+
+export type CashFlowItem = {
+  id: string;
+  storeId: string;
+  name: string;
+  type: CashFlowType;
+  amountMode: CashFlowAmountMode;
+  fixedAmount?: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
