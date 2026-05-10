@@ -95,6 +95,7 @@ function KitchenBoardContent({ storeId }: { storeId: string }) {
     if (!firebaseEnabled || !firestore) return; // fallback: useDemoStore polling
 
     const q = query(collection(firestore, "orders"), where("storeId", "==", storeId));
+    let flashTimer: number | null = null;
 
     const unsubscribe = onSnapshot(
       q,
@@ -104,21 +105,25 @@ function KitchenBoardContent({ storeId }: { storeId: string }) {
           .map((d) => ({ id: d.id, ...d.data() } as Order))
           .filter((o) => new Date(o.createdAt).toDateString() === today);
 
-        // Detect genuinely new active orders (ignore initial load)
+        // Always update the displayed orders first
+        setLiveOrders(fetched);
+
+        // Then detect new active orders and trigger flash (skip on first load)
         const activeCount = fetched.filter((o) => !["completed", "cancelled"].includes(o.status)).length;
         if (prevActiveCountRef.current >= 0 && activeCount > prevActiveCountRef.current) {
+          if (flashTimer !== null) window.clearTimeout(flashTimer);
           setNewOrderFlash(true);
-          const t = window.setTimeout(() => setNewOrderFlash(false), 3000);
-          return () => window.clearTimeout(t);
+          flashTimer = window.setTimeout(() => setNewOrderFlash(false), 3000);
         }
         prevActiveCountRef.current = activeCount;
-
-        setLiveOrders(fetched);
       },
       (err) => console.error("[KDS] onSnapshot error:", err.message)
     );
 
-    return unsubscribe; // automatically unsubscribes on unmount / storeId change
+    return () => {
+      unsubscribe();
+      if (flashTimer !== null) window.clearTimeout(flashTimer);
+    };
   }, [storeId]);
 
   // Use live Firestore data when available; fall back to useDemoStore (localStorage)
