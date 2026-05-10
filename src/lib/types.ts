@@ -267,7 +267,22 @@ export type OrderItemPayload = Omit<OrderItem, "id" | "orderId"> & {
   orderId?: string;
 };
 
-export type PaymentMethod = "cash" | "card" | "transfer" | "other";
+export type PaymentMethod = "cash" | "linepay" | "card" | "jkopay" | "ubereats" | "foodpanda" | "transfer" | "other";
+
+export type PaymentMethodStat = {
+  method: PaymentMethod | "unknown";
+  label: string;
+  count: number;
+  amount: number;
+  percent: number;
+};
+
+export type HourSlotStat = {
+  slot: string;
+  orderCount: number;
+  revenue: number;
+  isPeak: boolean;
+};
 
 export type Order = {
   id: string;
@@ -324,6 +339,8 @@ export type DailyReport = {
   cashNet: number;
   estimatedCashBalance: number;
   products: DailyReportProduct[];
+  paymentStats?: PaymentMethodStat[];
+  hourSlots?: HourSlotStat[];
 };
 
 export type DemoDatabase = {
