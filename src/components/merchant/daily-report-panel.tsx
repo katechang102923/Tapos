@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useDemoStore } from "@/lib/demo-store";
 import { computeDailyReport, formatDate } from "@/lib/daily-report";
+import { roleDisplayName } from "@/lib/store-access";
 import type { CashFlow, DailyReport, HourSlotStat, Order, PaymentMethodStat } from "@/lib/types";
 
 // ─── Screen helpers ───────────────────────────────────────────────────────────
@@ -186,7 +187,7 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PrintReceipt({ report, storeName, cashFlows }: { report: DailyReport; storeName: string; cashFlows: CashFlow[] }) {
+function PrintReceipt({ report, storeName, cashFlows, operatorLabel }: { report: DailyReport; storeName: string; cashFlows: CashFlow[]; operatorLabel: string }) {
   const genTime = new Date(report.generatedAt).toLocaleString("zh-TW");
   const payStats = report.paymentStats ?? [];
   const hourSlots = report.hourSlots ?? [];
@@ -198,7 +199,7 @@ function PrintReceipt({ report, storeName, cashFlows }: { report: DailyReport; s
       <p style={PS.h1}>{storeName}</p>
       <p style={PS.center}>日期：{report.date}</p>
       <p style={PS.center}>日結時間：{genTime}</p>
-      {report.generatedBy && <p style={PS.center}>操作員：{report.generatedBy}</p>}
+      <p style={PS.center}>日結人員：{operatorLabel}</p>
       <hr style={PS.hr} />
 
       {/* Revenue */}
@@ -273,7 +274,7 @@ function PrintReceipt({ report, storeName, cashFlows }: { report: DailyReport; s
 
       {/* Signature */}
       <div style={PS.sig}>
-        <p style={PS.sigLine}>日結人員：____________________________</p>
+        <p style={PS.sigLine}>日結人員：{operatorLabel}　　____________________________</p>
         <p style={PS.sigLine}>店長簽名：____________________________</p>
         <p style={{ ...PS.small, marginTop: "10px" }}>產生時間：{genTime}</p>
       </div>
@@ -311,9 +312,11 @@ type DailyReportPanelProps = {
   todayOrders: Order[];
   todayCashFlows: CashFlow[];
   userEmail?: string;
+  userRole?: string;
 };
 
-export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlows, userEmail }: DailyReportPanelProps) {
+export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlows, userEmail, userRole }: DailyReportPanelProps) {
+  const operatorLabel = roleDisplayName(userRole);
   const { loadDailyReport, saveDailyReport } = useDemoStore({ storeId, skipOrderList: true });
   const [selectedDate, setSelectedDate] = useState(formatDate());
   const [savedReport, setSavedReport] = useState<DailyReport | null>(null);
@@ -393,7 +396,7 @@ export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlo
     <>
       {/* Hidden print area — extracted via innerHTML and rendered in a new window */}
       <div ref={printAreaRef} aria-hidden="true" style={{ position: "absolute", left: "-9999px", top: 0, width: "1px", overflow: "hidden" }}>
-        <PrintReceipt report={report} storeName={storeName} cashFlows={dayFlows} />
+        <PrintReceipt report={report} storeName={storeName} cashFlows={dayFlows} operatorLabel={operatorLabel} />
       </div>
 
       <section className="space-y-5">

@@ -54,3 +54,19 @@ export function canManageStoreSettings(profile: User | null | undefined, storeId
 export function isPlatformAdminEmail(email: string | null | undefined) {
   return email?.trim().toLowerCase() === platformAdminEmail;
 }
+
+export const ROLE_DISPLAY_NAMES: Record<string, string> = {
+  owner: "老闆",
+  merchant: "老闆",
+  manager: "店長",
+  staff: "員工",
+  cashier: "櫃台",
+  kitchen: "廚房",
+  admin: "系統管理員",
+  viewer: "檢視者",
+};
+
+export function roleDisplayName(role: string | null | undefined): string {
+  if (!role) return "操作員";
+  return ROLE_DISPLAY_NAMES[role] ?? "操作員";
+}
