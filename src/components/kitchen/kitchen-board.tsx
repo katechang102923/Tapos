@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ChefHat, Clock3, Coffee, Flame, Maximize2, Minimize2, MonitorUp, Sandwich } from "lucide-react";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { Bell, CheckCircle2, ChefHat, Clock3, Coffee, Flame, Maximize2, Minimize2, MonitorUp, Sandwich } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { StatusPill } from "@/components/status-pill";
+import { firebaseEnabled, firestore } from "@/lib/firebase";
 import { useDemoStore } from "@/lib/demo-store";
 import { normalizeSelectedOptions } from "@/lib/product-options";
 import { storeRoleFor } from "@/lib/store-access";
@@ -69,29 +71,92 @@ function KitchenBoardContent({ storeId }: { storeId: string }) {
   const [peakMode, setPeakMode] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [now, setNow] = useState(Date.now());
+
+  // Real-time Firestore orders (null = not yet loaded / Firebase not enabled)
+  const [liveOrders, setLiveOrders] = useState<Order[] | null>(null);
+  // Flash banner when a new active order arrives
+  const [newOrderFlash, setNewOrderFlash] = useState(false);
+  const prevActiveCountRef = useRef<number>(-1);
+
   const store = db.stores.find((item) => item.id === storeId);
 
+  // Clock tick for elapsed-time display
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15000);
     return () => window.clearInterval(timer);
   }, []);
 
+  // ── Direct Firestore onSnapshot ──────────────────────────────────────────
+  // Independent of useDemoStore so KDS always gets real-time pushes.
+  // Listens to the same root `orders` collection that POS writes to,
+  // filtered by storeId. Completed / cancelled orders are excluded after
+  // the snapshot so the collection stays small client-side.
+  useEffect(() => {
+    if (!firebaseEnabled || !firestore) return; // fallback: useDemoStore polling
+
+    const q = query(collection(firestore, "orders"), where("storeId", "==", storeId));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const today = new Date().toDateString();
+        const fetched: Order[] = snapshot.docs
+          .map((d) => ({ id: d.id, ...d.data() } as Order))
+          .filter((o) => new Date(o.createdAt).toDateString() === today);
+
+        // Detect genuinely new active orders (ignore initial load)
+        const activeCount = fetched.filter((o) => !["completed", "cancelled"].includes(o.status)).length;
+        if (prevActiveCountRef.current >= 0 && activeCount > prevActiveCountRef.current) {
+          setNewOrderFlash(true);
+          const t = window.setTimeout(() => setNewOrderFlash(false), 3000);
+          return () => window.clearTimeout(t);
+        }
+        prevActiveCountRef.current = activeCount;
+
+        setLiveOrders(fetched);
+      },
+      (err) => console.error("[KDS] onSnapshot error:", err.message)
+    );
+
+    return unsubscribe; // automatically unsubscribes on unmount / storeId change
+  }, [storeId]);
+
+  // Use live Firestore data when available; fall back to useDemoStore (localStorage)
+  const allOrders: Order[] = liveOrders ?? db.orders;
+
   const activeTab = tabs.find((tab) => tab.status === activeStatus) ?? tabs[0];
   const orders = useMemo(() => {
     const today = new Date().toDateString();
-    return db.orders
+    return allOrders
       .filter((order) => order.storeId === storeId && activeTab.statuses.includes(order.status) && new Date(order.createdAt).toDateString() === today)
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  }, [activeTab.statuses, db.orders, storeId]);
+  }, [activeTab.statuses, allOrders, storeId]);
+
+  // Tab badge counts (always from allOrders)
+  const tabCounts = useMemo(() => {
+    const today = new Date().toDateString();
+    const todayOrders = allOrders.filter((o) => o.storeId === storeId && new Date(o.createdAt).toDateString() === today);
+    return Object.fromEntries(tabs.map((tab) => [tab.status, todayOrders.filter((o) => tab.statuses.includes(o.status)).length]));
+  }, [allOrders, storeId]);
 
   return (
     <main className={`${fullscreen ? "fixed inset-0 z-50 overflow-y-auto" : "min-h-screen"} bg-[#111111] p-4 text-white sm:p-6`}>
-      <header className="mb-5 flex flex-col gap-4 rounded-lg bg-[#1f1f1f] p-5 shadow-soft lg:flex-row lg:items-center lg:justify-between">
+
+      {/* New-order flash banner */}
+      {newOrderFlash && (
+        <div className="mb-4 flex animate-order-pop items-center gap-3 rounded-lg bg-tomato px-5 py-4 text-xl font-black text-white shadow-lg">
+          <Bell className="size-6 shrink-0" />
+          新訂單進來了！
+        </div>
+      )}
+
+      <header className={`mb-5 flex flex-col gap-4 rounded-lg p-5 shadow-soft transition-colors lg:flex-row lg:items-center lg:justify-between ${newOrderFlash ? "bg-tomato/30 ring-2 ring-tomato" : "bg-[#1f1f1f]"}`}>
         <div className="flex items-center gap-4">
           <div className="grid size-14 place-items-center rounded-lg bg-tomato text-white"><ChefHat className="size-8" /></div>
           <div>
             <p className="text-sm font-black text-white/50">Kitchen Display System</p>
             <h1 className="text-4xl font-black">{store?.name ?? "店家"} 廚房看板</h1>
+            {!firebaseEnabled && <p className="mt-1 text-xs font-bold text-amber-400">離線模式（每 1.2 秒輪詢）</p>}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -105,8 +170,13 @@ function KitchenBoardContent({ storeId }: { storeId: string }) {
 
       <section className="mb-5 grid gap-3 md:grid-cols-3">
         {tabs.map((tab) => (
-          <button key={tab.status} onClick={() => setActiveStatus(tab.status)} className={`rounded-lg px-4 py-5 text-2xl font-black ${activeStatus === tab.status ? "bg-tomato text-white" : "bg-[#1f1f1f] text-white/65"}`}>
+          <button key={tab.status} onClick={() => setActiveStatus(tab.status)} className={`relative rounded-lg px-4 py-5 text-2xl font-black ${activeStatus === tab.status ? "bg-tomato text-white" : "bg-[#1f1f1f] text-white/65"}`}>
             {tab.label}
+            {tabCounts[tab.status] > 0 && (
+              <span className="absolute right-3 top-3 flex size-7 items-center justify-center rounded-full bg-amber-400 text-sm font-black text-ink">
+                {tabCounts[tab.status]}
+              </span>
+            )}
           </button>
         ))}
       </section>
@@ -163,10 +233,18 @@ function KitchenBoardContent({ storeId }: { storeId: string }) {
               </div>
               {order.customerNote && <p className="mt-4 rounded-lg bg-amber-50 p-3 text-lg font-black text-amber-800">整單備註：{order.customerNote}</p>}
               <div className="mt-5 grid grid-cols-2 gap-3">
-                <button onClick={() => updateOrderStatus(order.id, ["pending", "waiting", "unprocessed", "accepted"].includes(order.status) ? "preparing" : "ready")} className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-5 text-2xl font-black text-white disabled:bg-stone-300" disabled={order.status === "ready" || order.status === "completed"}>
+                <button
+                  onClick={() => updateOrderStatus(order.id, ["pending", "waiting", "unprocessed", "accepted"].includes(order.status) ? "preparing" : "ready")}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-5 text-2xl font-black text-white disabled:bg-stone-300"
+                  disabled={order.status === "ready" || order.status === "completed"}
+                >
                   <Flame className="size-6" />{["pending", "waiting", "unprocessed", "accepted"].includes(order.status) ? "開始製作" : "可出餐"}
                 </button>
-                <button onClick={() => updateOrderStatus(order.id, order.status === "ready" ? "completed" : "ready")} className="inline-flex items-center justify-center gap-2 rounded-lg bg-leaf px-4 py-5 text-2xl font-black text-white disabled:bg-stone-300" disabled={order.status === "completed"}>
+                <button
+                  onClick={() => updateOrderStatus(order.id, order.status === "ready" ? "completed" : "ready")}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-leaf px-4 py-5 text-2xl font-black text-white disabled:bg-stone-300"
+                  disabled={order.status === "completed"}
+                >
                   <CheckCircle2 className="size-6" />{order.status === "ready" ? "完成訂單" : "完成出餐"}
                 </button>
               </div>
