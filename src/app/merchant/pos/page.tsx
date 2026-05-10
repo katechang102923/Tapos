@@ -13,10 +13,32 @@ import { normalizeSelectedOptions, selectionsTotal } from "@/lib/product-options
 import { accessibleStoreIds, defaultStoreId, storeRoleFor } from "@/lib/store-access";
 import type { CashFlow, CashFlowAmountMode, CashFlowItem, CashFlowType, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, StoreMemberRole, User } from "@/lib/types";
 
-type CartLine = { product: Product; quantity: number; note: string; selectedOptions: OrderItemOption[] };
+type CartItemDiscount = { type: "amount" | "percent"; value: number } | null;
+type CartLine = { product: Product; quantity: number; note: string; selectedOptions: OrderItemOption[]; discount: CartItemDiscount };
 type PosPanel = "orders" | "report" | "cash" | "daily";
 type CashForm = { itemId: string; amount: string; note: string };
 type CashItemForm = { name: string; type: CashFlowType; amountMode: CashFlowAmountMode; fixedAmount: string };
+
+function lineBasePrice(line: CartLine) {
+  return productFinalPrice(line.product) + selectionsTotal(line.selectedOptions);
+}
+function lineSubtotal(line: CartLine) {
+  return lineBasePrice(line) * line.quantity;
+}
+function lineDiscountAmount(line: CartLine) {
+  if (!line.discount) return 0;
+  const sub = lineSubtotal(line);
+  if (line.discount.type === "amount") return Math.min(line.discount.value, sub);
+  return Math.round(sub * Math.min(line.discount.value, 100) / 100);
+}
+function lineTotal(line: CartLine) {
+  return Math.max(0, lineSubtotal(line) - lineDiscountAmount(line));
+}
+function computeOrderDiscountAmount(afterItems: number, discount: CartItemDiscount) {
+  if (!discount) return 0;
+  if (discount.type === "amount") return Math.min(discount.value, afterItems);
+  return Math.round(afterItems * Math.min(discount.value, 100) / 100);
+}
 
 const orderTabs: Array<{ key: "new" | "processing" | "completed" | "cancelled"; label: string; statuses: OrderStatus[] }> = [
   { key: "new", label: "新訂單", statuses: ["pending", "waiting", "unprocessed"] },
@@ -72,6 +94,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
   const [tableNo, setTableNo] = useState("1");
   const [customerNote, setCustomerNote] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [orderDiscount, setOrderDiscount] = useState<CartItemDiscount>(null);
   const [choosingProduct, setChoosingProduct] = useState<Product | null>(null);
   const [orderSuccess, setOrderSuccess] = useState("");
   const [orderError, setOrderError] = useState("");
@@ -91,7 +114,11 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
   const selectedOrderTab = orderTabs.find((tab) => tab.key === activeOrderTab) ?? orderTabs[0];
   const displayedOrders = todayOrders.filter((order) => selectedOrderTab.statuses.includes(order.status)).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const ranking = useMemo(() => salesRanking(completedOrders).slice(0, 10), [completedOrders]);
-  const total = cart.reduce((sum, line) => sum + line.quantity * (productFinalPrice(line.product) + selectionsTotal(line.selectedOptions)), 0);
+  const itemsSubtotal = cart.reduce((sum, line) => sum + lineSubtotal(line), 0);
+  const itemDiscountTotal = cart.reduce((sum, line) => sum + lineDiscountAmount(line), 0);
+  const afterItemDiscount = itemsSubtotal - itemDiscountTotal;
+  const orderDiscAmt = computeOrderDiscountAmount(afterItemDiscount, orderDiscount);
+  const finalTotal = Math.max(0, afterItemDiscount - orderDiscAmt);
   const cashIncome = todayCashFlows.filter((item) => item.type === "income").reduce((sum, item) => sum + item.amount, 0);
   const cashExpense = todayCashFlows.filter((item) => item.type === "expense").reduce((sum, item) => sum + item.amount, 0);
   const cashNet = cashIncome - cashExpense;
@@ -103,7 +130,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
 
   function confirmProductOptions(selectedOptions: OrderItemOption[]) {
     if (!choosingProduct) return;
-    setCart((current) => [...current, { product: choosingProduct, quantity: 1, note: "", selectedOptions }]);
+    setCart((current) => [...current, { product: choosingProduct, quantity: 1, note: "", selectedOptions, discount: null }]);
     setChoosingProduct(null);
   }
 
@@ -126,11 +153,12 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
         mode,
         tableNo: mode === "takeout" ? "外帶" : tableNo,
         customerNote,
-        total,
+        total: finalTotal,
         source: "pos",
         status: "accepted",
         items: cart.map<OrderItem>((line) => {
-          const unitPrice = productFinalPrice(line.product) + selectionsTotal(line.selectedOptions);
+          const unitPrice = lineBasePrice(line);
+          const discAmt = lineDiscountAmount(line);
           return {
             id: "",
             orderId: "",
@@ -147,12 +175,16 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
             finalPrice: productFinalPrice(line.product),
             selectedOptions: line.selectedOptions,
             note: line.note,
-            itemNote: line.note
+            itemNote: line.note,
+            ...(line.discount ? { discount: { type: line.discount.type, value: line.discount.value, amount: discAmt } } : {})
           };
-        })
+        }),
+        ...(orderDiscount ? { orderDiscount: { type: orderDiscount.type, value: orderDiscount.value, amount: orderDiscAmt } } : {}),
+        ...((itemDiscountTotal > 0 || orderDiscAmt > 0) ? { discountSummary: { itemDiscountTotal, orderDiscountTotal: orderDiscAmt, totalDiscount: itemDiscountTotal + orderDiscAmt } } : {})
       });
       setCart([]);
       setCustomerNote("");
+      setOrderDiscount(null);
       setOrderSuccess(`POS 訂單已建立：${order.orderNumber}`);
     } catch (writeError) {
       setOrderError(writeError instanceof Error ? writeError.message : "訂單建立失敗");
@@ -246,7 +278,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
               <OrderBoard activeOrderTab={activeOrderTab} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
               <QuickOrder activeCategoryId={activeCategoryId} categories={categories} customerNote={customerNote} mode={mode} posEnabled={posEnabled} products={visibleProducts} setActiveCategoryId={setActiveCategoryId} setChoosingProduct={setChoosingProduct} setCustomerNote={setCustomerNote} setMode={setMode} setTableNo={setTableNo} tableNo={tableNo} />
               <aside className="space-y-5">
-                <CartPanel cart={cart} total={total} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} />
+                <CartPanel cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} finalTotal={finalTotal} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} />
                 <SalesRanking ranking={ranking.slice(0, 5)} title="今日商品 TOP 5" />
               </aside>
             </div>
@@ -474,20 +506,160 @@ function OrderItemLine({ item }: { item: OrderItem }) {
   return <div className="rounded-lg bg-stone-50 px-3 py-2"><p>{item.quantity} x {item.productName}</p>{selectedOptions.length > 0 && <div className="ml-3 mt-1 space-y-1 text-xs">{selectedOptions.map((option) => <p key={`${option.groupId}-${option.choiceId}`} style={{ marginLeft: `${(option.level ?? 0) * 12}px` }}>- {option.groupName}：{option.choiceName}{option.priceDelta ? ` +${option.priceDelta}` : ""}</p>)}</div>}{itemNote && <p className="ml-3 mt-1 rounded bg-amber-50 px-2 py-1 text-xs font-black text-amber-800">備註：{itemNote}</p>}</div>;
 }
 
-function CartPanel({ cart, total, removeLine, submitOrder, updateLine, isSubmitting, posEnabled }: { cart: CartLine[]; total: number; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean }) {
+function CartPanel({ cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, finalTotal, orderDiscount, setOrderDiscount, removeLine, submitOrder, updateLine, isSubmitting, posEnabled }: { cart: CartLine[]; itemsSubtotal: number; itemDiscountTotal: number; orderDiscAmt: number; finalTotal: number; orderDiscount: CartItemDiscount; setOrderDiscount: (d: CartItemDiscount) => void; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean }) {
+  const [showOrderDiscForm, setShowOrderDiscForm] = useState(false);
+  const [orderDiscType, setOrderDiscType] = useState<"amount" | "percent">("amount");
+  const [orderDiscValue, setOrderDiscValue] = useState("");
+
+  const hasDiscount = itemDiscountTotal > 0 || orderDiscAmt > 0;
+
+  function applyOrderDiscount() {
+    const v = Math.round(Number(orderDiscValue));
+    if (!Number.isFinite(v) || v <= 0) return;
+    setOrderDiscount({ type: orderDiscType, value: v });
+    setShowOrderDiscForm(false);
+    setOrderDiscValue("");
+  }
+
   return (
     <section className="rounded-lg bg-white p-5 shadow-sm">
       <h2 className="text-2xl font-black">現場訂單購物車</h2>
       {!posEnabled && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-sm font-black text-tomato">POS 現場單目前暫停建立</p>}
-      {cart.length === 0 ? <p className="mt-4 rounded-lg bg-orange-50 p-4 text-center text-sm font-black text-steel">尚未加入餐點</p> : <div className="mt-4 space-y-4">{cart.map((line, index) => <CartLineCard key={`${line.product.id}-${index}`} index={index} line={line} removeLine={removeLine} updateLine={updateLine} />)}</div>}
-      <div className="mt-6 rounded-lg bg-orange-50 p-4 text-xl font-black text-ink">總計：${total}</div>
+      {cart.length === 0
+        ? <p className="mt-4 rounded-lg bg-orange-50 p-4 text-center text-sm font-black text-steel">尚未加入餐點</p>
+        : <div className="mt-4 space-y-4">{cart.map((line, index) => <CartLineCard key={`${line.product.id}-${index}`} index={index} line={line} removeLine={removeLine} updateLine={updateLine} />)}</div>}
+
+      {/* Total breakdown */}
+      <div className="mt-6 rounded-lg bg-orange-50 p-4">
+        {hasDiscount ? (
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-sm font-bold text-steel"><span>小計</span><span>${itemsSubtotal}</span></div>
+            {itemDiscountTotal > 0 && <div className="flex justify-between text-sm font-bold text-tomato"><span>單品折扣</span><span>-${itemDiscountTotal}</span></div>}
+            {orderDiscAmt > 0 && <div className="flex justify-between text-sm font-bold text-tomato"><span>整單折扣</span><span>-${orderDiscAmt}</span></div>}
+            <div className="flex justify-between border-t border-orange-200 pt-2 text-xl font-black text-ink"><span>應收總額</span><span>${finalTotal}</span></div>
+          </div>
+        ) : (
+          <p className="text-xl font-black text-ink">總計：${finalTotal}</p>
+        )}
+      </div>
+
+      {/* Order-level discount */}
+      {orderDiscount ? (
+        <div className="mt-3 flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2">
+          <p className="text-sm font-black text-amber-700">整單折扣：{orderDiscount.type === "amount" ? `-$${orderDiscount.value}` : `${orderDiscount.value}%`}（實折 -$${orderDiscAmt}）</p>
+          <button onClick={() => setOrderDiscount(null)} className="rounded-lg bg-stone-200 px-2 py-1 text-xs font-black text-steel">清除</button>
+        </div>
+      ) : showOrderDiscForm ? (
+        <div className="mt-3 rounded-lg bg-stone-50 p-3 space-y-3">
+          <p className="text-sm font-black text-steel">整單折扣</p>
+          <div className="flex gap-2">
+            <button onClick={() => setOrderDiscType("amount")} className={`flex-1 rounded-lg px-3 py-2 text-sm font-black ${orderDiscType === "amount" ? "bg-ink text-white" : "bg-stone-200 text-steel"}`}>金額折扣</button>
+            <button onClick={() => setOrderDiscType("percent")} className={`flex-1 rounded-lg px-3 py-2 text-sm font-black ${orderDiscType === "percent" ? "bg-ink text-white" : "bg-stone-200 text-steel"}`}>百分比折扣</button>
+          </div>
+          <div className="flex gap-2">
+            <input value={orderDiscValue} onChange={(e) => setOrderDiscValue(e.target.value)} type="number" min="0" max={orderDiscType === "percent" ? "100" : undefined} placeholder={orderDiscType === "amount" ? "折扣金額（元）" : "折扣 % (1–100)"} className="flex-1 rounded-lg border border-orange-100 px-3 py-2 text-sm font-bold" />
+            <button onClick={applyOrderDiscount} className="rounded-lg bg-leaf px-3 py-2 text-sm font-black text-white">套用</button>
+            <button onClick={() => { setShowOrderDiscForm(false); setOrderDiscValue(""); }} className="rounded-lg bg-stone-200 px-3 py-2 text-sm font-black text-steel">取消</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setShowOrderDiscForm(true)} disabled={cart.length === 0} className="mt-3 w-full rounded-lg border border-dashed border-stone-300 px-3 py-2 text-sm font-black text-steel hover:border-stone-400 disabled:opacity-40">
+          + 整單折扣
+        </button>
+      )}
+
       <button onClick={submitOrder} disabled={cart.length === 0 || isSubmitting || !posEnabled} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-leaf px-4 py-4 font-black text-white disabled:opacity-60"><Send className="size-5" />{isSubmitting ? "送出中..." : "送出訂單"}</button>
     </section>
   );
 }
 
 function CartLineCard({ index, line, removeLine, updateLine }: { index: number; line: CartLine; removeLine: (index: number) => void; updateLine: (index: number, patch: Partial<CartLine>) => void }) {
-  return <div className="rounded-lg border border-orange-100 p-4"><div className="flex items-start justify-between gap-4"><div><p className="font-black text-ink">{line.product.name}</p><p className="mt-1 text-sm text-steel">${productFinalPrice(line.product) + selectionsTotal(line.selectedOptions)} x {line.quantity}</p></div><button onClick={() => removeLine(index)} className="rounded-lg bg-tomato px-3 py-2 font-black text-white">刪除</button></div><div className="mt-4 flex items-center gap-2"><button onClick={() => updateLine(index, { quantity: Math.max(1, line.quantity - 1) })} className="grid h-10 w-10 place-items-center rounded-lg bg-orange-50"><Minus className="size-4" /></button><span className="text-xl font-black">{line.quantity}</span><button onClick={() => updateLine(index, { quantity: line.quantity + 1 })} className="grid h-10 w-10 place-items-center rounded-lg bg-orange-50"><Plus className="size-4" /></button></div><textarea value={line.note} onChange={(event) => updateLine(index, { note: event.target.value })} placeholder="品項備註" className="mt-4 w-full rounded-lg border border-orange-100 px-3 py-3 text-sm" /></div>;
+  const [discOpen, setDiscOpen] = useState(false);
+  const [discType, setDiscType] = useState<"amount" | "percent">("amount");
+  const [discValue, setDiscValue] = useState("");
+
+  const basePrice = lineBasePrice(line);
+  const sub = lineSubtotal(line);
+  const discAmt = lineDiscountAmount(line);
+  const after = lineTotal(line);
+
+  function openDiscountForm() {
+    if (line.discount) { setDiscType(line.discount.type); setDiscValue(String(line.discount.value)); }
+    setDiscOpen(true);
+  }
+
+  function applyDiscount() {
+    const v = Math.round(Number(discValue));
+    if (!Number.isFinite(v) || v <= 0) return;
+    updateLine(index, { discount: { type: discType, value: v } });
+    setDiscOpen(false);
+    setDiscValue("");
+  }
+
+  function clearDiscount() {
+    updateLine(index, { discount: null });
+    setDiscOpen(false);
+    setDiscValue("");
+  }
+
+  return (
+    <div className="rounded-lg border border-orange-100 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="font-black text-ink">{line.product.name}</p>
+          {line.discount ? (
+            <div className="mt-1 space-y-0.5 text-sm">
+              <p className="text-steel">原價 ${basePrice} × {line.quantity} = ${sub}</p>
+              <p className="font-bold text-tomato">折扣 -{line.discount.type === "percent" ? `${line.discount.value}%` : `$${line.discount.value}`} = -${discAmt}</p>
+              <p className="font-black text-ink">小計 ${after}</p>
+            </div>
+          ) : (
+            <p className="mt-1 text-sm text-steel">${basePrice} × {line.quantity} = ${sub}</p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-col gap-1.5">
+          <button onClick={() => removeLine(index)} className="rounded-lg bg-tomato px-3 py-1.5 text-sm font-black text-white">刪除</button>
+          <button
+            onClick={() => discOpen ? setDiscOpen(false) : openDiscountForm()}
+            className={`rounded-lg px-3 py-1.5 text-sm font-black ${line.discount ? "bg-amber-100 text-amber-700" : "bg-stone-100 text-steel"}`}
+          >
+            {line.discount ? "編輯折扣" : "折扣"}
+          </button>
+        </div>
+      </div>
+
+      {discOpen && (
+        <div className="mt-3 rounded-lg bg-stone-50 p-3 space-y-2.5">
+          <div className="flex gap-2">
+            <button onClick={() => setDiscType("amount")} className={`flex-1 rounded-lg px-3 py-2 text-sm font-black ${discType === "amount" ? "bg-ink text-white" : "bg-stone-200 text-steel"}`}>金額折扣</button>
+            <button onClick={() => setDiscType("percent")} className={`flex-1 rounded-lg px-3 py-2 text-sm font-black ${discType === "percent" ? "bg-ink text-white" : "bg-stone-200 text-steel"}`}>百分比折扣</button>
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={discValue}
+              onChange={(e) => setDiscValue(e.target.value)}
+              type="number"
+              min="0"
+              max={discType === "percent" ? "100" : undefined}
+              placeholder={discType === "amount" ? "折扣金額（元）" : "折扣 % (1–100)"}
+              className="flex-1 rounded-lg border border-orange-100 px-3 py-2 text-sm font-bold"
+            />
+            <button onClick={applyDiscount} className="rounded-lg bg-leaf px-3 py-2 text-sm font-black text-white">套用</button>
+          </div>
+          {line.discount && (
+            <button onClick={clearDiscount} className="w-full rounded-lg bg-stone-200 px-3 py-2 text-sm font-black text-steel">清除折扣</button>
+          )}
+        </div>
+      )}
+
+      <div className="mt-3 flex items-center gap-2">
+        <button onClick={() => updateLine(index, { quantity: Math.max(1, line.quantity - 1) })} className="grid h-10 w-10 place-items-center rounded-lg bg-orange-50"><Minus className="size-4" /></button>
+        <span className="text-xl font-black">{line.quantity}</span>
+        <button onClick={() => updateLine(index, { quantity: line.quantity + 1 })} className="grid h-10 w-10 place-items-center rounded-lg bg-orange-50"><Plus className="size-4" /></button>
+      </div>
+      <textarea value={line.note} onChange={(e) => updateLine(index, { note: e.target.value })} placeholder="品項備註" className="mt-3 w-full rounded-lg border border-orange-100 px-3 py-3 text-sm" />
+    </div>
+  );
 }
 
 function Field({ label, value, onChange, className = "" }: { label: string; value: string; onChange: (value: string) => void; className?: string }) {

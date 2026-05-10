@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   BarChart3, CheckCircle2, Clock3, CreditCard, Download, FileText,
-  Printer, Send, ShoppingCart, Star, WalletCards, XCircle
+  Printer, Send, ShoppingCart, Star, Tag, WalletCards, XCircle
 } from "lucide-react";
 import { useDemoStore } from "@/lib/demo-store";
 import { computeDailyReport, formatDate } from "@/lib/daily-report";
@@ -212,7 +212,9 @@ function PrintReceipt({ report, storeName, cashFlows, operatorLabel }: { report:
       <Row label="平均客單價" value={`$${report.averageOrderValue}`} />
       <Row label="取消訂單" value={`${report.cancelledCount} 筆`} />
       <Row label="退款金額" value="$0" />
-      <Row label="折扣金額" value="$0" />
+      {(report.discountSummary?.totalDiscount ?? 0) > 0 && (
+        <Row label="折扣金額" value={`-$${report.discountSummary!.totalDiscount.toLocaleString()}`} />
+      )}
       <hr style={PS.hr} />
 
       {/* Payment stats */}
@@ -478,6 +480,14 @@ export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlo
               <MetricCard icon={WalletCards} label="現金淨額" value={`$${report.cashNet.toLocaleString()}`} tone={report.cashNet >= 0 ? "text-leaf" : "text-tomato"} />
               <MetricCard icon={WalletCards} label="預估現金結餘" value={`$${report.estimatedCashBalance.toLocaleString()}`} />
             </div>
+
+            {report.discountSummary && report.discountSummary.totalDiscount > 0 && (
+              <div className="grid gap-4 sm:grid-cols-3">
+                <MetricCard icon={Tag} label="單品折扣總額" value={`-$${report.discountSummary.itemDiscountTotal.toLocaleString()}`} tone="text-tomato" />
+                <MetricCard icon={Tag} label="整單折扣總額" value={`-$${report.discountSummary.orderDiscountTotal.toLocaleString()}`} tone="text-tomato" />
+                <MetricCard icon={Tag} label="總折扣金額" value={`-$${report.discountSummary.totalDiscount.toLocaleString()}`} tone="text-tomato" />
+              </div>
+            )}
 
             <div className="grid gap-5 xl:grid-cols-2">
               <PaymentStatsSection stats={paymentStats} />

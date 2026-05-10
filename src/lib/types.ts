@@ -184,6 +184,26 @@ export type OrderItemOption = {
   level?: number;
 };
 
+export type ItemDiscount = {
+  type: "amount" | "percent";
+  value: number;
+  amount: number;
+  reason?: string;
+};
+
+export type OrderDiscount = {
+  type: "amount" | "percent";
+  value: number;
+  amount: number;
+  reason?: string;
+};
+
+export type DiscountSummary = {
+  itemDiscountTotal: number;
+  orderDiscountTotal: number;
+  totalDiscount: number;
+};
+
 export type OrderItem = {
   id: string;
   orderId: string;
@@ -201,6 +221,7 @@ export type OrderItem = {
   selectedOptions: OrderItemOption[];
   note: string;
   itemNote?: string;
+  discount?: ItemDiscount;
 };
 
 export type Table = {
@@ -304,6 +325,8 @@ export type Order = {
   total: number;
   totalAmount?: number;
   paymentMethod?: PaymentMethod;
+  orderDiscount?: OrderDiscount;
+  discountSummary?: DiscountSummary;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];
@@ -341,6 +364,7 @@ export type DailyReport = {
   products: DailyReportProduct[];
   paymentStats?: PaymentMethodStat[];
   hourSlots?: HourSlotStat[];
+  discountSummary?: DiscountSummary;
 };
 
 export type DemoDatabase = {

@@ -1,4 +1,4 @@
-import type { CashFlow, DailyReport, DailyReportProduct, HourSlotStat, Order, PaymentMethod, PaymentMethodStat } from "./types";
+import type { CashFlow, DailyReport, DailyReportProduct, DiscountSummary, HourSlotStat, Order, PaymentMethod, PaymentMethodStat } from "./types";
 
 export const PAYMENT_LABELS: Record<string, string> = {
   cash: "現金",
@@ -108,6 +108,11 @@ export function computeDailyReport(
   });
   const products = [...productMap.values()].sort((a, b) => b.quantity - a.quantity);
 
+  const itemDiscountTotal = completed.reduce((sum, o) => sum + (o.discountSummary?.itemDiscountTotal ?? 0), 0);
+  const orderDiscountTotal = completed.reduce((sum, o) => sum + (o.discountSummary?.orderDiscountTotal ?? 0), 0);
+  const totalDiscount = itemDiscountTotal + orderDiscountTotal;
+  const discountSummary: DiscountSummary | undefined = totalDiscount > 0 ? { itemDiscountTotal, orderDiscountTotal, totalDiscount } : undefined;
+
   return {
     id: dailyReportId(storeId, date),
     storeId,
@@ -127,6 +132,7 @@ export function computeDailyReport(
     products,
     paymentStats: computePaymentStats(completed),
     hourSlots: computeHourSlots(dayOrders),
+    discountSummary,
   };
 }
 
