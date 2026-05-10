@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, ChefHat, LayoutDashboard, ShieldCheck, ShoppingCart, Store } from "lucide-react";
 import { TopNav } from "@/components/top-nav";
-import { demoStoreId } from "@/lib/mock-data";
 
 const entries = [
   {
@@ -23,7 +22,7 @@ const entries = [
     icon: LayoutDashboard
   },
   {
-    href: `/kitchen/${demoStoreId}`,
+    href: "/kds",
     title: "廚房 KDS",
     description: "即時顯示新訂單、待製作餐點、出餐狀態與尖峰模式。",
     icon: ChefHat
