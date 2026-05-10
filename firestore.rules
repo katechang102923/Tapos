@@ -180,7 +180,9 @@ service cloud.firestore {
       allow get: if true;
       allow list: if isAdmin();
       allow create: if isAdmin();
-      allow update: if isAdmin() || canManageStore(storeId);
+      // owners/managers can update store fields, but NOT the features block (e.g. kdsEnabled)
+      allow update: if isAdmin()
+        || (canManageStore(storeId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["features"]));
       allow delete: if isAdmin();
     }
 

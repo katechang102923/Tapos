@@ -55,13 +55,13 @@ export function KitchenBoard({ storeId }: { storeId: string }) {
             </main>
           );
         }
-        return <KitchenBoardContent storeId={storeId} />;
+        return <KitchenBoardContent storeId={storeId} isPlatformAdmin={isAdmin} />;
       }}
     </LoginGate>
   );
 }
 
-function KitchenBoardContent({ storeId }: { storeId: string }) {
+function KitchenBoardContent({ storeId, isPlatformAdmin }: { storeId: string; isPlatformAdmin: boolean }) {
   const { db, createMockOrder, updateOrderStatus } = useDemoStore({ storeId });
   const [activeStatus, setActiveStatus] = useState<OrderStatus>("pending");
   const [station, setStation] = useState<Station>("all");
@@ -69,18 +69,33 @@ function KitchenBoardContent({ storeId }: { storeId: string }) {
   const [peakMode, setPeakMode] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [now, setNow] = useState(Date.now());
-  const store = db.stores.find((item) => item.id === storeId);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15000);
     return () => window.clearInterval(timer);
   }, []);
 
+  const store = db.stores.find((item) => item.id === storeId);
   const activeTab = tabs.find((tab) => tab.status === activeStatus) ?? tabs[0];
   const orders = useMemo(
     () => db.orders.filter((order) => order.storeId === storeId && activeTab.statuses.includes(order.status)).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
     [activeTab.statuses, db.orders, storeId]
   );
+
+  if (!isPlatformAdmin && !store?.features?.kdsEnabled) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#111111] p-4">
+        <div className="rounded-lg bg-white p-6 text-ink shadow-soft">
+          <p className="text-sm font-black text-steel">KDS 功能未開通</p>
+          <h1 className="mt-2 text-2xl font-black">此店家尚未開通 KDS 功能</h1>
+          <p className="mt-3 text-steel">請聯絡平台管理員開通 KDS 功能。</p>
+          <Link href="/merchant/dashboard" className="mt-5 inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white">
+            回店家後台
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className={`${fullscreen ? "fixed inset-0 z-50 overflow-y-auto" : "min-h-screen"} bg-[#111111] p-4 text-white sm:p-6`}>

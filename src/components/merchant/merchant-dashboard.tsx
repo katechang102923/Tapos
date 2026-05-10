@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Cpu, LayoutDashboard, Menu as MenuIcon, Plus, Power, QrCode, ReceiptText, Settings, ShoppingCart, SlidersHorizontal } from "lucide-react";
+import { ChefHat, Cpu, LayoutDashboard, Menu as MenuIcon, Plus, Power, QrCode, ReceiptText, Settings, ShoppingCart, SlidersHorizontal } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { accessibleStoreIds, defaultStoreId, storeRoleFor } from "@/lib/store-access";
@@ -90,6 +90,9 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
           <SidebarItem href="/merchant/devices" icon={Cpu} label="設備與列印設定" />
           {canManageStore && <SidebarItem href="/merchant/settings" icon={Settings} label="店家設定" />}
           <Link href="/merchant/pos" className="inline-flex items-center gap-3 rounded-lg bg-leaf px-4 py-3 font-black text-white"><ShoppingCart className="size-5" />前往 POS 前台</Link>
+          {store?.features?.kdsEnabled && (
+            <Link href={`/kitchen/${selectedStoreId}`} className="inline-flex items-center gap-3 rounded-lg bg-white/10 px-4 py-3 font-black text-white hover:bg-white/20"><ChefHat className="size-5" />廚房 KDS</Link>
+          )}
         </nav>
       </aside>
 

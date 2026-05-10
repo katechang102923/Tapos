@@ -64,6 +64,12 @@ export type Store = {
   demoBreakfastMenuImported?: boolean;
   temporaryNotice?: string;
   notice?: string;
+  features?: {
+    kdsEnabled?: boolean;
+    dailyReportEnabled?: boolean;
+    cashFlowEnabled?: boolean;
+    memberEnabled?: boolean;
+  };
   createdAt: string;
 };
 

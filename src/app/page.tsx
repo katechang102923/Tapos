@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, ChefHat, LayoutDashboard, ShieldCheck, ShoppingCart, Store } from "lucide-react";
+import { ArrowRight, ChefHat, LayoutDashboard, ShoppingCart, Store } from "lucide-react";
 import { TopNav } from "@/components/top-nav";
 
 const entries = [
@@ -26,12 +26,6 @@ const entries = [
     title: "廚房 KDS",
     description: "即時顯示新訂單、待製作餐點、出餐狀態與尖峰模式。",
     icon: ChefHat
-  },
-  {
-    href: "/admin",
-    title: "平台管理中心",
-    description: "管理多店家資料、使用者角色與平台營運設定。",
-    icon: ShieldCheck
   }
 ];
 

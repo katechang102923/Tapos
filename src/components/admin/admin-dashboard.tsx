@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Building2, Database, Edit3, LogOut, MenuSquare, Power, PowerOff, Store as StoreIcon, Trash2 } from "lucide-react";
+import { Building2, Database, Edit3, LogOut, MenuSquare, Monitor, Power, PowerOff, Store as StoreIcon, Trash2 } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import type { Product, Store, StoreMemberRole, User } from "@/lib/types";
@@ -202,6 +202,13 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
                   {store.isOpen ? <PowerOff className="size-4" /> : <Power className="size-4" />}
                   切換狀態
                 </button>
+                <button
+                  onClick={() => upsertStore({ ...store, features: { ...store.features, kdsEnabled: !store.features?.kdsEnabled } })}
+                  className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-3 font-black ${store.features?.kdsEnabled ? "bg-leaf/10 text-leaf" : "bg-stone-100 text-stone-500"}`}
+                >
+                  <Monitor className="size-4" />
+                  KDS {store.features?.kdsEnabled ? "已開啟" : "已關閉"}
+                </button>
                 <Link href={`/order/${store.id}`} className="inline-flex items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 font-black text-steel">
                   <StoreIcon className="size-4" />
                   店家點餐頁
@@ -210,7 +217,7 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
                   <Edit3 className="size-4" />
                   編輯店家
                 </Link>
-                <Link href={`/admin/stores/${store.id}/menu`} className="inline-flex items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 font-black text-steel">
+                <Link href={`/admin/stores/${store.id}/menu`} className="col-span-2 inline-flex items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 font-black text-steel">
                   <MenuSquare className="size-4" />
                   管理菜單
                 </Link>
