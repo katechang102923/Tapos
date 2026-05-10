@@ -93,67 +93,8 @@ textarea {
     display: none !important;
   }
 
-  .print-only {
-    display: block !important;
-  }
-
   body {
     background: white !important;
     color: #000 !important;
-    margin: 0;
-    padding: 0;
-  }
-
-  /* Receipt layout container */
-  .receipt-print-area {
-    font-family: "Courier New", Courier, monospace !important;
-    font-size: 11pt;
-    color: #000 !important;
-    max-width: 100%;
-    margin: 0 auto;
-    padding: 0;
-    line-height: 1.45;
-  }
-
-  .receipt-print-area h1,
-  .receipt-print-area h2,
-  .receipt-print-area h3 {
-    font-size: 13pt;
-    font-weight: bold;
-    margin: 4px 0;
-    text-align: center;
-    font-family: "Courier New", Courier, monospace !important;
-  }
-
-  .receipt-divider {
-    border: none;
-    border-top: 1px dashed #000;
-    margin: 6px 0;
-  }
-
-  .receipt-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 1px 0;
-    font-size: 10pt;
-  }
-
-  .receipt-row-label { flex: 1; }
-  .receipt-row-value { text-align: right; white-space: nowrap; }
-
-  .receipt-signature {
-    margin-top: 16px;
-    border-top: 1px solid #000;
-    padding-top: 8px;
-  }
-
-  /* Hide everything except the print area when printing */
-  body > * { display: none !important; }
-  #__next > * { display: none !important; }
-
-  /* Show the dedicated print area */
-  .receipt-print-root,
-  .receipt-print-root * {
-    display: revert !important;
   }
 }

@@ -6,10 +6,10 @@ import {
   Printer, Send, ShoppingCart, Star, WalletCards, XCircle
 } from "lucide-react";
 import { useDemoStore } from "@/lib/demo-store";
-import { computeDailyReport, formatDate, PAYMENT_LABELS } from "@/lib/daily-report";
+import { computeDailyReport, formatDate } from "@/lib/daily-report";
 import type { CashFlow, DailyReport, HourSlotStat, Order, PaymentMethodStat } from "@/lib/types";
 
-// ─── small helpers ───────────────────────────────────────────────────────────
+// ─── Screen helpers ───────────────────────────────────────────────────────────
 
 function MetricCard({ icon: Icon, label, value, tone = "text-ink", sub }: { icon: React.ElementType; label: string; value: string; tone?: string; sub?: string }) {
   return (
@@ -28,10 +28,9 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h3 className="text-xl font-black text-ink">{children}</h3>;
 }
 
-// ─── Payment stats ────────────────────────────────────────────────────────────
+// ─── Payment stats (screen) ───────────────────────────────────────────────────
 
 function PaymentStatsSection({ stats }: { stats: PaymentMethodStat[] }) {
-  const total = stats.reduce((s, r) => s + r.amount, 0);
   if (stats.length === 0) {
     return (
       <section className="rounded-lg bg-white p-5 shadow-sm">
@@ -79,7 +78,7 @@ function PaymentStatsSection({ stats }: { stats: PaymentMethodStat[] }) {
             <tr className="border-t-2 border-stone-200">
               <td className="py-3 font-black text-ink">合計</td>
               <td className="py-3 text-right font-black text-ink">{stats.reduce((s, r) => s + r.count, 0)}</td>
-              <td className="py-3 text-right font-black text-leaf">${total.toLocaleString()}</td>
+              <td className="py-3 text-right font-black text-leaf">${stats.reduce((s, r) => s + r.amount, 0).toLocaleString()}</td>
               <td />
             </tr>
           </tfoot>
@@ -89,7 +88,7 @@ function PaymentStatsSection({ stats }: { stats: PaymentMethodStat[] }) {
   );
 }
 
-// ─── Hour slots ───────────────────────────────────────────────────────────────
+// ─── Hour slots (screen) ──────────────────────────────────────────────────────
 
 function HourSlotsSection({ slots }: { slots: HourSlotStat[] }) {
   const maxRevenue = Math.max(...slots.map((s) => s.revenue), 1);
@@ -136,7 +135,7 @@ function HourSlotsSection({ slots }: { slots: HourSlotStat[] }) {
   );
 }
 
-// ─── Product ranking ──────────────────────────────────────────────────────────
+// ─── Product ranking (screen) ─────────────────────────────────────────────────
 
 function ProductRanking({ products }: { products: DailyReport["products"] }) {
   return (
@@ -159,137 +158,152 @@ function ProductRanking({ products }: { products: DailyReport["products"] }) {
   );
 }
 
-// ─── Print receipt (hidden on screen, visible on print) ──────────────────────
+// ─── PrintReceipt — INLINE STYLES ONLY (no external CSS dependency) ───────────
+// This component's innerHTML is extracted and injected into a new window for
+// printing, so it must be fully self-contained with inline styles.
 
-function PrintReceipt({
-  report,
-  storeName,
-  paperSize,
-  cashFlows,
-}: {
-  report: DailyReport;
-  storeName: string;
-  paperSize: "58mm" | "80mm";
-  cashFlows: CashFlow[];
-}) {
-  const divider = paperSize === "58mm" ? "================================" : "================================================";
+const PS = {
+  wrap: { fontFamily: "'Courier New', Courier, monospace", fontSize: "12px", lineHeight: "1.5", color: "#000", background: "#fff", padding: "4mm" } as React.CSSProperties,
+  h1: { textAlign: "center", fontWeight: "bold", fontSize: "15px", margin: "4px 0" } as React.CSSProperties,
+  h2: { textAlign: "center", fontWeight: "bold", fontSize: "12px", margin: "3px 0" } as React.CSSProperties,
+  center: { textAlign: "center", fontSize: "11px" } as React.CSSProperties,
+  hr: { border: "none", borderTop: "1px dashed #000", margin: "5px 0" } as React.CSSProperties,
+  solidHr: { border: "none", borderTop: "1px solid #000", margin: "5px 0" } as React.CSSProperties,
+  row: { display: "flex", justifyContent: "space-between", padding: "2px 0", fontSize: "11px" } as React.CSSProperties,
+  label: { flex: 1 } as React.CSSProperties,
+  value: { textAlign: "right", whiteSpace: "nowrap", paddingLeft: "8px" } as React.CSSProperties,
+  sig: { marginTop: "16px", paddingTop: "8px", borderTop: "1px solid #000" } as React.CSSProperties,
+  sigLine: { margin: "10px 0", fontSize: "11px" } as React.CSSProperties,
+  small: { fontSize: "9px", textAlign: "center", marginTop: "6px" } as React.CSSProperties,
+};
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={PS.row}>
+      <span style={PS.label}>{label}</span>
+      <span style={PS.value}>{value}</span>
+    </div>
+  );
+}
+
+function PrintReceipt({ report, storeName, cashFlows }: { report: DailyReport; storeName: string; cashFlows: CashFlow[] }) {
   const genTime = new Date(report.generatedAt).toLocaleString("zh-TW");
   const payStats = report.paymentStats ?? [];
   const hourSlots = report.hourSlots ?? [];
   const peakSlot = hourSlots.find((s) => s.isPeak);
 
   return (
-    <div className="receipt-print-area" style={{ maxWidth: paperSize === "58mm" ? "58mm" : "80mm" }}>
+    <div style={PS.wrap}>
       {/* Header */}
-      <p style={{ textAlign: "center", fontWeight: "bold", fontSize: "14pt" }}>{storeName}</p>
-      <p style={{ textAlign: "center" }}>日期：{report.date}</p>
-      <p style={{ textAlign: "center" }}>日結時間：{genTime}</p>
-      {report.generatedBy && <p style={{ textAlign: "center" }}>操作員：{report.generatedBy}</p>}
-      <p>{divider}</p>
+      <p style={PS.h1}>{storeName}</p>
+      <p style={PS.center}>日期：{report.date}</p>
+      <p style={PS.center}>日結時間：{genTime}</p>
+      {report.generatedBy && <p style={PS.center}>操作員：{report.generatedBy}</p>}
+      <hr style={PS.hr} />
 
-      {/* Revenue summary */}
-      <p style={{ textAlign: "center", fontWeight: "bold" }}>營收摘要</p>
-      <p>{divider}</p>
-      {[
-        ["總營收", `$${report.totalRevenue.toLocaleString()}`],
-        ["訂單數", `${report.orderCount} 筆`],
-        ["完成訂單", `${report.completedCount} 筆`],
-        ["平均客單價", `$${report.averageOrderValue}`],
-        ["取消訂單", `${report.cancelledCount} 筆`],
-        ["退款金額", "$0"],
-        ["折扣金額", "$0"],
-      ].map(([label, value]) => (
-        <div key={label} className="receipt-row">
-          <span className="receipt-row-label">{label}</span>
-          <span className="receipt-row-value">{value}</span>
-        </div>
-      ))}
-      <p>{divider}</p>
+      {/* Revenue */}
+      <p style={PS.h2}>═══ 營收摘要 ═══</p>
+      <hr style={PS.hr} />
+      <Row label="總營收" value={`$${report.totalRevenue.toLocaleString()}`} />
+      <Row label="訂單數" value={`${report.orderCount} 筆`} />
+      <Row label="完成訂單" value={`${report.completedCount} 筆`} />
+      <Row label="完成金額" value={`$${report.completedRevenue.toLocaleString()}`} />
+      <Row label="平均客單價" value={`$${report.averageOrderValue}`} />
+      <Row label="取消訂單" value={`${report.cancelledCount} 筆`} />
+      <Row label="退款金額" value="$0" />
+      <Row label="折扣金額" value="$0" />
+      <hr style={PS.hr} />
 
       {/* Payment stats */}
       {payStats.length > 0 && (
         <>
-          <p style={{ textAlign: "center", fontWeight: "bold" }}>付款方式統計</p>
-          <p>{divider}</p>
+          <p style={PS.h2}>═══ 付款方式統計 ═══</p>
+          <hr style={PS.hr} />
           {payStats.map((s) => (
-            <div key={s.method} className="receipt-row">
-              <span className="receipt-row-label">{s.label}</span>
-              <span className="receipt-row-value">{s.count}筆 ${s.amount.toLocaleString()} ({s.percent}%)</span>
-            </div>
+            <Row key={s.method} label={s.label} value={`${s.count}筆  $${s.amount.toLocaleString()}  (${s.percent}%)`} />
           ))}
-          <p>{divider}</p>
+          <hr style={PS.hr} />
         </>
       )}
 
       {/* Product TOP10 */}
       {report.products.length > 0 && (
         <>
-          <p style={{ textAlign: "center", fontWeight: "bold" }}>商品 TOP 10</p>
-          <p>{divider}</p>
+          <p style={PS.h2}>═══ 商品 TOP 10 ═══</p>
+          <hr style={PS.hr} />
           {report.products.slice(0, 10).map((p, i) => (
-            <div key={p.productId} className="receipt-row">
-              <span className="receipt-row-label">{i + 1}. {p.productName}</span>
-              <span className="receipt-row-value">x{p.quantity} ${p.totalAmount.toLocaleString()}</span>
-            </div>
+            <Row key={p.productId} label={`${i + 1}. ${p.productName}`} value={`x${p.quantity}  $${p.totalAmount.toLocaleString()}`} />
           ))}
-          <p>{divider}</p>
+          <hr style={PS.hr} />
         </>
       )}
 
       {/* Hour slots */}
       {hourSlots.some((s) => s.orderCount > 0) && (
         <>
-          <p style={{ textAlign: "center", fontWeight: "bold" }}>時段分析</p>
-          <p>{divider}</p>
+          <p style={PS.h2}>═══ 時段分析 ═══</p>
+          <hr style={PS.hr} />
           {hourSlots.map((s) => (
-            <div key={s.slot} className="receipt-row">
-              <span className="receipt-row-label">{s.slot}{s.isPeak ? " ★" : ""}</span>
-              <span className="receipt-row-value">{s.orderCount}筆 ${s.revenue.toLocaleString()}</span>
-            </div>
+            <Row key={s.slot} label={`${s.slot}${s.isPeak ? " ★" : ""}`} value={`${s.orderCount}筆  $${s.revenue.toLocaleString()}`} />
           ))}
-          {peakSlot && <p style={{ fontSize: "9pt" }}>★ 尖峰時段：{peakSlot.slot}</p>}
-          <p>{divider}</p>
+          {peakSlot && <p style={{ ...PS.small, textAlign: "left" }}>★ 尖峰時段：{peakSlot.slot}</p>}
+          <hr style={PS.hr} />
         </>
       )}
 
       {/* Cash flow */}
-      <p style={{ textAlign: "center", fontWeight: "bold" }}>現金流</p>
-      <p>{divider}</p>
-      {[
-        ["現金收入", `$${report.cashIncome.toLocaleString()}`],
-        ["現金支出", `$${report.cashExpense.toLocaleString()}`],
-        ["現金淨額", `$${report.cashNet.toLocaleString()}`],
-        ["預估現金結餘", `$${report.estimatedCashBalance.toLocaleString()}`],
-      ].map(([label, value]) => (
-        <div key={label} className="receipt-row">
-          <span className="receipt-row-label">{label}</span>
-          <span className="receipt-row-value">{value}</span>
-        </div>
-      ))}
+      <p style={PS.h2}>═══ 現金流 ═══</p>
+      <hr style={PS.hr} />
+      <Row label="現金收入" value={`$${report.cashIncome.toLocaleString()}`} />
+      <Row label="現金支出" value={`$${report.cashExpense.toLocaleString()}`} />
+      <Row label="現金淨額" value={`$${report.cashNet.toLocaleString()}`} />
+      <Row label="預估現金結餘" value={`$${report.estimatedCashBalance.toLocaleString()}`} />
       {cashFlows.length > 0 && (
         <>
-          <p style={{ marginTop: "4px", fontSize: "9pt" }}>現金流明細：</p>
+          <p style={{ ...PS.small, textAlign: "left", marginTop: "4px" }}>現金流明細：</p>
           {cashFlows.map((f) => (
-            <div key={f.id} className="receipt-row" style={{ fontSize: "9pt" }}>
-              <span className="receipt-row-label">{f.itemName ?? f.category}</span>
-              <span className="receipt-row-value">{f.type === "income" ? "+" : "-"}${f.amount}</span>
+            <div key={f.id} style={{ ...PS.row, fontSize: "10px" }}>
+              <span style={PS.label}>{f.itemName ?? f.category}</span>
+              <span style={PS.value}>{f.type === "income" ? "+" : "-"}${f.amount}</span>
             </div>
           ))}
         </>
       )}
-      <p>{divider}</p>
+      <hr style={PS.hr} />
 
       {/* Signature */}
-      <div className="receipt-signature">
-        <p>日結人員：________________________</p>
-        <p style={{ marginTop: "8px" }}>店長簽名：________________________</p>
-        <p style={{ marginTop: "8px", fontSize: "9pt", textAlign: "center" }}>產生時間：{genTime}</p>
+      <div style={PS.sig}>
+        <p style={PS.sigLine}>日結人員：____________________________</p>
+        <p style={PS.sigLine}>店長簽名：____________________________</p>
+        <p style={{ ...PS.small, marginTop: "10px" }}>產生時間：{genTime}</p>
       </div>
     </div>
   );
 }
 
+// ─── Build the standalone print HTML ─────────────────────────────────────────
+
+function buildPrintHtml(innerHtml: string, storeName: string, date: string, paperSize: "58mm" | "80mm"): string {
+  return `<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>${storeName} 日結 ${date}</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #fff; color: #000; }
+@page { size: ${paperSize} auto; margin: 3mm; }
+</style>
+</head>
+<body>${innerHtml}</body>
+</html>`;
+}
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
+
+const EMPTY_SLOTS: HourSlotStat[] = [
+  "06-08", "08-10", "10-12", "12-14", "14-16", "16-18", "18-20", "20-22"
+].map((slot) => ({ slot, orderCount: 0, revenue: 0, isPeak: false }));
 
 type DailyReportPanelProps = {
   storeId: string;
@@ -308,7 +322,7 @@ export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlo
   const [message, setMessage] = useState("");
   const [loadingReport, setLoadingReport] = useState(false);
   const [paperSize, setPaperSize] = useState<"58mm" | "80mm">("80mm");
-  const printStyleRef = useRef<HTMLStyleElement | null>(null);
+  const printAreaRef = useRef<HTMLDivElement>(null);
 
   const isToday = selectedDate === formatDate();
   const liveReport = computeDailyReport(storeId, selectedDate, isToday ? todayOrders : [], isToday ? todayCashFlows : [], userEmail);
@@ -340,13 +354,16 @@ export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlo
   }
 
   function handlePrint() {
-    // Inject @page size before printing
-    printStyleRef.current?.remove();
-    const style = document.createElement("style");
-    style.textContent = `@media print { @page { size: ${paperSize} auto; margin: 3mm; } }`;
-    document.head.appendChild(style);
-    printStyleRef.current = style;
-    window.print();
+    const el = printAreaRef.current;
+    if (!el) return;
+    const win = window.open("", "_blank", "width=700,height=900");
+    if (!win) {
+      alert("請允許彈出視窗以列印報表");
+      return;
+    }
+    win.document.write(buildPrintHtml(el.innerHTML, storeName, selectedDate, paperSize));
+    win.document.close();
+    setTimeout(() => { win.focus(); win.print(); }, 350);
   }
 
   async function handleSendEmail() {
@@ -369,18 +386,17 @@ export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlo
   }
 
   const paymentStats = report.paymentStats ?? [];
-  const hourSlots = report.hourSlots ?? [];
+  const hourSlots = report.hourSlots?.length ? report.hourSlots : EMPTY_SLOTS;
   const dayFlows = isToday ? todayCashFlows : [];
 
   return (
     <>
-      {/* ── Print receipt (hidden on screen, shown on @media print) ── */}
-      <div className="receipt-print-root hidden">
-        <PrintReceipt report={report} storeName={storeName} paperSize={paperSize} cashFlows={dayFlows} />
+      {/* Hidden print area — extracted via innerHTML and rendered in a new window */}
+      <div ref={printAreaRef} aria-hidden="true" style={{ position: "absolute", left: "-9999px", top: 0, width: "1px", overflow: "hidden" }}>
+        <PrintReceipt report={report} storeName={storeName} cashFlows={dayFlows} />
       </div>
 
-      {/* ── Screen content ── */}
-      <section className="no-print space-y-5">
+      <section className="space-y-5">
         {/* Controls */}
         <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg bg-white p-5 shadow-sm">
           <div>
@@ -446,7 +462,6 @@ export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlo
               {savedReport ? `　已儲存 ${new Date(savedReport.generatedAt).toLocaleString("zh-TW")}` : ""}
             </p>
 
-            {/* Revenue metrics */}
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <MetricCard icon={BarChart3} label="今日營收" value={`$${report.totalRevenue.toLocaleString()}`} tone="text-tomato" />
               <MetricCard icon={CheckCircle2} label="完成訂單" value={`${report.completedCount} 筆`} sub={`$${report.completedRevenue.toLocaleString()}`} tone="text-leaf" />
@@ -454,7 +469,6 @@ export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlo
               <MetricCard icon={ShoppingCart} label="平均客單價" value={`$${report.averageOrderValue}`} />
             </div>
 
-            {/* Cash metrics */}
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <MetricCard icon={WalletCards} label="現金收入" value={`$${report.cashIncome.toLocaleString()}`} tone="text-leaf" />
               <MetricCard icon={WalletCards} label="現金支出" value={`$${report.cashExpense.toLocaleString()}`} tone="text-tomato" />
@@ -462,22 +476,11 @@ export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlo
               <MetricCard icon={WalletCards} label="預估現金結餘" value={`$${report.estimatedCashBalance.toLocaleString()}`} />
             </div>
 
-            {/* Payment stats + Hour slots (side by side on large screens) */}
             <div className="grid gap-5 xl:grid-cols-2">
               <PaymentStatsSection stats={paymentStats} />
-              <HourSlotsSection slots={hourSlots.length > 0 ? hourSlots : [
-                { slot: "06-08", orderCount: 0, revenue: 0, isPeak: false },
-                { slot: "08-10", orderCount: 0, revenue: 0, isPeak: false },
-                { slot: "10-12", orderCount: 0, revenue: 0, isPeak: false },
-                { slot: "12-14", orderCount: 0, revenue: 0, isPeak: false },
-                { slot: "14-16", orderCount: 0, revenue: 0, isPeak: false },
-                { slot: "16-18", orderCount: 0, revenue: 0, isPeak: false },
-                { slot: "18-20", orderCount: 0, revenue: 0, isPeak: false },
-                { slot: "20-22", orderCount: 0, revenue: 0, isPeak: false },
-              ]} />
+              <HourSlotsSection slots={hourSlots} />
             </div>
 
-            {/* Product ranking */}
             <ProductRanking products={report.products} />
           </>
         )}
