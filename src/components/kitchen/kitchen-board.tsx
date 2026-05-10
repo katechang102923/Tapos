@@ -77,10 +77,12 @@ function KitchenBoardContent({ storeId }: { storeId: string }) {
   }, []);
 
   const activeTab = tabs.find((tab) => tab.status === activeStatus) ?? tabs[0];
-  const orders = useMemo(
-    () => db.orders.filter((order) => order.storeId === storeId && activeTab.statuses.includes(order.status)).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
-    [activeTab.statuses, db.orders, storeId]
-  );
+  const orders = useMemo(() => {
+    const today = new Date().toDateString();
+    return db.orders
+      .filter((order) => order.storeId === storeId && activeTab.statuses.includes(order.status) && new Date(order.createdAt).toDateString() === today)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }, [activeTab.statuses, db.orders, storeId]);
 
   return (
     <main className={`${fullscreen ? "fixed inset-0 z-50 overflow-y-auto" : "min-h-screen"} bg-[#111111] p-4 text-white sm:p-6`}>

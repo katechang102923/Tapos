@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowLeft, BarChart3, CheckCircle2, Clock3, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, WalletCards, XCircle } from "lucide-react";
+import { ArrowLeft, BarChart3, CheckCircle2, ChefHat, Clock3, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, WalletCards, XCircle } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { ProductOptionModal } from "@/components/product-option-modal";
 import { StatusPill } from "@/components/status-pill";
@@ -219,6 +219,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
                 {storeIds.map((id) => <option key={id} value={id}>{db.stores.find((item) => item.id === id)?.name ?? id}</option>)}
               </select>
             )}
+            <Link href={`/kitchen/${storeId}`} className="inline-flex items-center gap-2 rounded-lg bg-amber-400 px-4 py-3 font-black text-ink"><ChefHat className="size-4" />廚房 KDS</Link>
             <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-3 font-black text-ink"><ArrowLeft className="size-4" />返回設定中心</Link>
           </div>
         </header>
