@@ -248,6 +248,20 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /dailyReports/{reportId} {
+      allow read: if isAdmin()
+        || (resource.data.storeId is string && (
+          membershipRole(resource.data.storeId) in ["owner", "manager", "viewer"]
+          || (approved() && userStoreId() == resource.data.storeId && role() in ["merchant", "owner"])
+        ));
+      allow create, update: if isAdmin()
+        || (request.resource.data.storeId is string && (
+          membershipRole(request.resource.data.storeId) in ["owner", "manager"]
+          || (approved() && userStoreId() == request.resource.data.storeId && role() in ["merchant", "owner"])
+        ));
+      allow delete: if isAdmin();
+    }
+
     match /pendingInvites/{inviteId} {
       allow read, create, update, delete: if isAdmin();
     }

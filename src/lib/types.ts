@@ -53,6 +53,9 @@ export type Store = {
   dineInOrderingEnabled?: boolean;
   posOrderingEnabled?: boolean;
   enablePickupDisplay?: boolean;
+  reportEmailEnabled?: boolean;
+  reportEmailRecipients?: string;
+  reportEmailTime?: string;
   ownerId?: string;
   storeType?: StoreType;
   isOpen: boolean;
@@ -264,6 +267,8 @@ export type OrderItemPayload = Omit<OrderItem, "id" | "orderId"> & {
   orderId?: string;
 };
 
+export type PaymentMethod = "cash" | "card" | "transfer" | "other";
+
 export type Order = {
   id: string;
   storeId: string;
@@ -283,6 +288,7 @@ export type Order = {
   cancelReason?: string;
   total: number;
   totalAmount?: number;
+  paymentMethod?: PaymentMethod;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];
@@ -292,6 +298,32 @@ export type OrderPayload = Omit<Order, "id" | "orderNumber" | "pickupNumber" | "
   items: OrderItemPayload[];
   status?: OrderStatus;
   source?: "qr" | "pos";
+};
+
+export type DailyReportProduct = {
+  productId: string;
+  productName: string;
+  quantity: number;
+  totalAmount: number;
+};
+
+export type DailyReport = {
+  id: string;
+  storeId: string;
+  date: string;
+  generatedAt: string;
+  generatedBy?: string;
+  orderCount: number;
+  completedCount: number;
+  cancelledCount: number;
+  totalRevenue: number;
+  completedRevenue: number;
+  averageOrderValue: number;
+  cashIncome: number;
+  cashExpense: number;
+  cashNet: number;
+  estimatedCashBalance: number;
+  products: DailyReportProduct[];
 };
 
 export type DemoDatabase = {
@@ -309,6 +341,7 @@ export type DemoDatabase = {
   tables?: Table[];
   dailySalesSummaries?: DailySalesSummary[];
   devices?: Device[];
+  dailyReports?: DailyReport[];
 };
 
 export type CashFlowType = "income" | "expense";

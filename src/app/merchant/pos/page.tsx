@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowLeft, BarChart3, CheckCircle2, ChefHat, Clock3, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, WalletCards, XCircle } from "lucide-react";
+import { ArrowLeft, BarChart3, CheckCircle2, Clock3, FileText, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, WalletCards, XCircle } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { ProductOptionModal } from "@/components/product-option-modal";
 import { StatusPill } from "@/components/status-pill";
+import { DailyReportPanel } from "@/components/merchant/daily-report-panel";
 import { useDemoStore } from "@/lib/demo-store";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { normalizeSelectedOptions, selectionsTotal } from "@/lib/product-options";
@@ -13,7 +14,7 @@ import { accessibleStoreIds, defaultStoreId, storeRoleFor } from "@/lib/store-ac
 import type { CashFlow, CashFlowAmountMode, CashFlowItem, CashFlowType, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, StoreMemberRole, User } from "@/lib/types";
 
 type CartLine = { product: Product; quantity: number; note: string; selectedOptions: OrderItemOption[] };
-type PosPanel = "orders" | "report" | "cash";
+type PosPanel = "orders" | "report" | "cash" | "daily";
 type CashForm = { itemId: string; amount: string; note: string };
 type CashItemForm = { name: string; type: CashFlowType; amountMode: CashFlowAmountMode; fixedAmount: string };
 
@@ -219,15 +220,15 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
                 {storeIds.map((id) => <option key={id} value={id}>{db.stores.find((item) => item.id === id)?.name ?? id}</option>)}
               </select>
             )}
-            <Link href={`/kitchen/${storeId}`} className="inline-flex items-center gap-2 rounded-lg bg-amber-400 px-4 py-3 font-black text-ink"><ChefHat className="size-4" />廚房 KDS</Link>
             <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-3 font-black text-ink"><ArrowLeft className="size-4" />返回設定中心</Link>
           </div>
         </header>
 
-        <section className="mb-5 grid gap-3 md:grid-cols-3">
+        <section className="mb-5 grid gap-3 md:grid-cols-4">
           <PanelButton active={activePanel === "orders"} icon={ReceiptText} label="接單工作台" onClick={() => setActivePanel("orders")} />
           <PanelButton active={activePanel === "report"} icon={BarChart3} label="每日報表" onClick={() => setActivePanel("report")} disabled={!canViewReport} />
           <PanelButton active={activePanel === "cash"} icon={WalletCards} label="現金流" onClick={() => setActivePanel("cash")} disabled={!canAddCashFlow && !canViewReport} />
+          <PanelButton active={activePanel === "daily"} icon={FileText} label="日結" onClick={() => setActivePanel("daily")} disabled={!canViewReport} />
         </section>
 
         {orderSuccess && <div className="mb-5 rounded-lg border border-leaf/30 bg-leaf/10 p-5 font-black text-leaf">{orderSuccess}</div>}
@@ -252,8 +253,9 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
           </>
         )}
 
-        {activePanel === "report" && (canViewReport ? <DailyReport averageOrderValue={averageOrderValue} cashExpense={cashExpense} cashIncome={cashIncome} cashNet={cashNet} cancelledCount={cancelledOrders.length} completedRevenue={completedRevenue} estimatedCashBalance={estimatedCashBalance} orderCount={todayOrders.length} ranking={ranking} totalRevenue={totalRevenue} /> : <PermissionNotice text="staff 可新增現金流，但不能查看完整每日報表。" />)}
+        {activePanel === "report" && (canViewReport ? <DailySalesPanel averageOrderValue={averageOrderValue} cashExpense={cashExpense} cashIncome={cashIncome} cashNet={cashNet} cancelledCount={cancelledOrders.length} completedRevenue={completedRevenue} estimatedCashBalance={estimatedCashBalance} orderCount={todayOrders.length} ranking={ranking} totalRevenue={totalRevenue} /> : <PermissionNotice text="staff 可新增現金流，但不能查看完整每日報表。" />)}
         {activePanel === "cash" && <CashFlowPanel addCashFlowItem={addCashFlowItem} canAddCashFlow={canAddCashFlow} canManageCashItems={canManageCashItems} cashError={cashError} cashFlows={todayCashFlows} cashForm={cashForm} cashItemForm={cashItemForm} cashItems={cashFlowItems} cashMessage={cashMessage} cashNet={cashNet} chooseCashItem={chooseCashItem} selectedCashItem={selectedCashItem} setCashForm={setCashForm} setCashItemForm={setCashItemForm} submitCashFlow={submitCashFlow} />}
+        {activePanel === "daily" && (canViewReport ? <DailyReportPanel storeId={storeId} storeName={store.name} todayOrders={todayOrders} todayCashFlows={todayCashFlows} userEmail={profile?.email} /> : <PermissionNotice text="日結功能僅限 owner、manager 以上角色。" />)}
       </div>
       {choosingProduct && <ProductOptionModal product={choosingProduct} onClose={() => setChoosingProduct(null)} onConfirm={confirmProductOptions} />}
     </main>
@@ -382,7 +384,7 @@ function CashFlowPanel({ addCashFlowItem, canAddCashFlow, canManageCashItems, ca
   );
 }
 
-function DailyReport({ averageOrderValue, cashExpense, cashIncome, cashNet, cancelledCount, completedRevenue, estimatedCashBalance, orderCount, ranking, totalRevenue }: { averageOrderValue: number; cashExpense: number; cashIncome: number; cashNet: number; cancelledCount: number; completedRevenue: number; estimatedCashBalance: number; orderCount: number; ranking: ReturnType<typeof salesRanking>; totalRevenue: number }) {
+function DailySalesPanel({ averageOrderValue, cashExpense, cashIncome, cashNet, cancelledCount, completedRevenue, estimatedCashBalance, orderCount, ranking, totalRevenue }: { averageOrderValue: number; cashExpense: number; cashIncome: number; cashNet: number; cancelledCount: number; completedRevenue: number; estimatedCashBalance: number; orderCount: number; ranking: ReturnType<typeof salesRanking>; totalRevenue: number }) {
   return (
     <section className="grid gap-5 xl:grid-cols-[1fr_420px]">
       <div className="space-y-5">

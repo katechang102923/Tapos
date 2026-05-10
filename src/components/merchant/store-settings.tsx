@@ -33,7 +33,10 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
     takeoutOrderingEnabled: true,
     dineInOrderingEnabled: true,
     posOrderingEnabled: true,
-    enablePickupDisplay: true
+    enablePickupDisplay: true,
+    reportEmailEnabled: false,
+    reportEmailRecipients: "",
+    reportEmailTime: "23:00"
   });
 
   useEffect(() => {
@@ -53,7 +56,10 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
       takeoutOrderingEnabled: store.takeoutOrderingEnabled ?? store.takeoutEnabled ?? true,
       dineInOrderingEnabled: store.dineInOrderingEnabled ?? store.dineInEnabled ?? true,
       posOrderingEnabled: store.posOrderingEnabled ?? true,
-      enablePickupDisplay: store.enablePickupDisplay ?? true
+      enablePickupDisplay: store.enablePickupDisplay ?? true,
+      reportEmailEnabled: store.reportEmailEnabled ?? false,
+      reportEmailRecipients: store.reportEmailRecipients ?? "",
+      reportEmailTime: store.reportEmailTime ?? "23:00"
     });
   }, [store]);
 
@@ -134,6 +140,20 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
               <Toggle label="開放內用 QR 接單" checked={form.dineInOrderingEnabled} onChange={(value) => update("dineInOrderingEnabled", value)} />
               <Toggle label="開放 POS 現場單" checked={form.posOrderingEnabled} onChange={(value) => update("posOrderingEnabled", value)} />
               <Toggle label="POS 現場單需出餐叫號" checked={form.enablePickupDisplay} onChange={(value) => update("enablePickupDisplay", value)} />
+            </div>
+          </div>
+          <div className="rounded-lg bg-white p-5 shadow-sm">
+            <h2 className="text-2xl font-black text-ink">自動報表 Email</h2>
+            <div className="mt-4 grid gap-3">
+              <Toggle label="啟用每日自動 Email" checked={form.reportEmailEnabled} onChange={(value) => update("reportEmailEnabled", value)} />
+              <label className="grid gap-1 text-sm font-black text-steel">
+                收件人（逗號分隔多個 Email）
+                <input value={form.reportEmailRecipients} onChange={(event) => update("reportEmailRecipients", event.target.value)} placeholder="owner@example.com, manager@example.com" className="rounded-lg border border-orange-100 px-4 py-3 font-bold text-ink" />
+              </label>
+              <label className="grid gap-1 text-sm font-black text-steel">
+                寄送時間
+                <input type="time" value={form.reportEmailTime} onChange={(event) => update("reportEmailTime", event.target.value)} className="rounded-lg border border-orange-100 px-4 py-3 font-bold text-ink" />
+              </label>
             </div>
           </div>
           <div className="overflow-hidden rounded-lg bg-white shadow-sm">

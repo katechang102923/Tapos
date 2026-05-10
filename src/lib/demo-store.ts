@@ -6,6 +6,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -21,7 +22,7 @@ import { firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { CashFlow, CashFlowItem, Category, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, StoreMemberRole, Table, User } from "./types";
+import type { CashFlow, CashFlowItem, Category, DailyReport, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, StoreMemberRole, Table, User } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -809,6 +810,28 @@ export function useDemoStore(options: StoreOptions = {}) {
     ]);
   }
 
+  async function saveDailyReport(report: DailyReport) {
+    if (firebaseEnabled && firestore) {
+      await setDoc(doc(firestore, "dailyReports", report.id), report);
+    } else {
+      setDb((prev) => {
+        const existing = (prev.dailyReports ?? []).filter((r) => r.id !== report.id);
+        const updated = { ...prev, dailyReports: [...existing, report] };
+        saveLocalData(updated);
+        return updated;
+      });
+    }
+  }
+
+  async function loadDailyReport(reportStoreId: string, date: string): Promise<DailyReport | null> {
+    const reportId = `${reportStoreId}-${date}`;
+    if (firebaseEnabled && firestore) {
+      const snap = await getDoc(doc(firestore, "dailyReports", reportId));
+      return snap.exists() ? (snap.data() as DailyReport) : null;
+    }
+    return (db.dailyReports ?? []).find((r) => r.id === reportId) ?? null;
+  }
+
   return {
     db,
     todayOrders,
@@ -835,7 +858,9 @@ export function useDemoStore(options: StoreOptions = {}) {
     upsertProduct,
     upsertStore,
     upsertDevice,
-    upsertTable
+    upsertTable,
+    saveDailyReport,
+    loadDailyReport
   };
 }
 
