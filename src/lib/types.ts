@@ -52,6 +52,7 @@ export type Store = {
   takeoutOrderingEnabled?: boolean;
   dineInOrderingEnabled?: boolean;
   posOrderingEnabled?: boolean;
+  enablePickupDisplay?: boolean;
   ownerId?: string;
   storeType?: StoreType;
   isOpen: boolean;

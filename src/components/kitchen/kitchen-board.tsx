@@ -41,8 +41,11 @@ export function KitchenBoard({ storeId }: { storeId: string }) {
   return (
     <LoginGate allowedRoles={["merchant", "kitchen", "admin", "owner", "manager", "staff"]} title="廚房 KDS 登入">
       {({ profile }) => {
+        const isAdmin = profile?.role === "admin";
+        const legacyAccess = profile?.storeId === storeId && profile?.role != null && ["merchant", "owner"].includes(profile.role);
         const storeRole = storeRoleFor(profile, storeId);
-        if (!storeRole || !["owner", "manager", "staff"].includes(storeRole)) {
+        const hasKitchenAccess = isAdmin || legacyAccess || (storeRole != null && ["owner", "manager", "staff"].includes(storeRole));
+        if (!hasKitchenAccess) {
           return (
             <main className="grid min-h-screen place-items-center bg-[#111111] p-4 text-white">
               <div className="rounded-lg bg-white p-6 text-ink shadow-soft">

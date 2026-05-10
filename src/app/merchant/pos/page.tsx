@@ -62,6 +62,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
   const canAddCashFlow = Boolean(effectiveRole && cashWriteRoles.includes(effectiveRole));
   const canManageCashItems = effectiveRole === "admin" || effectiveRole === "owner" || effectiveRole === "manager";
   const posEnabled = store?.posOrderingEnabled ?? true;
+  const enablePickupDisplay = store?.enablePickupDisplay ?? true;
 
   const [activePanel, setActivePanel] = useState<PosPanel>("orders");
   const [activeOrderTab, setActiveOrderTab] = useState<(typeof orderTabs)[number]["key"]>("new");
@@ -240,7 +241,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
               <MetricCard icon={Table2} label="內用 / 外帶" value={`${todayOrders.filter((order) => order.mode === "dine-in").length} / ${todayOrders.filter((order) => order.mode === "takeout").length}`} tone="text-leaf" />
             </section>
             <div className="grid gap-5 2xl:grid-cols-[minmax(520px,0.95fr)_minmax(560px,1.05fr)_420px]">
-              <OrderBoard activeOrderTab={activeOrderTab} displayedOrders={displayedOrders} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
+              <OrderBoard activeOrderTab={activeOrderTab} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
               <QuickOrder activeCategoryId={activeCategoryId} categories={categories} customerNote={customerNote} mode={mode} posEnabled={posEnabled} products={visibleProducts} setActiveCategoryId={setActiveCategoryId} setChoosingProduct={setChoosingProduct} setCustomerNote={setCustomerNote} setMode={setMode} setTableNo={setTableNo} tableNo={tableNo} />
               <aside className="space-y-5">
                 <CartPanel cart={cart} total={total} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} />
@@ -258,7 +259,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
   );
 }
 
-function OrderBoard({ activeOrderTab, displayedOrders, setActiveOrderTab, updateOrderStatus }: { activeOrderTab: string; displayedOrders: Order[]; setActiveOrderTab: (key: (typeof orderTabs)[number]["key"]) => void; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
+function OrderBoard({ activeOrderTab, displayedOrders, enablePickupDisplay, setActiveOrderTab, updateOrderStatus }: { activeOrderTab: string; displayedOrders: Order[]; enablePickupDisplay: boolean; setActiveOrderTab: (key: (typeof orderTabs)[number]["key"]) => void; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
   return (
     <section className="rounded-lg bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
@@ -269,7 +270,7 @@ function OrderBoard({ activeOrderTab, displayedOrders, setActiveOrderTab, update
         {orderTabs.map((tab) => <button key={tab.key} onClick={() => setActiveOrderTab(tab.key)} className={`rounded-lg px-3 py-3 font-black ${activeOrderTab === tab.key ? "bg-ink text-white" : "bg-stone-100 text-steel"}`}>{tab.label}</button>)}
       </div>
       <div className="mt-4 space-y-3">
-        {displayedOrders.length === 0 ? <p className="rounded-lg bg-stone-50 p-5 text-center font-black text-steel">目前沒有訂單</p> : displayedOrders.map((order) => <OrderWorkCard key={order.id} order={order} updateOrderStatus={updateOrderStatus} />)}
+        {displayedOrders.length === 0 ? <p className="rounded-lg bg-stone-50 p-5 text-center font-black text-steel">目前沒有訂單</p> : displayedOrders.map((order) => <OrderWorkCard key={order.id} enablePickupDisplay={enablePickupDisplay} order={order} updateOrderStatus={updateOrderStatus} />)}
       </div>
     </section>
   );
@@ -445,8 +446,9 @@ function CenteredNotice({ title, text }: { title: string; text: string }) {
   return <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4"><div className="rounded-lg bg-white p-6 shadow-soft"><h1 className="text-2xl font-black text-ink">{title}</h1>{text && <p className="mt-3 text-steel">{text}</p>}</div></main>;
 }
 
-function OrderWorkCard({ order, updateOrderStatus }: { order: Order; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
+function OrderWorkCard({ enablePickupDisplay, order, updateOrderStatus }: { enablePickupDisplay: boolean; order: Order; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
   const cancelReason = order.cancelReason ?? order.rejectReason;
+  const isPosDirectComplete = order.source === "pos" && !enablePickupDisplay;
   return (
     <article className={`rounded-lg border p-4 ${["pending", "waiting", "unprocessed"].includes(order.status) ? "animate-order-pop border-tomato bg-tomato/5" : "border-stone-200 bg-white"}`}>
       <div className="flex items-start justify-between gap-3"><div><p className="text-3xl font-black">#{order.orderNumber}</p><p className="mt-1 text-sm font-bold text-steel">{order.source === "qr" ? "QR 進單" : "POS 現場單"} / {order.mode === "takeout" ? "外帶" : `內用 ${order.tableName ?? order.tableNo}`} / {new Date(order.createdAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}</p></div><StatusPill status={order.status} /></div>
@@ -456,7 +458,7 @@ function OrderWorkCard({ order, updateOrderStatus }: { order: Order; updateOrder
       <p className="mt-3 text-lg font-black text-tomato">總金額 ${order.totalAmount ?? order.total}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {["pending", "waiting", "unprocessed"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "accepted")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white"><CheckCircle2 className="size-4" />接單</button>}
-        {["accepted", "cooking", "preparing", "ready"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "completed")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white"><CheckCircle2 className="size-4" />餐點完成</button>}
+        {["accepted", "cooking", "preparing", "ready"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "completed")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white"><CheckCircle2 className="size-4" />{isPosDirectComplete ? "直接完成" : "餐點完成"}</button>}
         {!["completed", "cancelled"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "cancelled")} className="inline-flex items-center gap-2 rounded-lg bg-tomato px-3 py-2 font-black text-white"><XCircle className="size-4" />取消</button>}
       </div>
     </article>

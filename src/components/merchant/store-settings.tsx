@@ -32,7 +32,8 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
     dineInEnabled: true,
     takeoutOrderingEnabled: true,
     dineInOrderingEnabled: true,
-    posOrderingEnabled: true
+    posOrderingEnabled: true,
+    enablePickupDisplay: true
   });
 
   useEffect(() => {
@@ -51,7 +52,8 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
       dineInEnabled: store.dineInEnabled ?? true,
       takeoutOrderingEnabled: store.takeoutOrderingEnabled ?? store.takeoutEnabled ?? true,
       dineInOrderingEnabled: store.dineInOrderingEnabled ?? store.dineInEnabled ?? true,
-      posOrderingEnabled: store.posOrderingEnabled ?? true
+      posOrderingEnabled: store.posOrderingEnabled ?? true,
+      enablePickupDisplay: store.enablePickupDisplay ?? true
     });
   }, [store]);
 
@@ -131,6 +133,7 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
               <Toggle label="開放外帶 QR 接單" checked={form.takeoutOrderingEnabled} onChange={(value) => update("takeoutOrderingEnabled", value)} />
               <Toggle label="開放內用 QR 接單" checked={form.dineInOrderingEnabled} onChange={(value) => update("dineInOrderingEnabled", value)} />
               <Toggle label="開放 POS 現場單" checked={form.posOrderingEnabled} onChange={(value) => update("posOrderingEnabled", value)} />
+              <Toggle label="POS 現場單需出餐叫號" checked={form.enablePickupDisplay} onChange={(value) => update("enablePickupDisplay", value)} />
             </div>
           </div>
           <div className="overflow-hidden rounded-lg bg-white shadow-sm">

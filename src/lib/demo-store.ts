@@ -276,10 +276,12 @@ export function useDemoStore(options: StoreOptions = {}) {
     const nextCashFlow: CashFlow = {
       id,
       storeId: cashFlow.storeId,
+      itemId: cashFlow.itemId,
+      itemName: cashFlow.itemName,
       type: cashFlow.type,
       amount: Number(cashFlow.amount),
       category: cashFlow.category,
-      note: cashFlow.note,
+      note: cashFlow.note ?? "",
       createdBy: cashFlow.createdBy,
       createdAt: cashFlow.createdAt || now
     };

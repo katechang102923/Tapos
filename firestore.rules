@@ -86,7 +86,9 @@ service cloud.firestore {
     }
 
     function canWriteCashFlow(storeId) {
-      return isAdmin() || membershipRole(storeId) in ["owner", "manager", "staff"];
+      return isAdmin()
+        || membershipRole(storeId) in ["owner", "manager", "staff"]
+        || (approved() && userStoreId() == storeId && role() in ["merchant", "owner"]);
     }
 
     function validOrderStatusUpdate() {
