@@ -9,6 +9,7 @@ import { useDemoStore } from "@/lib/demo-store";
 import { firebaseEnabled, firestore } from "@/lib/firebase";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { selectionsTotal } from "@/lib/product-options";
+import { calculatePromotions } from "@/lib/promotions";
 import type { Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product } from "@/lib/types";
 
 type CartLine = {
@@ -92,7 +93,13 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
     .sort((a, b) => a.sort - b.sort);
 
   const totalQuantity = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const total = useMemo(() => cart.reduce((sum, item) => sum + lineUnitPrice(item) * item.quantity, 0), [cart]);
+  const cartSubtotal = cart.reduce((sum, line) => sum + lineUnitPrice(line) * line.quantity, 0);
+  const promotionLines = useMemo(() => cart.map((line) => ({ product: line.product, quantity: line.quantity, unitPrice: lineUnitPrice(line) })), [cart]);
+  const promotionCalculation = useMemo(
+    () => calculatePromotions(promotionLines, store?.features?.promotionEnabled === false ? [] : (db.promotions ?? []).filter((item) => item.storeId === storeId)),
+    [db.promotions, promotionLines, store?.features?.promotionEnabled, storeId]
+  );
+  const total = Math.max(0, cartSubtotal - promotionCalculation.discountTotal);
 
   useEffect(() => {
     if (!lastOrderId) {
@@ -152,6 +159,15 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
         customerSessionId,
         customerNote,
         total,
+        promotionDiscounts: promotionCalculation.appliedPromotions,
+        ...(promotionCalculation.discountTotal > 0 ? {
+          discountSummary: {
+            itemDiscountTotal: 0,
+            orderDiscountTotal: promotionCalculation.discountTotal,
+            promotionDiscountTotal: promotionCalculation.discountTotal,
+            totalDiscount: promotionCalculation.discountTotal
+          }
+        } : {}),
         source: "qr",
         items: cart.map<OrderItem>((line) => ({
           id: "",
@@ -328,7 +344,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
         </section>
 
         <aside className="hidden lg:sticky lg:top-20 lg:block lg:h-fit">
-          <CartPanel cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} submitOrder={submitOrder} total={total} updateLine={updateLine} setCart={setCart} canSubmit={cart.length > 0 && !isSubmitting} submitError={submitError || blockReason} isSubmitting={isSubmitting} />
+          <CartPanel cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} submitOrder={submitOrder} total={total} promotionDiscounts={promotionCalculation.appliedPromotions} updateLine={updateLine} setCart={setCart} canSubmit={cart.length > 0 && !isSubmitting} submitError={submitError || blockReason} isSubmitting={isSubmitting} />
         </aside>
       </div>
 
@@ -339,7 +355,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
             <span className="text-lg font-black sm:text-2xl">${total}</span>
           </summary>
           <div className="max-h-[50vh] overflow-y-auto pt-2 sm:pt-3">
-            <CartPanel cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} submitOrder={submitOrder} total={total} updateLine={updateLine} setCart={setCart} canSubmit={cart.length > 0 && !isSubmitting} submitError={submitError || blockReason} isSubmitting={isSubmitting} />
+            <CartPanel cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} submitOrder={submitOrder} total={total} promotionDiscounts={promotionCalculation.appliedPromotions} updateLine={updateLine} setCart={setCart} canSubmit={cart.length > 0 && !isSubmitting} submitError={submitError || blockReason} isSubmitting={isSubmitting} />
           </div>
         </details>
       </div>
@@ -354,6 +370,7 @@ function CartPanel({
   setCustomerNote,
   submitOrder,
   total,
+  promotionDiscounts,
   updateLine,
   setCart,
   canSubmit,
@@ -365,6 +382,7 @@ function CartPanel({
   setCustomerNote: (value: string) => void;
   submitOrder: () => void;
   total: number;
+  promotionDiscounts: Array<{ promotionId: string; promotionName: string; amount: number; targetName?: string }>;
   updateLine: (index: number, patch: Partial<CartLine>) => void;
   setCart: React.Dispatch<React.SetStateAction<CartLine[]>>;
   canSubmit: boolean;
@@ -417,6 +435,14 @@ function CartPanel({
         </div>
       )}
       <textarea value={customerNote} onChange={(event) => setCustomerNote(event.target.value)} placeholder="整張訂單備註，例如餐具、取餐提醒" className="mt-3 min-h-16 w-full rounded-lg border border-orange-100 px-3 py-2 text-sm sm:mt-4 sm:min-h-20 sm:px-3 sm:py-3 sm:text-lg" />
+      {promotionDiscounts.length > 0 && (
+        <div className="mt-3 rounded-lg bg-leaf/10 p-3 text-sm font-black text-leaf">
+          <p>活動優惠</p>
+          {promotionDiscounts.map((discount) => (
+            <p key={discount.promotionId} className="mt-1">- {discount.promotionName} -${discount.amount}</p>
+          ))}
+        </div>
+      )}
       <div className="mt-3 flex items-center justify-between text-lg font-black sm:mt-4 sm:text-2xl"><span>總計</span><span>${total}</span></div>
       {submitError && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-sm font-black text-tomato">{submitError}</p>}
       <button onClick={submitOrder} disabled={!canSubmit} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-tomato px-3 py-4 text-sm font-black text-white disabled:bg-stone-300 sm:mt-4 sm:px-4 sm:py-5 sm:text-lg">

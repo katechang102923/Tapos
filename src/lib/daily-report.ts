@@ -1,4 +1,4 @@
-import type { CashFlow, DailyReport, DailyReportProduct, DiscountSummary, HourSlotStat, Order, PaymentMethod, PaymentMethodStat } from "./types";
+import type { CashFlow, DailyReport, DailyReportProduct, DiscountSummary, HourSlotStat, Order, PaymentMethod, PaymentMethodStat, PromotionUsageStat } from "./types";
 
 export const PAYMENT_LABELS: Record<string, string> = {
   cash: "現金",
@@ -110,8 +110,20 @@ export function computeDailyReport(
 
   const itemDiscountTotal = completed.reduce((sum, o) => sum + (o.discountSummary?.itemDiscountTotal ?? 0), 0);
   const orderDiscountTotal = completed.reduce((sum, o) => sum + (o.discountSummary?.orderDiscountTotal ?? 0), 0);
-  const totalDiscount = itemDiscountTotal + orderDiscountTotal;
-  const discountSummary: DiscountSummary | undefined = totalDiscount > 0 ? { itemDiscountTotal, orderDiscountTotal, totalDiscount } : undefined;
+  const promotionDiscountTotal = completed.reduce((sum, o) => sum + (o.discountSummary?.promotionDiscountTotal ?? 0), 0);
+  const totalDiscount = itemDiscountTotal + orderDiscountTotal + promotionDiscountTotal;
+  const discountSummary: DiscountSummary | undefined = totalDiscount > 0 ? { itemDiscountTotal, orderDiscountTotal, promotionDiscountTotal, totalDiscount } : undefined;
+
+  const promotionMap = new Map<string, PromotionUsageStat>();
+  completed.forEach((o) => {
+    (o.promotionDiscounts ?? []).forEach((pd) => {
+      const existing = promotionMap.get(pd.promotionId) ?? { promotionId: pd.promotionId, promotionName: pd.promotionName, usageCount: 0, discountTotal: 0 };
+      existing.usageCount += 1;
+      existing.discountTotal += pd.amount;
+      promotionMap.set(pd.promotionId, existing);
+    });
+  });
+  const promotionSummary = promotionMap.size > 0 ? [...promotionMap.values()].sort((a, b) => b.discountTotal - a.discountTotal) : undefined;
 
   return {
     id: dailyReportId(storeId, date),
@@ -133,6 +145,7 @@ export function computeDailyReport(
     paymentStats: computePaymentStats(completed),
     hourSlots: computeHourSlots(dayOrders),
     discountSummary,
+    promotionSummary,
   };
 }
 

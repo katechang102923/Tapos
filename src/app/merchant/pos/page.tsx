@@ -10,6 +10,7 @@ import { DailyReportPanel } from "@/components/merchant/daily-report-panel";
 import { useDemoStore } from "@/lib/demo-store";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { normalizeSelectedOptions, selectionsTotal } from "@/lib/product-options";
+import { calculatePromotions } from "@/lib/promotions";
 import { accessibleStoreIds, defaultStoreId, storeRoleFor } from "@/lib/store-access";
 import type { CashFlow, CashFlowAmountMode, CashFlowItem, CashFlowType, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, StoreMemberRole, User } from "@/lib/types";
 
@@ -118,7 +119,13 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
   const itemDiscountTotal = cart.reduce((sum, line) => sum + lineDiscountAmount(line), 0);
   const afterItemDiscount = itemsSubtotal - itemDiscountTotal;
   const orderDiscAmt = computeOrderDiscountAmount(afterItemDiscount, orderDiscount);
-  const finalTotal = Math.max(0, afterItemDiscount - orderDiscAmt);
+  const promotionLines = useMemo(() => cart.map((line) => ({ product: line.product, quantity: line.quantity, unitPrice: lineBasePrice(line) })), [cart]);
+  const promotionCalculation = useMemo(
+    () => calculatePromotions(promotionLines, store?.features?.promotionEnabled === false ? [] : (db.promotions ?? []).filter((item) => item.storeId === storeId)),
+    [db.promotions, promotionLines, store?.features?.promotionEnabled, storeId]
+  );
+  const promotionDiscountTotal = promotionCalculation.discountTotal;
+  const finalTotal = Math.max(0, afterItemDiscount - orderDiscAmt - promotionDiscountTotal);
   const cashIncome = todayCashFlows.filter((item) => item.type === "income").reduce((sum, item) => sum + item.amount, 0);
   const cashExpense = todayCashFlows.filter((item) => item.type === "expense").reduce((sum, item) => sum + item.amount, 0);
   const cashNet = cashIncome - cashExpense;
@@ -180,7 +187,8 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
           };
         }),
         ...(orderDiscount ? { orderDiscount: { type: orderDiscount.type, value: orderDiscount.value, amount: orderDiscAmt } } : {}),
-        ...((itemDiscountTotal > 0 || orderDiscAmt > 0) ? { discountSummary: { itemDiscountTotal, orderDiscountTotal: orderDiscAmt, totalDiscount: itemDiscountTotal + orderDiscAmt } } : {})
+        promotionDiscounts: promotionCalculation.appliedPromotions,
+        ...((itemDiscountTotal > 0 || orderDiscAmt > 0 || promotionDiscountTotal > 0) ? { discountSummary: { itemDiscountTotal, orderDiscountTotal: orderDiscAmt, promotionDiscountTotal, totalDiscount: itemDiscountTotal + orderDiscAmt + promotionDiscountTotal } } : {})
       });
       setCart([]);
       setCustomerNote("");
@@ -281,7 +289,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
               <OrderBoard activeOrderTab={activeOrderTab} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
               <QuickOrder activeCategoryId={activeCategoryId} categories={categories} customerNote={customerNote} mode={mode} posEnabled={posEnabled} products={visibleProducts} setActiveCategoryId={setActiveCategoryId} setChoosingProduct={setChoosingProduct} setCustomerNote={setCustomerNote} setMode={setMode} setTableNo={setTableNo} tableNo={tableNo} />
               <aside className="space-y-5">
-                <CartPanel cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} finalTotal={finalTotal} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} />
+                <CartPanel cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} />
                 <SalesRanking ranking={ranking.slice(0, 5)} title="今日商品 TOP 5" />
               </aside>
             </div>
@@ -509,12 +517,13 @@ function OrderItemLine({ item }: { item: OrderItem }) {
   return <div className="rounded-lg bg-stone-50 px-3 py-2"><p>{item.quantity} x {item.productName}</p>{selectedOptions.length > 0 && <div className="ml-3 mt-1 space-y-1 text-xs">{selectedOptions.map((option) => <p key={`${option.groupId}-${option.choiceId}`} style={{ marginLeft: `${(option.level ?? 0) * 12}px` }}>- {option.groupName}：{option.choiceName}{option.priceDelta ? ` +${option.priceDelta}` : ""}</p>)}</div>}{itemNote && <p className="ml-3 mt-1 rounded bg-amber-50 px-2 py-1 text-xs font-black text-amber-800">備註：{itemNote}</p>}</div>;
 }
 
-function CartPanel({ cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, finalTotal, orderDiscount, setOrderDiscount, removeLine, submitOrder, updateLine, isSubmitting, posEnabled }: { cart: CartLine[]; itemsSubtotal: number; itemDiscountTotal: number; orderDiscAmt: number; finalTotal: number; orderDiscount: CartItemDiscount; setOrderDiscount: (d: CartItemDiscount) => void; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean }) {
+function CartPanel({ cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promotionDiscounts, finalTotal, orderDiscount, setOrderDiscount, removeLine, submitOrder, updateLine, isSubmitting, posEnabled }: { cart: CartLine[]; itemsSubtotal: number; itemDiscountTotal: number; orderDiscAmt: number; promotionDiscounts: import("@/lib/types").PromotionDiscountLine[]; finalTotal: number; orderDiscount: CartItemDiscount; setOrderDiscount: (d: CartItemDiscount) => void; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean }) {
   const [showOrderDiscForm, setShowOrderDiscForm] = useState(false);
   const [orderDiscType, setOrderDiscType] = useState<"amount" | "percent">("amount");
   const [orderDiscValue, setOrderDiscValue] = useState("");
 
-  const hasDiscount = itemDiscountTotal > 0 || orderDiscAmt > 0;
+  const promotionDiscountTotal = promotionDiscounts.reduce((sum, p) => sum + p.amount, 0);
+  const hasDiscount = itemDiscountTotal > 0 || orderDiscAmt > 0 || promotionDiscountTotal > 0;
 
   function applyOrderDiscount() {
     const v = Math.round(Number(orderDiscValue));
@@ -539,6 +548,9 @@ function CartPanel({ cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, final
             <div className="flex justify-between text-sm font-bold text-steel"><span>小計</span><span>${itemsSubtotal}</span></div>
             {itemDiscountTotal > 0 && <div className="flex justify-between text-sm font-bold text-tomato"><span>單品折扣</span><span>-${itemDiscountTotal}</span></div>}
             {orderDiscAmt > 0 && <div className="flex justify-between text-sm font-bold text-tomato"><span>整單折扣</span><span>-${orderDiscAmt}</span></div>}
+            {promotionDiscounts.map((p) => (
+              <div key={p.promotionId} className="flex justify-between text-sm font-bold text-leaf"><span>促銷：{p.promotionName}</span><span>-${p.amount}</span></div>
+            ))}
             <div className="flex justify-between border-t border-orange-200 pt-2 text-xl font-black text-ink"><span>應收總額</span><span>${finalTotal}</span></div>
           </div>
         ) : (

@@ -5,6 +5,7 @@ export type StoreMemberRole = "owner" | "manager" | "staff" | "viewer";
 export type UserRole = "user" | "merchant" | "kitchen" | "admin" | StoreMemberRole;
 export type StoreType = "breakfast" | "drink" | "snack" | "hotpot";
 export type DiscountType = "none" | "percent" | "amount" | "specialPrice";
+export type PromotionType = "buy_x_get_y" | "buy_one_get_one" | "percent_discount" | "amount_discount";
 export type DeviceType = "kitchen" | "label" | "display" | "scanner";
 export type DeviceConnectionType = "bluetooth" | "usb" | "lan";
 export type PrinterStation = "kitchen" | "counter" | "bar" | "custom";
@@ -67,6 +68,7 @@ export type Store = {
   features?: {
     kdsEnabled?: boolean;
     dailyReportEnabled?: boolean;
+    promotionEnabled?: boolean;
     cashFlowEnabled?: boolean;
     memberEnabled?: boolean;
   };
@@ -202,12 +204,22 @@ export type OrderDiscount = {
   value: number;
   amount: number;
   reason?: string;
+  promotionId?: string;
+  promotionName?: string;
 };
 
 export type DiscountSummary = {
   itemDiscountTotal: number;
   orderDiscountTotal: number;
   totalDiscount: number;
+  promotionDiscountTotal?: number;
+};
+
+export type PromotionDiscountLine = {
+  promotionId: string;
+  promotionName: string;
+  amount: number;
+  targetName?: string;
 };
 
 export type OrderItem = {
@@ -333,6 +345,7 @@ export type Order = {
   paymentMethod?: PaymentMethod;
   orderDiscount?: OrderDiscount;
   discountSummary?: DiscountSummary;
+  promotionDiscounts?: PromotionDiscountLine[];
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];
@@ -371,6 +384,35 @@ export type DailyReport = {
   paymentStats?: PaymentMethodStat[];
   hourSlots?: HourSlotStat[];
   discountSummary?: DiscountSummary;
+  promotionSummary?: PromotionUsageStat[];
+};
+
+export type PromotionUsageStat = {
+  promotionId: string;
+  promotionName: string;
+  usageCount: number;
+  discountTotal: number;
+};
+
+export type Promotion = {
+  id: string;
+  storeId: string;
+  name: string;
+  enabled: boolean;
+  startDate: string;
+  endDate: string;
+  type: PromotionType;
+  targetCategories: string[];
+  targetProducts: string[];
+  buyQty: number;
+  freeQty: number;
+  discountPercent: number;
+  discountAmount: number;
+  stackable: boolean;
+  autoApply: boolean;
+  priority: number;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type DemoDatabase = {
@@ -389,6 +431,7 @@ export type DemoDatabase = {
   dailySalesSummaries?: DailySalesSummary[];
   devices?: Device[];
   dailyReports?: DailyReport[];
+  promotions?: Promotion[];
 };
 
 export type CashFlowType = "income" | "expense";

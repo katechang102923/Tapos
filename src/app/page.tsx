@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, ChefHat, LayoutDashboard, ShoppingCart, Store } from "lucide-react";
 import { TopNav } from "@/components/top-nav";
+import { PlatformAdminLink } from "@/components/platform-admin-link";
 
 const entries = [
   {
@@ -77,6 +78,7 @@ export default function HomePage() {
               </Link>
             );
           })}
+          <PlatformAdminLink />
         </div>
       </section>
     </main>

@@ -264,6 +264,14 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /promotions/{promotionId} {
+      allow read: if true;
+      allow create: if request.resource.data.storeId is string
+        && canManageStore(request.resource.data.storeId);
+      allow update, delete: if resource.data.storeId is string
+        && canManageStore(resource.data.storeId);
+    }
+
     match /pendingInvites/{inviteId} {
       allow read, create, update, delete: if isAdmin();
     }

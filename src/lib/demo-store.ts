@@ -22,7 +22,7 @@ import { firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { CashFlow, CashFlowItem, Category, DailyReport, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Store, StoreMemberRole, Table, User } from "./types";
+import type { CashFlow, CashFlowItem, Category, DailyReport, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Promotion, Store, StoreMemberRole, Table, User } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -136,7 +136,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
 
     setReady(false);
-    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [] };
+    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [], promotions: [] };
     const commit = () => {
       setDb({ ...next });
       setReady(true);
@@ -164,7 +164,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       handleError
       );
 
-    const collectionNames = skipOrderList ? ["categories", "products", "devices", "tables"] : ["categories", "products", "orders", "cashFlows", "cashFlowItems", "devices", "tables"];
+    const collectionNames = skipOrderList ? ["categories", "products", "devices", "tables", "promotions"] : ["categories", "products", "orders", "cashFlows", "cashFlowItems", "devices", "tables", "promotions"];
     const unsubscribers = collectionNames.map((collectionName) => {
       const ref = scopedQuery(collectionName, storeId, admin, customerSessionId);
       if (!ref) return () => undefined;
@@ -324,6 +324,54 @@ export function useDemoStore(options: StoreOptions = {}) {
       return { ...current, cashFlowItems: exists ? items.map((cashItem) => (cashItem.id === id ? nextItem : cashItem)) : [nextItem, ...items] };
     });
     return nextItem;
+  }
+
+  async function upsertPromotion(promotion: Omit<Promotion, "id" | "createdAt" | "updatedAt"> & { id?: string; createdAt?: string; updatedAt?: string }) {
+    const now = new Date().toISOString();
+    const id = promotion.id || (useFirestore && firestore ? doc(collection(firestore, "promotions")).id : newId("promo"));
+    const nextPromotion: Promotion = {
+      id,
+      storeId: promotion.storeId,
+      name: promotion.name,
+      enabled: promotion.enabled,
+      startDate: promotion.startDate,
+      endDate: promotion.endDate,
+      type: promotion.type,
+      targetCategories: promotion.targetCategories ?? [],
+      targetProducts: promotion.targetProducts ?? [],
+      buyQty: Number(promotion.buyQty ?? 0),
+      freeQty: Number(promotion.freeQty ?? 0),
+      discountPercent: Number(promotion.discountPercent ?? 0),
+      discountAmount: Number(promotion.discountAmount ?? 0),
+      stackable: Boolean(promotion.stackable),
+      autoApply: promotion.autoApply ?? true,
+      priority: Number(promotion.priority ?? 0),
+      createdAt: promotion.createdAt || now,
+      updatedAt: now
+    };
+
+    if (useFirestore && firestore) {
+      await setDoc(doc(firestore, "promotions", id), stripUndefined(nextPromotion), { merge: true });
+      setDb((current) => ({ ...current, promotions: [nextPromotion, ...(current.promotions ?? []).filter((item) => item.id !== id)] }));
+      return nextPromotion;
+    }
+
+    setDb((current) => {
+      const promotions = current.promotions ?? [];
+      const exists = promotions.some((item) => item.id === id);
+      return { ...current, promotions: exists ? promotions.map((item) => (item.id === id ? nextPromotion : item)) : [nextPromotion, ...promotions] };
+    });
+    return nextPromotion;
+  }
+
+  async function deletePromotion(promotionId: string) {
+    if (useFirestore && firestore) {
+      await deleteDoc(doc(firestore, "promotions", promotionId));
+      setDb((current) => ({ ...current, promotions: (current.promotions ?? []).filter((item) => item.id !== promotionId) }));
+      return;
+    }
+
+    setDb((current) => ({ ...current, promotions: (current.promotions ?? []).filter((item) => item.id !== promotionId) }));
   }
 
   function updateOrderStatus(orderId: string, status: OrderStatus) {
@@ -703,7 +751,7 @@ export function useDemoStore(options: StoreOptions = {}) {
         const batch = writeBatch(db);
         batch.delete(doc(db, "stores", targetStoreId));
 
-        const relatedCollections = ["products", "categories", "orders", "storeUserBindings", "storeUsers", "pendingInvites", "pendingUsers"];
+        const relatedCollections = ["products", "categories", "orders", "promotions", "storeUserBindings", "storeUsers", "pendingInvites", "pendingUsers"];
         const snapshots = await Promise.all(
           relatedCollections.map((collectionName) =>
             getDocs(query(collection(db, collectionName), where("storeId", "==", targetStoreId)))
@@ -806,7 +854,8 @@ export function useDemoStore(options: StoreOptions = {}) {
       ...initialData.products.map((item) => setDoc(doc(db, "products", item.id), item, { merge: true })),
       ...initialData.orders.map((item) => setDoc(doc(db, "orders", item.id), item, { merge: true })),
       ...(initialData.cashFlows ?? []).map((item) => setDoc(doc(db, "cashFlows", item.id), item, { merge: true })),
-      ...(initialData.cashFlowItems ?? []).map((item) => setDoc(doc(db, "cashFlowItems", item.id), item, { merge: true }))
+      ...(initialData.cashFlowItems ?? []).map((item) => setDoc(doc(db, "cashFlowItems", item.id), item, { merge: true })),
+      ...(initialData.promotions ?? []).map((item) => setDoc(doc(db, "promotions", item.id), item, { merge: true }))
     ]);
   }
 
@@ -843,6 +892,8 @@ export function useDemoStore(options: StoreOptions = {}) {
     createCashFlow,
     createOrder,
     upsertCashFlowItem,
+    upsertPromotion,
+    deletePromotion,
     deleteProduct,
     deleteStoreCascade,
     resetDemo,

@@ -485,8 +485,37 @@ export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlo
               <div className="grid gap-4 sm:grid-cols-3">
                 <MetricCard icon={Tag} label="單品折扣總額" value={`-$${report.discountSummary.itemDiscountTotal.toLocaleString()}`} tone="text-tomato" />
                 <MetricCard icon={Tag} label="整單折扣總額" value={`-$${report.discountSummary.orderDiscountTotal.toLocaleString()}`} tone="text-tomato" />
+                {(report.discountSummary.promotionDiscountTotal ?? 0) > 0 && (
+                  <MetricCard icon={Tag} label="促銷折扣總額" value={`-$${report.discountSummary.promotionDiscountTotal!.toLocaleString()}`} tone="text-tomato" />
+                )}
                 <MetricCard icon={Tag} label="總折扣金額" value={`-$${report.discountSummary.totalDiscount.toLocaleString()}`} tone="text-tomato" />
               </div>
+            )}
+
+            {report.promotionSummary && report.promotionSummary.length > 0 && (
+              <section className="rounded-lg bg-white p-5 shadow-sm">
+                <SectionTitle>促銷活動統計</SectionTitle>
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-stone-100">
+                        <th className="py-2 text-left font-black text-steel">活動名稱</th>
+                        <th className="py-2 text-right font-black text-steel">使用次數</th>
+                        <th className="py-2 text-right font-black text-steel">折扣金額</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.promotionSummary.map((p) => (
+                        <tr key={p.promotionId} className="border-b border-stone-50">
+                          <td className="py-2 font-bold text-ink">{p.promotionName}</td>
+                          <td className="py-2 text-right font-bold text-steel">{p.usageCount} 次</td>
+                          <td className="py-2 text-right font-black text-tomato">-${p.discountTotal.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
             )}
 
             <div className="grid gap-5 xl:grid-cols-2">
