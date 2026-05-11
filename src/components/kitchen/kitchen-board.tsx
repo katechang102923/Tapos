@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ChefHat, Clock3, Coffee, Flame, Maximize2, Minimize2, MonitorUp, Sandwich } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChefHat, Clock3, Coffee, Flame, Maximize2, Minimize2, MonitorUp, Sandwich } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { StatusPill } from "@/components/status-pill";
 import { useDemoStore } from "@/lib/demo-store";
@@ -128,6 +128,7 @@ function KitchenBoardContent({ storeId, isPlatformAdmin }: { storeId: string; is
           <button onClick={() => setLargeMode((value) => !value)} className="rounded-lg bg-white/10 px-4 py-3 font-black text-white">{largeMode ? "一般字級" : "大字模式"}</button>
           <button onClick={() => setFullscreen((value) => !value)} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 font-black text-white">{fullscreen ? <Minimize2 className="size-5" /> : <Maximize2 className="size-5" />}全螢幕</button>
           <button onClick={() => createMockOrder(storeId)} className="rounded-lg bg-leaf px-4 py-3 font-black text-white">模擬進單</button>
+          <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 font-black text-white"><ArrowLeft className="size-5" />後台</Link>
           <Link href="/merchant/pos" className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-3 font-black text-ink"><MonitorUp className="size-5" />回 POS</Link>
         </div>
       </header>
