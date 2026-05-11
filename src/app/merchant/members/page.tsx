@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, CalendarClock, Users } from "lucide-react";
+import { collection, deleteDoc, doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { LoginGate } from "@/components/auth/login-gate";
+import { firebaseEnabled, firestore } from "@/lib/firebase";
 import { useDemoStore } from "@/lib/demo-store";
 import { PERMISSION_LABELS, ROLE_LABELS, STORE_PERMISSION_KEYS, defaultPermissionsForRole, roleBadgeClass, roleLabel, resolvePermissions } from "@/lib/permissions";
 import { accessibleStoreIds, defaultStoreId } from "@/lib/store-access";
 import { ACCESS_STATUS_LABELS, daysUntil, formatDate } from "@/lib/subscription";
-import type { AccessStatus, StoreMemberRole, User, UserPermissions } from "@/lib/types";
+import type { AccessStatus, MemberRules, RewardCoupon, StoreMemberRole, User, UserPermissions } from "@/lib/types";
 
 export default function MerchantMembersPage() {
   return (
@@ -90,6 +92,12 @@ function MembersContent({
   const [permEdits, setPermEdits] = useState<Record<string, Partial<UserPermissions>>>({});
   const [accessOpen, setAccessOpen] = useState<Record<string, boolean>>({});
   const [accessForm, setAccessForm] = useState<Record<string, { accessEndsAt: string; accessStatus: AccessStatus }>>({});
+
+  // Tab
+  const [activeTab, setActiveTab] = useState<"users" | "rules">("users");
+
+  // Tab
+  const [activeTab, setActiveTab] = useState<"users" | "rules">("users");
 
   const roleMemberRoles: StoreMemberRole[] = ["owner", "manager", "staff"];
 
@@ -224,6 +232,21 @@ function MembersContent({
                 <ArrowLeft className="size-4" />返回設定中心
               </Link>
             </div>
+          </div>
+          {/* Tabs */}
+          <div className="mt-4 flex gap-4 border-t border-white/20 pt-4">
+            <button
+              onClick={() => setActiveTab("users")}
+              className={`rounded-lg px-4 py-2 font-black ${activeTab === "users" ? "bg-white text-ink" : "text-white/60 hover:bg-white/10"}`}
+            >
+              帳號管理
+            </button>
+            <button
+              onClick={() => setActiveTab("rules")}
+              className={`rounded-lg px-4 py-2 font-black ${activeTab === "rules" ? "bg-white text-ink" : "text-white/60 hover:bg-white/10"}`}
+            >
+              會員規則
+            </button>
           </div>
         </header>
 
