@@ -5,9 +5,9 @@ import Link from "next/link";
 import { ArrowLeft, Building2, CalendarClock, ChefHat, Gift, Monitor, Search, ShieldCheck, Store, ToggleLeft, ToggleRight, Users } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
-import { PERMISSION_LABELS, ROLE_LABELS, defaultPermissionsForRole, roleBadgeClass, roleLabel } from "@/lib/permissions";
-import { ACCESS_STATUS_LABELS, SUBSCRIPTION_STATUS_COLORS, SUBSCRIPTION_STATUS_LABELS, addDays, daysUntil, effectiveSubscriptionStatus, formatDate } from "@/lib/subscription";
-import type { AccessStatus, Store as StoreType, StoreMemberRole, SubscriptionStatus, User, UserPermissions } from "@/lib/types";
+import { ROLE_LABELS, roleBadgeClass, roleLabel } from "@/lib/permissions";
+import { SUBSCRIPTION_STATUS_COLORS, SUBSCRIPTION_STATUS_LABELS, addDays, daysUntil, effectiveSubscriptionStatus, formatDate } from "@/lib/subscription";
+import type { Store as StoreType, StoreMemberRole, SubscriptionStatus } from "@/lib/types";
 
 export default function PlatformPage() {
   return (
@@ -18,19 +18,15 @@ export default function PlatformPage() {
 }
 
 function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
-  const { db, bindStoreUser, unbindStoreUser, upsertStore, updateUserStorePermissions, updateStoreSubscription, updateUserStoreAccess } = useDemoStore({ admin: true });
+  const { db, bindStoreUser, unbindStoreUser, upsertStore, updateStoreSubscription } = useDemoStore({ admin: true });
   const [search, setSearch] = useState("");
   const [bindingEmail, setBindingEmail] = useState<Record<string, string>>({});
   const [bindingRole, setBindingRole] = useState<Record<string, StoreMemberRole>>({});
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState("");
-  const [permEditorOpen, setPermEditorOpen] = useState<Record<string, boolean>>({});
-  const [permEdits, setPermEdits] = useState<Record<string, Partial<UserPermissions>>>({});
   const [subEditorOpen, setSubEditorOpen] = useState<Record<string, boolean>>({});
   const [subForm, setSubForm] = useState<Record<string, { status: SubscriptionStatus; endsAt: string; trialEndsAt: string }>>({});
-  const [accessEditorOpen, setAccessEditorOpen] = useState<Record<string, boolean>>({});
-  const [accessForm, setAccessForm] = useState<Record<string, { accessEndsAt: string; accessStatus: AccessStatus }>>({});
 
   const filteredStores = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -81,50 +77,6 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     }
   }
 
-  function permKey(storeId: string, userId: string) {
-    return `${storeId}-${userId}`;
-  }
-
-  function openPermEditor(storeId: string, user: User) {
-    const key = permKey(storeId, user.id);
-    const storeRole = user.storeRoles?.[storeId] ?? user.memberships?.[storeId] ?? "staff";
-    const roleDefaults = defaultPermissionsForRole(storeRole as StoreMemberRole);
-    const custom = user.storePermissions?.[storeId] ?? {};
-    setPermEdits((prev) => ({ ...prev, [key]: { ...roleDefaults, ...custom } }));
-    setPermEditorOpen((prev) => ({ ...prev, [key]: !prev[key] }));
-  }
-
-  async function savePermissions(storeId: string, user: User) {
-    const key = permKey(storeId, user.id);
-    const edits = permEdits[key];
-    if (!edits) return;
-    setSaving(`perm-${key}`);
-    try {
-      await updateUserStorePermissions(user.email, storeId, edits);
-      setMessage(`已更新 ${user.email} 的自訂權限`);
-      setPermEditorOpen((prev) => ({ ...prev, [key]: false }));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "儲存失敗");
-    } finally {
-      setSaving("");
-    }
-  }
-
-  async function resetPermissions(storeId: string, user: User) {
-    const storeRole = user.storeRoles?.[storeId] ?? user.memberships?.[storeId] ?? "staff";
-    const key = permKey(storeId, user.id);
-    setSaving(`perm-${key}`);
-    try {
-      await updateUserStorePermissions(user.email, storeId, {});
-      setPermEdits((prev) => ({ ...prev, [key]: defaultPermissionsForRole(storeRole as StoreMemberRole) }));
-      setMessage(`已重設 ${user.email} 為角色預設權限`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "重設失敗");
-    } finally {
-      setSaving("");
-    }
-  }
-
   function openSubEditor(store: StoreType) {
     const effectiveStatus = effectiveSubscriptionStatus(store);
     setSubForm((prev) => ({
@@ -144,6 +96,7 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       : undefined;
     const newEndsAt = addDays(base, days);
     setSaving(`sub-${store.id}`);
+    setError("");
     try {
       await updateStoreSubscription(store.id, {
         subscriptionStatus: "active",
@@ -161,6 +114,7 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     const form = subForm[store.id];
     if (!form) return;
     setSaving(`sub-${store.id}`);
+    setError("");
     try {
       await updateStoreSubscription(store.id, {
         subscriptionStatus: form.status,
@@ -179,6 +133,7 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   async function suspendStore(store: StoreType) {
     if (!confirm(`確定暫停 ${store.name} 的服務？`)) return;
     setSaving(`sub-${store.id}`);
+    setError("");
     try {
       await updateStoreSubscription(store.id, { subscriptionStatus: "suspended" });
       setMessage(`${store.name} 已暫停`);
@@ -191,43 +146,12 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
   async function resumeStore(store: StoreType) {
     setSaving(`sub-${store.id}`);
+    setError("");
     try {
       await updateStoreSubscription(store.id, { subscriptionStatus: "active" });
       setMessage(`${store.name} 已恢復`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "恢復失敗");
-    } finally {
-      setSaving("");
-    }
-  }
-
-  function openAccessEditor(storeId: string, user: User) {
-    const key = permKey(storeId, user.id);
-    const access = user.storeAccess?.[storeId];
-    setAccessForm((prev) => ({
-      ...prev,
-      [key]: {
-        accessEndsAt: access?.accessEndsAt?.slice(0, 10) ?? "",
-        accessStatus: access?.accessStatus ?? "active",
-      }
-    }));
-    setAccessEditorOpen((prev) => ({ ...prev, [key]: !prev[key] }));
-  }
-
-  async function saveUserAccess(storeId: string, user: User) {
-    const key = permKey(storeId, user.id);
-    const form = accessForm[key];
-    if (!form) return;
-    setSaving(`access-${key}`);
-    try {
-      await updateUserStoreAccess(user.email, storeId, {
-        accessEndsAt: form.accessEndsAt || undefined,
-        accessStatus: form.accessStatus,
-      });
-      setMessage(`已更新 ${user.email} 的存取期限`);
-      setAccessEditorOpen((prev) => ({ ...prev, [key]: false }));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "儲存失敗");
     } finally {
       setSaving("");
     }
@@ -282,6 +206,7 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
             const isSavingSub = saving === `sub-${store.id}`;
             return (
               <div key={store.id} className="rounded-lg bg-[#1a1a1a] p-5">
+                {/* Store header */}
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="flex items-start gap-4">
                     {store.logoUrl ? (
@@ -327,28 +252,48 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                       <button onClick={() => resumeStore(store)} disabled={isSavingSub} className="rounded bg-leaf/20 px-2 py-1 text-xs font-black text-leaf hover:bg-leaf/30 disabled:opacity-40">恢復店家</button>
                     )}
                     <button onClick={() => openSubEditor(store)} className="rounded bg-white/10 px-2 py-1 text-xs font-black text-white/70 hover:bg-white/20">
-                      {subOpen ? "收起" : "自訂到期日"}
+                      {subOpen ? "收起" : "自訂日期"}
                     </button>
                   </div>
-                  {subOpen && subF && (
+                  {subOpen && subF !== undefined && (
                     <div className="mt-3 rounded-lg bg-white/5 p-4 space-y-3">
                       <div className="grid gap-3 sm:grid-cols-3">
                         <label className="grid gap-1 text-xs font-black text-white/40">
                           方案狀態
-                          <select value={subF.status} onChange={(e) => setSubForm((prev) => ({ ...prev, [store.id]: { ...prev[store.id], status: e.target.value as SubscriptionStatus } }))} className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white">
-                            {(Object.keys(SUBSCRIPTION_STATUS_LABELS) as SubscriptionStatus[]).map((s) => <option key={s} value={s}>{SUBSCRIPTION_STATUS_LABELS[s]}</option>)}
+                          <select
+                            value={subF.status}
+                            onChange={(e) => setSubForm((prev) => ({ ...prev, [store.id]: { ...prev[store.id], status: e.target.value as SubscriptionStatus } }))}
+                            className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white"
+                          >
+                            {(Object.keys(SUBSCRIPTION_STATUS_LABELS) as SubscriptionStatus[]).map((s) => (
+                              <option key={s} value={s}>{SUBSCRIPTION_STATUS_LABELS[s]}</option>
+                            ))}
                           </select>
                         </label>
                         <label className="grid gap-1 text-xs font-black text-white/40">
                           訂閱到期日
-                          <input type="date" value={subF.endsAt} onChange={(e) => setSubForm((prev) => ({ ...prev, [store.id]: { ...prev[store.id], endsAt: e.target.value } }))} className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white" />
+                          <input
+                            type="date"
+                            value={subF.endsAt}
+                            onChange={(e) => setSubForm((prev) => ({ ...prev, [store.id]: { ...prev[store.id], endsAt: e.target.value } }))}
+                            className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white [color-scheme:dark]"
+                          />
                         </label>
                         <label className="grid gap-1 text-xs font-black text-white/40">
                           試用到期日
-                          <input type="date" value={subF.trialEndsAt} onChange={(e) => setSubForm((prev) => ({ ...prev, [store.id]: { ...prev[store.id], trialEndsAt: e.target.value } }))} className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white" />
+                          <input
+                            type="date"
+                            value={subF.trialEndsAt}
+                            onChange={(e) => setSubForm((prev) => ({ ...prev, [store.id]: { ...prev[store.id], trialEndsAt: e.target.value } }))}
+                            className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white [color-scheme:dark]"
+                          />
                         </label>
                       </div>
-                      <button onClick={() => saveSubscription(store)} disabled={isSavingSub} className="rounded-lg bg-leaf px-3 py-2 text-xs font-black text-white disabled:opacity-60">
+                      <button
+                        onClick={() => saveSubscription(store)}
+                        disabled={isSavingSub}
+                        className="rounded-lg bg-leaf px-3 py-2 text-xs font-black text-white disabled:opacity-60"
+                      >
                         {isSavingSub ? "儲存中..." : "儲存訂閱設定"}
                       </button>
                     </div>
@@ -377,112 +322,20 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                   ))}
                 </div>
 
-                {/* Bound users */}
+                {/* Bound users — read-only summary, full management is in merchant members page */}
                 {users.length > 0 && (
                   <div className="mt-4 border-t border-white/10 pt-4">
-                    <p className="mb-2 text-xs font-black text-white/40">已綁定帳號</p>
-                    <div className="space-y-2">
+                    <p className="mb-2 text-xs font-black text-white/40">已綁定帳號（詳細權限請由店家後台 → 帳號管理設定）</p>
+                    <div className="flex flex-wrap gap-2">
                       {users.map((user) => {
                         const userStoreRole = (user.storeRoles?.[store.id] ?? user.memberships?.[store.id] ?? null) as StoreMemberRole | null;
-                        const key = permKey(store.id, user.id);
-                        const editorOpen = permEditorOpen[key] ?? false;
-                        const edits = permEdits[key] ?? {};
-                        const isSavingPerm = saving === `perm-${key}`;
-                        const accOpen = accessEditorOpen[key] ?? false;
-                        const accF = accessForm[key];
-                        const isSavingAcc = saving === `access-${key}`;
-                        const userAccess = user.storeAccess?.[store.id];
-                        const accStatus = userAccess?.accessStatus ?? "active";
                         return (
-                          <div key={user.id} className="rounded-lg bg-white/5">
-                            <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-                              <span className="text-sm font-bold text-white">{user.email}</span>
-                              {userStoreRole && (
-                                <span className={`rounded px-2 py-0.5 text-xs font-black ${roleBadgeClass(userStoreRole)}`}>{roleLabel(userStoreRole)}</span>
-                              )}
-                              {/* Access status badge */}
-                              {accStatus !== "active" && (
-                                <span className={`rounded px-2 py-0.5 text-xs font-black ${accStatus === "suspended" ? "bg-tomato/20 text-tomato" : "bg-stone-500/30 text-stone-300"}`}>
-                                  {ACCESS_STATUS_LABELS[accStatus]}
-                                </span>
-                              )}
-                              {userAccess?.accessEndsAt && (
-                                <span className="flex items-center gap-1 text-xs font-bold text-white/40">
-                                  <CalendarClock className="size-3" />
-                                  {formatDate(userAccess.accessEndsAt)}
-                                  {(() => { const d = daysUntil(userAccess.accessEndsAt); return d !== null ? (d >= 0 ? ` (剩${d}天)` : " (已到期)") : ""; })()}
-                                </span>
-                              )}
-                              {user.storePermissions?.[store.id] && Object.keys(user.storePermissions[store.id]!).length > 0 && (
-                                <span className="rounded bg-purple-900/50 px-2 py-0.5 text-xs font-black text-purple-300">自訂權限</span>
-                              )}
-                              <button onClick={() => openAccessEditor(store.id, user)} className="rounded bg-white/10 px-2 py-0.5 text-xs font-black text-white/70 hover:bg-white/20">
-                                {accOpen ? "收起" : "存取期限"}
-                              </button>
-                              <button onClick={() => openPermEditor(store.id, user)} className="rounded bg-white/10 px-2 py-0.5 text-xs font-black text-white/70 hover:bg-white/20">
-                                {editorOpen ? "收起" : "編輯權限"}
-                              </button>
-                              <button onClick={() => handleUnbind(user.id, store.id, user.email)} className="text-xs font-black text-tomato hover:underline">解除</button>
-                            </div>
-
-                            {/* Access period editor */}
-                            {accOpen && (
-                              <div className="border-t border-white/10 px-3 py-3">
-                                <p className="mb-2 text-xs font-black text-white/40">帳號存取設定</p>
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                  <label className="grid gap-1 text-xs font-black text-white/40">
-                                    存取到期日
-                                    <input
-                                      type="date"
-                                      value={accF?.accessEndsAt ?? ""}
-                                      onChange={(e) => setAccessForm((prev) => ({ ...prev, [key]: { ...prev[key], accessEndsAt: e.target.value } }))}
-                                      className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white"
-                                    />
-                                  </label>
-                                  <label className="grid gap-1 text-xs font-black text-white/40">
-                                    帳號狀態
-                                    <select
-                                      value={accF?.accessStatus ?? "active"}
-                                      onChange={(e) => setAccessForm((prev) => ({ ...prev, [key]: { ...prev[key], accessStatus: e.target.value as AccessStatus } }))}
-                                      className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white"
-                                    >
-                                      {(Object.keys(ACCESS_STATUS_LABELS) as AccessStatus[]).map((s) => <option key={s} value={s}>{ACCESS_STATUS_LABELS[s]}</option>)}
-                                    </select>
-                                  </label>
-                                </div>
-                                <button onClick={() => saveUserAccess(store.id, user)} disabled={isSavingAcc} className="mt-3 rounded-lg bg-leaf px-3 py-2 text-xs font-black text-white disabled:opacity-60">
-                                  {isSavingAcc ? "儲存中..." : "儲存存取設定"}
-                                </button>
-                              </div>
+                          <div key={user.id} className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-1.5">
+                            <span className="text-sm font-bold text-white">{user.email}</span>
+                            {userStoreRole && (
+                              <span className={`rounded px-1.5 py-0.5 text-xs font-black ${roleBadgeClass(userStoreRole)}`}>{roleLabel(userStoreRole)}</span>
                             )}
-
-                            {/* Permission editor */}
-                            {editorOpen && (
-                              <div className="border-t border-white/10 px-3 py-3">
-                                <p className="mb-2 text-xs font-black text-white/40">自訂權限（勾選覆蓋角色預設）</p>
-                                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                                  {(Object.keys(PERMISSION_LABELS) as Array<keyof UserPermissions>).map((permKey_) => (
-                                    <label key={permKey_} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs font-bold text-white/70 hover:bg-white/10">
-                                      <input
-                                        type="checkbox"
-                                        checked={edits[permKey_] ?? false}
-                                        onChange={(e) => setPermEdits((prev) => ({ ...prev, [key]: { ...prev[key], [permKey_]: e.target.checked } }))}
-                                        className="size-4 accent-leaf"
-                                      />
-                                      {PERMISSION_LABELS[permKey_]}
-                                    </label>
-                                  ))}
-                                </div>
-                                <div className="mt-3 flex gap-2">
-                                  <button onClick={() => savePermissions(store.id, user)} disabled={isSavingPerm} className="rounded-lg bg-leaf px-3 py-2 text-xs font-black text-white disabled:opacity-60">
-                                    {isSavingPerm ? "儲存中..." : "儲存自訂權限"}
-                                  </button>
-                                  <button onClick={() => resetPermissions(store.id, user)} disabled={isSavingPerm} className="rounded-lg bg-white/10 px-3 py-2 text-xs font-black text-white/70 disabled:opacity-60">
-                                    重設為角色預設
-                                  </button>
-                                </div>
-                              </div>
-                            )}
+                            <button onClick={() => handleUnbind(user.id, store.id, user.email)} className="text-xs font-black text-tomato hover:underline">解除</button>
                           </div>
                         );
                       })}
@@ -492,10 +345,11 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
                 {/* Bind form */}
                 <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
+                  <p className="w-full text-xs font-black text-white/40">綁定帳號</p>
                   <input
                     value={bindingEmail[store.id] ?? ""}
                     onChange={(e) => setBindingEmail((prev) => ({ ...prev, [store.id]: e.target.value }))}
-                    placeholder="綁定帳號 email..."
+                    placeholder="輸入帳號 email..."
                     className="flex-1 min-w-48 rounded-lg bg-white/10 px-3 py-2 text-sm font-bold text-white placeholder:text-white/30 focus:outline-none"
                   />
                   <select
@@ -503,7 +357,7 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                     onChange={(e) => setBindingRole((prev) => ({ ...prev, [store.id]: e.target.value as StoreMemberRole }))}
                     className="rounded-lg bg-white/10 px-3 py-2 text-sm font-bold text-white"
                   >
-                    {roleMemberRoles.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]} ({r})</option>)}
+                    {roleMemberRoles.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                   </select>
                   <button
                     onClick={() => handleBind(store.id)}

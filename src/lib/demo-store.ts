@@ -869,8 +869,12 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
   ) {
     if (useFirestore && firestore) {
+      // Firestore rejects undefined values — strip them before writing
+      const firestorePatch = Object.fromEntries(
+        Object.entries(patch).filter(([, v]) => v !== undefined)
+      );
       try {
-        await updateDoc(doc(firestore, "stores", targetStoreId), patch);
+        await updateDoc(doc(firestore, "stores", targetStoreId), firestorePatch);
       } catch (writeError) {
         setError(writeError instanceof Error ? writeError.message : "updateStoreSubscription failed");
         throw writeError;
@@ -894,10 +898,13 @@ export function useDemoStore(options: StoreOptions = {}) {
     if (!normalizedEmail || !targetStoreId) return;
 
     if (useFirestore && firestore) {
+      const cleanAccess = Object.fromEntries(
+        Object.entries(access).filter(([, v]) => v !== undefined)
+      );
       try {
         const usersSnap = await getDocs(query(collection(firestore, "users"), where("email", "==", normalizedEmail)));
         if (!usersSnap.empty) {
-          await updateDoc(usersSnap.docs[0].ref, { [`storeAccess.${targetStoreId}`]: access });
+          await updateDoc(usersSnap.docs[0].ref, { [`storeAccess.${targetStoreId}`]: cleanAccess });
         }
       } catch (writeError) {
         setError(writeError instanceof Error ? writeError.message : "updateUserStoreAccess failed");
@@ -927,8 +934,11 @@ export function useDemoStore(options: StoreOptions = {}) {
     patch: { accessEndsAt?: string; accessStatus?: AccessStatus }
   ) {
     if (useFirestore && firestore) {
+      const cleanPatch = Object.fromEntries(
+        Object.entries(patch).filter(([, v]) => v !== undefined)
+      );
       try {
-        await updateDoc(doc(firestore, "users", userId), patch);
+        await updateDoc(doc(firestore, "users", userId), cleanPatch);
       } catch (writeError) {
         setError(writeError instanceof Error ? writeError.message : "updateUserGlobalAccess failed");
         throw writeError;
