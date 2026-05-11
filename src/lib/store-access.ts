@@ -2,6 +2,13 @@ import type { StoreMemberRole, User } from "./types";
 
 export const platformAdminEmail = "ciut0000@gmail.com";
 
+/**
+ * Mock/demo store IDs that must never appear in the store-switcher for non-admin users.
+ * These IDs exist only in seed / local-demo data and must not be offered as real
+ * switch targets even if they end up in a user's memberships field.
+ */
+const DEMO_STORE_IDS = new Set(["demo-store"]);
+
 const storeStaffRoles: StoreMemberRole[] = ["owner", "manager", "staff", "viewer"];
 const posRoles: StoreMemberRole[] = ["owner", "manager", "staff"];
 const managerRoles: StoreMemberRole[] = ["owner", "manager"];
@@ -34,25 +41,32 @@ export function accessibleStoreIds(profile: Pick<User, "storeId" | "storeIds" | 
 }
 
 export function defaultStoreId(profile: Pick<User, "storeId" | "storeIds" | "memberships" | "storeRoles"> | null | undefined) {
+  // Prefer role-mapped stores with demo IDs stripped so the initial active store is
+  // always a real production store, never the seed/demo store.
+  const roleStores = Object.keys(normalizeStoreRoles(profile)).filter((id) => !DEMO_STORE_IDS.has(id));
+  if (roleStores.length > 0) return roleStores[0];
   return accessibleStoreIds(profile)[0] ?? "";
 }
 
 /**
  * Returns the store IDs that should appear in the store-switcher dropdown.
  * - admin: all accessible stores (same as accessibleStoreIds)
- * - everyone else: ONLY stores derived from normalizeStoreRoles (memberships / storeRoles).
- *   No fallback to the raw profile.storeIds array, which might contain every store in the
- *   system if the Firestore document was written before role-scoping was enforced.
+ * - everyone else:
+ *   1. ONLY stores derived from normalizeStoreRoles (memberships / storeRoles) —
+ *      no fallback to the raw profile.storeIds array.
+ *   2. Mock/demo store IDs ("demo-store") are stripped out.
+ *   3. If nothing remains, fall back to the single legacy profile.storeId (non-demo only).
  */
 export function selectorStoreIds(
   profile: Pick<User, "storeId" | "storeIds" | "memberships" | "storeRoles" | "role"> | null | undefined
 ): string[] {
   if (!profile) return [];
   if (profile.role === "admin") return accessibleStoreIds(profile);
-  const roleStores = Object.keys(normalizeStoreRoles(profile));
+  const roleStores = Object.keys(normalizeStoreRoles(profile)).filter((id) => !DEMO_STORE_IDS.has(id));
   if (roleStores.length > 0) return roleStores;
-  // Last resort: honour a single legacy storeId field only
-  return typeof profile.storeId === "string" && profile.storeId.length > 0 ? [profile.storeId] : [];
+  // Last resort: honour a single legacy storeId field — but never a demo/mock ID
+  const legacyId = typeof profile.storeId === "string" && profile.storeId.length > 0 ? profile.storeId : "";
+  return legacyId && !DEMO_STORE_IDS.has(legacyId) ? [legacyId] : [];
 }
 
 export function storeRoleFor(profile: Pick<User, "memberships" | "storeRoles"> | null | undefined, storeId: string) {
