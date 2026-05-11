@@ -8,7 +8,7 @@ import { LoginGate } from "@/components/auth/login-gate";
 import { firebaseEnabled, firestore } from "@/lib/firebase";
 import { useDemoStore } from "@/lib/demo-store";
 import { PERMISSION_LABELS, ROLE_LABELS, STORE_PERMISSION_KEYS, defaultPermissionsForRole, roleBadgeClass, roleLabel, resolvePermissions } from "@/lib/permissions";
-import { accessibleStoreIds, defaultStoreId } from "@/lib/store-access";
+import { defaultStoreId, selectorStoreIds } from "@/lib/store-access";
 import { ACCESS_STATUS_LABELS, daysUntil, formatDate } from "@/lib/subscription";
 import type { AccessStatus, MemberRules, RewardCoupon, StoreMemberRole, User, UserPermissions } from "@/lib/types";
 
@@ -21,7 +21,7 @@ export default function MerchantMembersPage() {
 }
 
 function MembersShell({ profile }: { profile: User | null }) {
-  const storeIds = accessibleStoreIds(profile);
+  const storeIds = selectorStoreIds(profile);
   const [selectedStoreId, setSelectedStoreId] = useState(defaultStoreId(profile));
   const storeId = storeIds.includes(selectedStoreId) ? selectedStoreId : storeIds[0] ?? "";
 

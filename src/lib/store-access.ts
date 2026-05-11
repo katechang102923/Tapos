@@ -37,6 +37,24 @@ export function defaultStoreId(profile: Pick<User, "storeId" | "storeIds" | "mem
   return accessibleStoreIds(profile)[0] ?? "";
 }
 
+/**
+ * Returns the store IDs that should appear in the store-switcher dropdown.
+ * - admin: all accessible stores (same as accessibleStoreIds)
+ * - everyone else: ONLY stores derived from normalizeStoreRoles (memberships / storeRoles).
+ *   No fallback to the raw profile.storeIds array, which might contain every store in the
+ *   system if the Firestore document was written before role-scoping was enforced.
+ */
+export function selectorStoreIds(
+  profile: Pick<User, "storeId" | "storeIds" | "memberships" | "storeRoles" | "role"> | null | undefined
+): string[] {
+  if (!profile) return [];
+  if (profile.role === "admin") return accessibleStoreIds(profile);
+  const roleStores = Object.keys(normalizeStoreRoles(profile));
+  if (roleStores.length > 0) return roleStores;
+  // Last resort: honour a single legacy storeId field only
+  return typeof profile.storeId === "string" && profile.storeId.length > 0 ? [profile.storeId] : [];
+}
+
 export function storeRoleFor(profile: Pick<User, "memberships" | "storeRoles"> | null | undefined, storeId: string) {
   if (!storeId) return null;
   return normalizeStoreRoles(profile)[storeId] ?? null;

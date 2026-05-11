@@ -12,7 +12,7 @@ import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { normalizeSelectedOptions, selectionsTotal } from "@/lib/product-options";
 import { calculatePromotions } from "@/lib/promotions";
 import { resolvePermissions } from "@/lib/permissions";
-import { accessibleStoreIds, defaultStoreId, storeRoleFor } from "@/lib/store-access";
+import { accessibleStoreIds, defaultStoreId, selectorStoreIds, storeRoleFor } from "@/lib/store-access";
 import { checkStoreAccess, checkUserAccess } from "@/lib/subscription";
 import type { CashFlow, CashFlowAmountMode, CashFlowItem, CashFlowType, Customer, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, StoreMemberRole, User } from "@/lib/types";
 
@@ -61,7 +61,7 @@ export default function MerchantPosPage() {
 }
 
 function MerchantPosShell({ profile }: { profile: User | null }) {
-  const storeIds = accessibleStoreIds(profile);
+  const storeIds = selectorStoreIds(profile);
   const [activeStoreId, setActiveStoreId] = useState(defaultStoreId(profile));
   const selectedStoreId = storeIds.includes(activeStoreId) ? activeStoreId : storeIds[0] ?? "";
   const storeRole = storeRoleFor(profile, selectedStoreId);
