@@ -101,8 +101,24 @@ export const PERMISSION_LABELS: Record<keyof UserPermissions, string> = {
   canViewOrders: "查看訂單",
   canCancelOrders: "取消訂單",
   canApplyDiscounts: "使用折扣",
-  canViewPlatformTools: "平台管理工具",
+  canViewPlatformTools: "平台管理工具", // internal — never shown in store UI
 };
+
+/**
+ * Permission keys that store owners are allowed to configure for their staff.
+ * canViewPlatformTools is intentionally excluded — it is system-determined only.
+ */
+export const STORE_PERMISSION_KEYS: Array<keyof UserPermissions> = [
+  "canViewDailyReport",
+  "canManageMenu",
+  "canManagePromotions",
+  "canUseCashflow",
+  "canUseKDS",
+  "canManageUsers",
+  "canViewOrders",
+  "canCancelOrders",
+  "canApplyDiscounts",
+];
 
 export function roleLabel(role: string | null | undefined): string {
   if (!role) return "員工";
@@ -146,6 +162,8 @@ export function resolvePermissions(
 
   const defaults = ROLE_DEFAULT_PERMISSIONS[effectiveRole];
   const custom = profile.storePermissions?.[storeId];
-  if (!custom) return defaults;
-  return { ...defaults, ...custom };
+  // Merge custom overrides, then always force canViewPlatformTools off —
+  // only the platform admin (role === "admin") may have that true.
+  const merged = custom ? { ...defaults, ...custom } : defaults;
+  return { ...merged, canViewPlatformTools: false };
 }

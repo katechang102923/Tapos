@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, CalendarClock, Users } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
-import { PERMISSION_LABELS, ROLE_LABELS, defaultPermissionsForRole, roleBadgeClass, roleLabel, resolvePermissions } from "@/lib/permissions";
+import { PERMISSION_LABELS, ROLE_LABELS, STORE_PERMISSION_KEYS, defaultPermissionsForRole, roleBadgeClass, roleLabel, resolvePermissions } from "@/lib/permissions";
 import { accessibleStoreIds, defaultStoreId } from "@/lib/store-access";
 import { ACCESS_STATUS_LABELS, daysUntil, formatDate } from "@/lib/subscription";
 import type { AccessStatus, StoreMemberRole, User, UserPermissions } from "@/lib/types";
@@ -377,7 +377,7 @@ function MembersContent({
                     <p className="mb-1 text-sm font-black text-blue-900">自訂權限</p>
                     <p className="mb-3 text-xs font-bold text-blue-700">覆蓋角色預設值。留意：「管理帳號」勾選後此員工也可進入此頁面。</p>
                     <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-                      {(Object.keys(PERMISSION_LABELS) as Array<keyof UserPermissions>).map((pKey) => (
+                      {STORE_PERMISSION_KEYS.map((pKey) => (
                         <label key={pKey} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-xs font-bold text-blue-900 hover:bg-blue-100">
                           <input
                             type="checkbox"
