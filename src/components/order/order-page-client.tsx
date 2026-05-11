@@ -195,8 +195,9 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
       window.localStorage.setItem(`lastOrderId:${storeId}`, order.id);
       console.log("[QR Order Created]", {
         orderId: order.id,
+        queueNumber: order.pickupNumber ?? order.orderNumber,
         storeId: order.storeId,
-        collectionPath: "orders",
+        fullPath: `orders/${order.id}`,
         status: order.status,
         source: order.source,
         orderType: order.orderType

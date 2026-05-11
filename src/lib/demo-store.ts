@@ -207,13 +207,21 @@ export function useDemoStore(options: StoreOptions = {}) {
         (snapshot) => {
           const docs = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
           if (collectionName === "orders") {
-            const queryInfo = `orders [storeId==${storeId ?? "<unset>"}${todayOrdersOnly ? `, createdAt>=${todayStartIso()}` : ""}]`;
+            const queryCondition = todayOrdersOnly ? `storeId == ${storeId} AND createdAt >= ${todayStartIso()}` : `storeId == ${storeId}`;
             console.log("[DemoStore] POS order listener", {
               currentStoreId: storeId,
-              queryPath: "orders",
-              queryCondition: todayOrdersOnly ? `storeId == ${storeId} AND createdAt >= ${todayStartIso()}` : `storeId == ${storeId}`,
+              queryFullPath: "orders",
+              statusFilter: "none",
+              queryCondition,
               snapshotSize: snapshot.size,
-              orders: docs.map((order) => ({ orderId: (order as any).id, storeId: (order as any).storeId, status: (order as any).status, source: (order as any).source, orderType: (order as any).orderType }))
+              orders: docs.map((order) => ({
+                orderId: (order as any).id,
+                queueNumber: (order as any).pickupNumber ?? (order as any).orderNumber,
+                storeId: (order as any).storeId,
+                status: (order as any).status,
+                source: (order as any).source,
+                orderType: (order as any).orderType
+              }))
             });
           }
           (next as unknown as Record<string, unknown[]>)[collectionName] = docs;
@@ -347,6 +355,16 @@ export function useDemoStore(options: StoreOptions = {}) {
         const currentSequence = typeof counterData[counterKey] === "number" ? counterData[counterKey] : 1;
         const orderNumber = formatOrderNumber(source, currentSequence);
         const createdOrder = buildOrder(orderNumber);
+        const orderPath = `orders/${id}`;
+        console.log("[DemoStore] createOrder write", {
+          orderId: id,
+          queueNumber: createdOrder.pickupNumber ?? createdOrder.orderNumber,
+          storeId: createdOrder.storeId,
+          fullPath: orderPath,
+          status: createdOrder.status,
+          source: createdOrder.source,
+          orderType: createdOrder.orderType
+        });
         const nextCounters = {
           qr: typeof counterData.qr === "number" ? counterData.qr : 1,
           pos: typeof counterData.pos === "number" ? counterData.pos : 1,
