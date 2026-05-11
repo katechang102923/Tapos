@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, BarChart3, ChefHat, CheckCircle2, Clock3, FileText, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, WalletCards, XCircle } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { ProductOptionModal } from "@/components/product-option-modal";
@@ -67,6 +67,16 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
   const storeRole = storeRoleFor(profile, selectedStoreId);
   const isAdmin = profile?.role === "admin";
   const hasStoreAccess = Boolean(selectedStoreId && storeRole && posAccessRoles.includes(storeRole));
+
+  useEffect(() => {
+    console.log("[POS] auth/store access", {
+      currentUserUid: profile?.id ?? null,
+      role: profile?.role ?? null,
+      storeRole,
+      allowedStoreIds: storeIds,
+      currentStoreId: selectedStoreId
+    });
+  }, [profile?.id, profile?.role, selectedStoreId, storeIds, storeRole]);
 
   if (selectedStoreId && !hasStoreAccess && !isAdmin) {
     return <CenteredNotice title="此帳號無法使用 POS 前台" text="請確認此帳號已被綁定為 owner、manager、staff 或 viewer。" />;

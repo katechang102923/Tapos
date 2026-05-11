@@ -27,6 +27,7 @@ export function normalizeStoreRoles(profile: Pick<User, "memberships" | "storeRo
 export function accessibleStoreIds(profile: Pick<User, "storeId" | "storeIds" | "memberships" | "storeRoles"> | null | undefined) {
   if (!profile) return [];
   const roleStoreIds = Object.keys(normalizeStoreRoles(profile));
+  if (roleStoreIds.length > 0) return roleStoreIds;
   const explicitStoreIds = Array.isArray(profile.storeIds) ? profile.storeIds.filter((id): id is string => typeof id === "string" && id.length > 0) : [];
   const legacyStoreId = typeof profile.storeId === "string" && profile.storeId.length > 0 ? [profile.storeId] : [];
   return Array.from(new Set([...explicitStoreIds, ...roleStoreIds, ...legacyStoreId]));

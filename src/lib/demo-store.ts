@@ -18,7 +18,7 @@ import {
   type DocumentReference
 } from "firebase/firestore";
 import { initialData } from "./mock-data";
-import { firebaseEnabled, firestore } from "./firebase";
+import { auth, firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
@@ -107,12 +107,14 @@ function optionDefaults(product: Product) {
 
 function scopedQuery(collectionName: string, storeId?: string, admin?: boolean, customerSessionId?: string, todayOrdersOnly?: boolean) {
   if (!firestore) return null;
+  if (!admin && !storeId && collectionName !== "stores") return null;
   if (collectionName === "orders" && storeId && !admin) {
     const ref = collection(firestore, "stores", storeId, "orders");
     if (customerSessionId) return query(ref, where("customerSessionId", "==", customerSessionId));
     if (todayOrdersOnly) return query(ref, where("createdAt", ">=", todayStartIso()));
     return ref;
   }
+  if (collectionName === "stores" && !admin && !storeId) return null;
   const ref = collection(firestore, collectionName);
   if (admin || !storeId || collectionName === "stores") return ref;
   if (collectionName === "orders" && customerSessionId) return query(ref, where("customerSessionId", "==", customerSessionId));
@@ -182,29 +184,40 @@ export function useDemoStore(options: StoreOptions = {}) {
       setReady(true);
     };
     const handleError = (snapshotError: Error) => {
+      console.error("[DemoStore] Firestore listener failed", {
+        message: snapshotError.message,
+        storeId,
+        admin
+      });
       setError(snapshotError.message);
       setReady(true);
     };
 
     const unsubStores = storeId && !admin
       ? onSnapshot(
-        doc(firestore, "stores", storeId),
-        (snapshot) => {
-          next.stores = snapshot.exists() ? [{ id: snapshot.id, ...snapshot.data() } as Store] : [];
-          commit();
-        },
-        handleError
-      )
-      : onSnapshot(
-        collection(firestore, "stores"),
-        (snapshot) => {
-          next.stores = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Store);
-        commit();
-      },
-      handleError
-      );
+          doc(firestore, "stores", storeId),
+          (snapshot) => {
+            next.stores = snapshot.exists() ? [{ id: snapshot.id, ...snapshot.data() } as Store] : [];
+            commit();
+          },
+          handleError
+        )
+      : admin
+        ? onSnapshot(
+            collection(firestore, "stores"),
+            (snapshot) => {
+              next.stores = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Store);
+              commit();
+            },
+            handleError
+          )
+        : () => undefined;
 
-    const collectionNames = skipOrderList ? ["categories", "products", "devices", "tables", "promotions"] : ["categories", "products", "orders", "cashFlows", "cashFlowItems", "devices", "tables", "promotions"];
+    const collectionNames = skipOrderList
+      ? customerSessionId
+        ? ["categories", "products", "tables", "promotions"]
+        : ["categories", "products", "devices", "tables", "promotions"]
+      : ["categories", "products", "orders", "cashFlows", "cashFlowItems", "devices", "tables", "promotions"];
     const unsubscribers = collectionNames.map((collectionName) => {
       const ref = scopedQuery(collectionName, storeId, admin, customerSessionId, todayOrdersOnly);
       if (!ref) return () => undefined;
@@ -355,34 +368,49 @@ export function useDemoStore(options: StoreOptions = {}) {
       const orderRef = doc(db, "stores", order.storeId, "orders", id);
       const counterRef = doc(db, "counters", "orderNumbers");
       const counterKey = source === "pos" ? "pos" : source === "kiosk" ? "kiosk" : "qr";
-      const nextOrder = await runTransaction(db, async (transaction) => {
-        const counterSnapshot = await transaction.get(counterRef);
-        const counterData = counterSnapshot.exists() ? counterSnapshot.data() : {};
-        const currentSequence = typeof counterData[counterKey] === "number" ? counterData[counterKey] : 1;
-        const orderNumber = formatOrderNumber(source, currentSequence);
-        const createdOrder = buildOrder(orderNumber);
-        const orderPath = `stores/${order.storeId}/orders/${id}`;
-        console.log("[DemoStore] createOrder write", {
-          orderId: id,
-          queueNumber: createdOrder.pickupNumber ?? createdOrder.orderNumber,
-          storeId: createdOrder.storeId,
-          fullPath: orderPath,
-          status: createdOrder.status,
-          source: createdOrder.source,
-          orderType: createdOrder.orderType
-        });
-        const nextCounters = {
-          qr: typeof counterData.qr === "number" ? counterData.qr : 1,
-          pos: typeof counterData.pos === "number" ? counterData.pos : 1,
-          [counterKey]: currentSequence + 1
-        };
+      try {
+        const nextOrder = await runTransaction(db, async (transaction) => {
+          const counterSnapshot = await transaction.get(counterRef);
+          const counterData = counterSnapshot.exists() ? counterSnapshot.data() : {};
+          const currentSequence = typeof counterData[counterKey] === "number" ? counterData[counterKey] : 1;
+          const orderNumber = formatOrderNumber(source, currentSequence);
+          const createdOrder = buildOrder(orderNumber);
+          const orderPath = `stores/${order.storeId}/orders/${id}`;
+          console.log("[DemoStore] createOrder write", {
+            currentUserUid: auth?.currentUser?.uid ?? null,
+            currentUserEmail: auth?.currentUser?.email ?? null,
+            orderId: id,
+            queueNumber: createdOrder.pickupNumber ?? createdOrder.orderNumber,
+            storeId: createdOrder.storeId,
+            fullPath: orderPath,
+            status: createdOrder.status,
+            source: createdOrder.source,
+            orderType: createdOrder.orderType
+          });
+          const nextCounters = {
+            qr: typeof counterData.qr === "number" ? counterData.qr : 1,
+            pos: typeof counterData.pos === "number" ? counterData.pos : 1,
+            [counterKey]: currentSequence + 1
+          };
 
-        transaction.set(counterRef, nextCounters, { merge: true });
-        transaction.set(orderRef, stripUndefined(createdOrder));
-        return createdOrder;
-      });
-      setDb((current) => ({ ...current, orders: [nextOrder, ...current.orders.filter((item) => item.id !== id)] }));
-      return nextOrder;
+          transaction.set(counterRef, nextCounters, { merge: true });
+          transaction.set(orderRef, stripUndefined(createdOrder));
+          return createdOrder;
+        });
+        setDb((current) => ({ ...current, orders: [nextOrder, ...current.orders.filter((item) => item.id !== id)] }));
+        return nextOrder;
+      } catch (writeError) {
+        console.error("[DemoStore] createOrder failed", {
+          message: writeError instanceof Error ? writeError.message : String(writeError),
+          currentUserUid: auth?.currentUser?.uid ?? null,
+          currentUserEmail: auth?.currentUser?.email ?? null,
+          fullPath: `stores/${order.storeId}/orders/${id}`,
+          requestStoreId: order.storeId,
+          status: order.status ?? "pending",
+          source
+        });
+        throw writeError;
+      }
     } else {
       const sourceOrders = db.orders.filter((item) => item.source === source);
       const sequence = sourceOrders.length + 1;

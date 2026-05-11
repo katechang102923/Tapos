@@ -77,12 +77,22 @@ service cloud.firestore {
 
     function canHandleOrders(storeId) {
       return signedIn()
-        && approved()
-        && ((userStoreId() == storeId && role() in ["merchant", "kitchen", "owner", "manager", "staff"]) || membershipRole(storeId) in ["owner", "manager", "staff"]);
+        && (
+          isAdmin()
+          || membershipRole(storeId) in ["owner", "manager", "staff"]
+          || (approved() && userStoreId() == storeId && role() in ["merchant", "kitchen", "owner", "manager", "staff"])
+        );
     }
 
     function canViewStoreData(storeId) {
       return isAdmin() || canHandleOrders(storeId) || membershipRole(storeId) == "viewer";
+    }
+
+    function validOrderCounterWrite() {
+      return request.resource.data.keys().hasOnly(["qr", "pos", "kiosk"])
+        && (!("qr" in request.resource.data) || request.resource.data.qr is number)
+        && (!("pos" in request.resource.data) || request.resource.data.pos is number)
+        && (!("kiosk" in request.resource.data) || request.resource.data.kiosk is number);
     }
 
     function canWriteCashFlow(storeId) {
@@ -493,10 +503,8 @@ service cloud.firestore {
 
     match /pointLogs/{logId} {
       allow read: if resource.data.storeId is string
-        && storeHasMemberEnabled(resource.data.storeId)
         && canLookupMembers(resource.data.storeId);
       allow create: if request.resource.data.storeId is string
-        && storeHasMemberEnabled(request.resource.data.storeId)
         && canLookupMembers(request.resource.data.storeId)
         && request.resource.data.customerId is string
         && request.resource.data.type in ["earn", "redeem", "adjust", "rollback"]
@@ -506,10 +514,8 @@ service cloud.firestore {
 
     match /storedValueLogs/{logId} {
       allow read: if resource.data.storeId is string
-        && storeHasStoredValueEnabled(resource.data.storeId)
         && canLookupMembers(resource.data.storeId);
       allow create: if request.resource.data.storeId is string
-        && storeHasStoredValueEnabled(request.resource.data.storeId)
         && canLookupMembers(request.resource.data.storeId)
         && request.resource.data.customerId is string
         && request.resource.data.type in ["topup", "spend", "adjust", "refund"]
@@ -519,17 +525,11 @@ service cloud.firestore {
 
     match /counters/orderNumbers {
       allow read: if true;
-      allow create: if isAdmin() || (request.resource.data.keys().hasOnly(["qr", "pos", "kiosk"])
-        && request.resource.data.qr is number
-        && request.resource.data.pos is number
-        && request.resource.data.kiosk is number);
-      allow update: if isAdmin() || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["qr", "pos", "kiosk"])
-        && request.resource.data.qr is number
-        && request.resource.data.pos is number
-        && request.resource.data.kiosk is number
-        && request.resource.data.qr >= resource.data.qr
-        && request.resource.data.pos >= resource.data.pos
-        && (resource.data.kiosk is number ? request.resource.data.kiosk >= resource.data.kiosk : request.resource.data.kiosk is number));
+      allow create: if isAdmin() || validOrderCounterWrite();
+      allow update: if isAdmin() || (
+        validOrderCounterWrite()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["qr", "pos", "kiosk"])
+      );
       allow delete: if isAdmin();
     }
 
