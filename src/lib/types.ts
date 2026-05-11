@@ -6,6 +6,7 @@ export type SubscriptionStatus = "trial" | "active" | "expired" | "suspended";
 export type AccessStatus = "active" | "expired" | "suspended";
 export type UserRole = "user" | "merchant" | "kitchen" | "admin" | StoreMemberRole;
 export type StoreType = "breakfast" | "drink" | "snack" | "hotpot";
+export type BusinessType = "breakfast" | "drink" | "snack" | "restaurant" | "other";
 export type DiscountType = "none" | "percent" | "amount" | "specialPrice";
 export type PromotionType = "buy_x_get_y" | "buy_one_get_one" | "second_half_price" | "percent_discount" | "amount_discount";
 
@@ -80,6 +81,8 @@ export type Store = {
   reportEmailTime?: string;
   ownerId?: string;
   storeType?: StoreType;
+  businessType?: BusinessType;
+  contactName?: string;
   isOpen: boolean;
   orderStatus?: StoreOrderStatus;
   peakMode?: boolean;
@@ -444,6 +447,20 @@ export type Promotion = {
   updatedAt?: string;
 };
 
+export type PlatformNotification = {
+  id: string;
+  type: "store_registration";
+  email: string;
+  storeId: string;
+  storeName: string;
+  contactName: string;
+  phone: string;
+  address: string;
+  businessType: BusinessType;
+  createdAt: string;
+  read: boolean;
+};
+
 export type DemoDatabase = {
   stores: Store[];
   users: User[];
@@ -461,6 +478,7 @@ export type DemoDatabase = {
   devices?: Device[];
   dailyReports?: DailyReport[];
   promotions?: Promotion[];
+  platformNotifications?: PlatformNotification[];
 };
 
 export type CashFlowType = "income" | "expense";

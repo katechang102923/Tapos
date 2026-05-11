@@ -22,7 +22,7 @@ import { firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { AccessStatus, CashFlow, CashFlowItem, Category, DailyReport, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Promotion, Store, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
+import type { AccessStatus, CashFlow, CashFlowItem, Category, DailyReport, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, PlatformNotification, Product, Promotion, Store, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -136,7 +136,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
 
     setReady(false);
-    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [], promotions: [] };
+    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [], promotions: [], platformNotifications: [] };
     const commit = () => {
       setDb({ ...next });
       setReady(true);
@@ -188,10 +188,22 @@ export function useDemoStore(options: StoreOptions = {}) {
         )
       : () => undefined;
 
+    const unsubNotifications = admin
+      ? onSnapshot(
+          collection(firestore, "platformNotifications"),
+          (snapshot) => {
+            next.platformNotifications = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as PlatformNotification);
+            commit();
+          },
+          () => undefined // silently ignore permission errors for non-admins
+        )
+      : () => undefined;
+
     return () => {
       unsubStores();
       unsubscribers.forEach((unsubscribe) => unsubscribe());
       unsubUsers();
+      unsubNotifications();
     };
   }, [admin, customerSessionId, skipOrderList, storeId, useFirestore]);
 
@@ -998,6 +1010,24 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
   }
 
+  async function markNotificationRead(notifId: string) {
+    if (useFirestore && firestore) {
+      try {
+        await updateDoc(doc(firestore, "platformNotifications", notifId), { read: true });
+      } catch (writeError) {
+        setError(writeError instanceof Error ? writeError.message : "markNotificationRead failed");
+        throw writeError;
+      }
+      return;
+    }
+    setDb((current) => ({
+      ...current,
+      platformNotifications: (current.platformNotifications ?? []).map((n) =>
+        n.id === notifId ? { ...n, read: true } : n
+      ),
+    }));
+  }
+
   async function loadDailyReport(reportStoreId: string, date: string): Promise<DailyReport | null> {
     const reportId = `${reportStoreId}-${date}`;
     if (firebaseEnabled && firestore) {
@@ -1041,7 +1071,8 @@ export function useDemoStore(options: StoreOptions = {}) {
     updateUserStorePermissions,
     updateStoreSubscription,
     updateUserStoreAccess,
-    updateUserGlobalAccess
+    updateUserGlobalAccess,
+    markNotificationRead,
   };
 }
 

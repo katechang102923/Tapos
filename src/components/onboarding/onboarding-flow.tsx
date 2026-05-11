@@ -2,18 +2,21 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { doc, setDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, setDoc, updateDoc } from "firebase/firestore";
 import { ArrowRight, ImagePlus, QrCode } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { firestore } from "@/lib/firebase";
 import { createDefaultMenu } from "@/lib/menu-templates";
-import type { Store, StoreType, User } from "@/lib/types";
+import type { BusinessType, Store, StoreType, User } from "@/lib/types";
 
-const storeTypes: Array<{ value: StoreType; label: string }> = [
-  { value: "breakfast", label: "餐飲店" },
-  { value: "drink", label: "飲料店" },
-  { value: "snack", label: "小吃店" },
-  { value: "hotpot", label: "火鍋店" }
+type BusinessOption = { value: BusinessType; label: string; storeType: StoreType };
+
+const businessTypes: BusinessOption[] = [
+  { value: "breakfast",  label: "早餐店", storeType: "breakfast" },
+  { value: "drink",      label: "飲料店", storeType: "drink" },
+  { value: "snack",      label: "小吃店", storeType: "snack" },
+  { value: "restaurant", label: "餐廳",   storeType: "hotpot" },
+  { value: "other",      label: "其他",   storeType: "breakfast" },
 ];
 
 const defaultLogo = "https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=500&q=80";
@@ -30,7 +33,10 @@ export function OnboardingFlow() {
 function OnboardingContent({ uid, profile }: { uid: string; profile: User | null }) {
   const router = useRouter();
   const [storeName, setStoreName] = useState("");
-  const [storeType, setStoreType] = useState<StoreType>("breakfast");
+  const [contactName, setContactName] = useState(profile?.name ?? "");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [businessType, setBusinessType] = useState<BusinessType>("breakfast");
   const [logoUrl, setLogoUrl] = useState(defaultLogo);
   const [bannerUrl, setBannerUrl] = useState(defaultBanner);
   const [loading, setLoading] = useState(false);
@@ -49,18 +55,15 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
           <p className="mt-2 text-sm font-semibold text-steel">
             {profile.status === "rejected"
               ? "您的帳號註冊已被管理員拒絕。如有疑問請聯繫管理員。"
-              : "您的帳號已提交審核，管理員將盡快處理。請耐心等候。"
-            }
+              : "您的帳號已提交審核，管理員將盡快處理。請耐心等候。"}
           </p>
-          <p className="mt-3 text-xs text-steel">
-            審核通過後，您將可以建立店家並開始使用系統。
-          </p>
+          <p className="mt-3 text-xs text-steel">審核通過後，您將可以建立店家並開始使用系統。</p>
         </div>
       </main>
     );
   }
 
-  // 如果已經有店家且不是 admin，跳轉到 merchant
+  // 已有店家且不是 admin，跳轉後台
   if (profile?.storeId && profile.role !== "admin") {
     router.replace("/merchant");
   }
@@ -72,19 +75,20 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
   }
 
   async function createStore() {
-    if (!firestore) {
-      setError("Firebase 尚未設定");
-      return;
-    }
-    const db = firestore;
-    if (!storeName.trim()) {
-      setError("請輸入店名");
-      return;
-    }
+    if (!firestore) { setError("Firebase 尚未設定"); return; }
+    if (!storeName.trim()) { setError("請輸入店家名稱"); return; }
+    if (!contactName.trim()) { setError("請輸入聯絡人姓名"); return; }
+    if (!phone.trim()) { setError("請輸入聯絡電話"); return; }
 
     setLoading(true);
     setError("");
+
+    const db = firestore;
+    const now = new Date().toISOString();
     const storeId = `store-${uid.slice(0, 8)}-${Date.now().toString(36)}`;
+    const option = businessTypes.find((b) => b.value === businessType) ?? businessTypes[0];
+    const storeType: StoreType = option.storeType;
+
     const store: Store = {
       id: storeId,
       ownerId: uid,
@@ -92,27 +96,56 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
       logoUrl,
       bannerUrl,
       storeType,
+      businessType,
+      contactName: contactName.trim(),
+      phone: phone.trim(),
+      address: address.trim() || "",
       isOpen: true,
       demoBreakfastMenuImported: storeType === "breakfast",
       notice: "歡迎線上點餐，尖峰時段請稍候。",
-      createdAt: new Date().toISOString()
+      createdAt: now,
     };
+
     const menu = createDefaultMenu(storeId, storeType);
 
-    await setDoc(doc(db, "stores", storeId), store);
-    await updateDoc(doc(db, "users", uid), {
+    // 寫入平台通知（無 undefined，選填欄位用空字串）
+    const notifRef = doc(collection(db, "platformNotifications"));
+    const notification = {
+      id: notifRef.id,
+      type: "store_registration" as const,
+      email: profile?.email ?? "",
       storeId,
-      storeIds: [storeId],
-      memberships: { [storeId]: "owner" },
-      role: "merchant"
-    });
-    await Promise.all([
-      ...menu.categories.map((category) => setDoc(doc(db, "categories", category.id), category)),
-      ...menu.products.map((product) => setDoc(doc(db, "products", product.id), product))
-    ]);
+      storeName: storeName.trim(),
+      contactName: contactName.trim(),
+      phone: phone.trim(),
+      address: address.trim() || "",
+      businessType,
+      createdAt: now,
+      read: false,
+    };
 
-    router.push("/merchant");
+    try {
+      await setDoc(doc(db, "stores", storeId), store);
+      await updateDoc(doc(db, "users", uid), {
+        storeId,
+        storeIds: [storeId],
+        memberships: { [storeId]: "owner" },
+        role: "merchant",
+      });
+      await setDoc(notifRef, notification);
+      await Promise.all([
+        ...menu.categories.map((cat) => setDoc(doc(db, "categories", cat.id), cat)),
+        ...menu.products.map((prod) => setDoc(doc(db, "products", prod.id), prod)),
+      ]);
+      router.push("/merchant");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "建立失敗，請再試一次");
+      setLoading(false);
+    }
   }
+
+  const email = profile?.email ?? "";
+  const selectedBusiness = businessTypes.find((b) => b.value === businessType);
 
   return (
     <main className="min-h-screen bg-[#f4f4f2] p-4 sm:p-6">
@@ -123,31 +156,94 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
           <p className="mt-3 leading-7 text-steel">完成後會自動建立店家、預設菜單與 QR Code，馬上可以測試顧客點餐流程。</p>
 
           <div className="mt-6 grid gap-4">
+            {/* 註冊信箱（唯讀） */}
             <label className="font-black text-steel">
-              店家名稱
-              <input value={storeName} onChange={(event) => setStoreName(event.target.value)} placeholder="例如：早安巷口" className="mt-2 w-full rounded-lg border border-stone-300 px-4 py-3 text-lg font-bold" />
+              註冊信箱
+              <input
+                value={email}
+                readOnly
+                className="mt-2 w-full rounded-lg border border-stone-200 bg-stone-50 px-4 py-3 font-bold text-stone-400"
+              />
             </label>
 
+            {/* 店家名稱 */}
+            <label className="font-black text-steel">
+              店家名稱 <span className="text-tomato">*</span>
+              <input
+                value={storeName}
+                onChange={(e) => setStoreName(e.target.value)}
+                placeholder="例如：早安巷口"
+                className="mt-2 w-full rounded-lg border border-stone-300 px-4 py-3 text-lg font-bold"
+              />
+            </label>
+
+            {/* 店家類型 */}
             <div>
-              <p className="font-black text-steel">店家類型</p>
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {storeTypes.map((item) => (
-                  <button key={item.value} onClick={() => setStoreType(item.value)} className={`rounded-lg px-4 py-4 font-black ${storeType === item.value ? "bg-ink text-white" : "bg-stone-100 text-steel"}`}>
+              <p className="font-black text-steel">店家類型 <span className="text-tomato">*</span></p>
+              <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-5">
+                {businessTypes.map((item) => (
+                  <button
+                    key={item.value}
+                    onClick={() => setBusinessType(item.value)}
+                    className={`rounded-lg px-4 py-4 font-black ${
+                      businessType === item.value ? "bg-ink text-white" : "bg-stone-100 text-steel"
+                    }`}
+                  >
                     {item.label}
                   </button>
                 ))}
               </div>
             </div>
 
+            {/* 聯絡人 + 電話 */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="font-black text-steel">
+                聯絡人姓名 <span className="text-tomato">*</span>
+                <input
+                  value={contactName}
+                  onChange={(e) => setContactName(e.target.value)}
+                  placeholder="負責人姓名"
+                  className="mt-2 w-full rounded-lg border border-stone-300 px-4 py-3 font-bold"
+                />
+              </label>
+              <label className="font-black text-steel">
+                聯絡電話 <span className="text-tomato">*</span>
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="0912-345-678"
+                  type="tel"
+                  className="mt-2 w-full rounded-lg border border-stone-300 px-4 py-3 font-bold"
+                />
+              </label>
+            </div>
+
+            {/* 地址（可選） */}
+            <label className="font-black text-steel">
+              店家地址
+              <input
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="例如：台北市大安區復興南路一段 1 號（可略）"
+                className="mt-2 w-full rounded-lg border border-stone-300 px-4 py-3 font-bold"
+              />
+            </label>
+
+            {/* Logo / Banner */}
             <div className="grid gap-4 sm:grid-cols-2">
               <UploadBox label="Logo" value={logoUrl} onUrl={setLogoUrl} onFile={(file) => readFile(file, setLogoUrl)} />
               <UploadBox label="Banner" value={bannerUrl} onUrl={setBannerUrl} onFile={(file) => readFile(file, setBannerUrl)} />
             </div>
 
             {error && <p className="rounded-lg bg-tomato/10 p-3 font-bold text-tomato">{error}</p>}
-            <button onClick={createStore} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-lg bg-leaf px-5 py-4 text-lg font-black text-white disabled:bg-stone-300">
-              建立店家並產生菜單
-              <ArrowRight className="size-5" />
+
+            <button
+              onClick={createStore}
+              disabled={loading}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-leaf px-5 py-4 text-lg font-black text-white disabled:bg-stone-300"
+            >
+              {loading ? "建立中..." : "建立店家並產生菜單"}
+              {!loading && <ArrowRight className="size-5" />}
             </button>
           </div>
         </section>
@@ -158,15 +254,21 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
             <img src={logoUrl} alt="Logo preview" className="size-16 rounded-lg object-cover" />
             <div>
               <p className="text-2xl font-black">{storeName || "你的店名"}</p>
-              <p className="text-sm font-bold text-white/60">{storeTypes.find((item) => item.value === storeType)?.label}</p>
+              <p className="text-sm font-bold text-white/60">{selectedBusiness?.label ?? "早餐店"}</p>
             </div>
           </div>
-          <div className="mt-6 rounded-lg bg-white p-4 text-ink">
+          <div className="mt-4 rounded-lg bg-white/10 p-4 space-y-1">
+            <p className="text-xs font-black text-white/40">聯絡資訊</p>
+            <p className="font-bold text-white/80">{contactName || "聯絡人"}</p>
+            <p className="text-sm font-bold text-white/60">{phone || "電話"}</p>
+            {address && <p className="text-sm font-bold text-white/40">{address}</p>}
+          </div>
+          <div className="mt-4 rounded-lg bg-white p-4 text-ink">
             <div className="flex items-center gap-3">
               <QrCode className="size-8" />
               <div>
                 <p className="font-black">QR Code 會自動產生</p>
-                <p className="text-sm font-bold text-steel">/order/&lbrace;storeId&rbrace;</p>
+                <p className="text-sm font-bold text-steel">{"/order/{storeId}"}</p>
               </div>
             </div>
           </div>
@@ -180,7 +282,7 @@ function UploadBox({
   label,
   value,
   onUrl,
-  onFile
+  onFile,
 }: {
   label: string;
   value: string;
@@ -194,8 +296,13 @@ function UploadBox({
         {label}
       </div>
       <img src={value} alt={`${label} preview`} className="mt-3 aspect-[4/3] w-full rounded-lg object-cover" />
-      <input value={value} onChange={(event) => onUrl(event.target.value)} className="mt-3 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm" />
-      <input type="file" accept="image/*" onChange={(event) => event.target.files?.[0] && onFile(event.target.files[0])} className="mt-3 w-full text-sm" />
+      <input value={value} onChange={(e) => onUrl(e.target.value)} className="mt-3 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm" />
+      <input
+        type="file"
+        accept="image/*"
+        onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
+        className="mt-3 w-full text-sm"
+      />
     </div>
   );
 }

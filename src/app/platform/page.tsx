@@ -2,12 +2,20 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Building2, CalendarClock, ChefHat, Gift, Monitor, Search, ShieldCheck, Store, ToggleLeft, ToggleRight, Users } from "lucide-react";
+import { ArrowLeft, Bell, Building2, CalendarClock, ChefHat, Gift, Monitor, Search, ShieldCheck, Store, ToggleLeft, ToggleRight, Users } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { ROLE_LABELS, roleBadgeClass, roleLabel } from "@/lib/permissions";
 import { SUBSCRIPTION_STATUS_COLORS, SUBSCRIPTION_STATUS_LABELS, addDays, daysUntil, effectiveSubscriptionStatus, formatDate } from "@/lib/subscription";
-import type { Store as StoreType, StoreMemberRole, SubscriptionStatus } from "@/lib/types";
+import type { BusinessType, Store as StoreType, StoreMemberRole, SubscriptionStatus } from "@/lib/types";
+
+const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
+  breakfast:  "早餐店",
+  drink:      "飲料店",
+  snack:      "小吃店",
+  restaurant: "餐廳",
+  other:      "其他",
+};
 
 export default function PlatformPage() {
   return (
@@ -18,8 +26,9 @@ export default function PlatformPage() {
 }
 
 function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
-  const { db, bindStoreUser, unbindStoreUser, upsertStore, updateStoreSubscription } = useDemoStore({ admin: true });
+  const { db, bindStoreUser, unbindStoreUser, upsertStore, updateStoreSubscription, markNotificationRead } = useDemoStore({ admin: true });
   const [search, setSearch] = useState("");
+  const [notifSearch, setNotifSearch] = useState("");
   const [bindingEmail, setBindingEmail] = useState<Record<string, string>>({});
   const [bindingRole, setBindingRole] = useState<Record<string, StoreMemberRole>>({});
   const [message, setMessage] = useState("");
@@ -44,6 +53,26 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
   function storeUsers(storeId: string) {
     return db.users.filter((u) => u.storeIds?.includes(storeId) || u.storeId === storeId);
+  }
+
+  const notifications = useMemo(() => {
+    const q = notifSearch.trim().toLowerCase();
+    return (db.platformNotifications ?? [])
+      .filter((n) => !q || n.email.toLowerCase().includes(q) || n.storeName.toLowerCase().includes(q))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [db.platformNotifications, notifSearch]);
+
+  const unreadCount = useMemo(
+    () => (db.platformNotifications ?? []).filter((n) => !n.read).length,
+    [db.platformNotifications]
+  );
+
+  async function handleMarkRead(notifId: string) {
+    try {
+      await markNotificationRead(notifId);
+    } catch {
+      setError("標記已讀失敗");
+    }
   }
 
   async function toggleFeature(store: StoreType, feature: keyof NonNullable<StoreType["features"]>) {
@@ -167,7 +196,14 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
             <div className="grid size-14 place-items-center rounded-lg bg-tomato"><ShieldCheck className="size-8" /></div>
             <div>
               <p className="text-sm font-black text-white/50">Platform Admin</p>
-              <h1 className="text-3xl font-black">平台管理中心</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-black">平台管理中心</h1>
+                {unreadCount > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-tomato px-2.5 py-1 text-sm font-black text-white">
+                    <Bell className="size-3.5" />新註冊 {unreadCount} 筆
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -184,6 +220,84 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
         {message && <div className="mb-4 rounded-lg border border-leaf/30 bg-leaf/10 p-4 font-black text-leaf">{message}</div>}
         {error && <div className="mb-4 rounded-lg border border-tomato/30 bg-tomato/10 p-4 font-black text-tomato">{error}</div>}
+
+        {/* ── 新註冊通知 ── */}
+        <section className="mb-6 rounded-lg bg-[#1a1a1a] p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Bell className="size-5 text-white/60" />
+              <p className="font-black text-white">新註冊店家通知</p>
+              {unreadCount > 0 && (
+                <span className="rounded-full bg-tomato px-2 py-0.5 text-xs font-black text-white">{unreadCount} 未讀</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2">
+              <Search className="size-4 text-white/40" />
+              <input
+                value={notifSearch}
+                onChange={(e) => setNotifSearch(e.target.value)}
+                placeholder="搜尋信箱或店名..."
+                className="w-44 bg-transparent text-sm font-bold text-white placeholder:text-white/30 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {notifications.length === 0 ? (
+            <p className="text-center text-sm font-bold text-white/30 py-6">
+              {notifSearch ? "找不到符合的通知" : "尚無新的註冊申請"}
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {notifications.map((notif) => (
+                <div
+                  key={notif.id}
+                  className={`rounded-lg p-4 ${notif.read ? "bg-white/5" : "border border-amber-500/30 bg-amber-500/10"}`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {!notif.read && (
+                          <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-black text-white">未讀</span>
+                        )}
+                        <span className="font-black text-white">{notif.storeName}</span>
+                        <span className="rounded bg-white/10 px-2 py-0.5 text-xs font-bold text-white/60">
+                          {BUSINESS_TYPE_LABELS[notif.businessType] ?? notif.businessType}
+                        </span>
+                      </div>
+                      <p className="text-sm font-bold text-white/60">
+                        <span className="mr-3">📧 {notif.email}</span>
+                        <span className="mr-3">👤 {notif.contactName}</span>
+                        <span>📞 {notif.phone}</span>
+                      </p>
+                      {notif.address && (
+                        <p className="text-sm font-bold text-white/40">📍 {notif.address}</p>
+                      )}
+                      <p className="text-xs font-bold text-white/30">
+                        {new Date(notif.createdAt).toLocaleString("zh-TW")}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {!notif.read && (
+                        <button
+                          onClick={() => handleMarkRead(notif.id)}
+                          className="rounded bg-white/10 px-3 py-1.5 text-xs font-black text-white/70 hover:bg-white/20"
+                        >
+                          標記已讀
+                        </button>
+                      )}
+                      <Link
+                        href={`/merchant/menu?storeId=${notif.storeId}`}
+                        className="rounded bg-leaf/20 px-3 py-1.5 text-xs font-black text-leaf hover:bg-leaf/30"
+                      >
+                        前往店家管理
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         <div className="mb-5 flex items-center gap-3 rounded-lg bg-[#1a1a1a] px-4 py-3">
           <Search className="size-5 text-white/40" />
