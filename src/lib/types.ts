@@ -34,8 +34,8 @@ export type UserPermissions = {
   canUseStoredValue: boolean;
 };
 
-export type PointLogType = "earn" | "redeem" | "adjust" | "rollback";
-export type StoredValueLogType = "topup" | "spend" | "adjust" | "refund";
+export type PointLogType = "earn" | "redeem" | "adjust" | "rollback" | "points_add" | "points_use";
+export type StoredValueLogType = "topup" | "payment" | "spend" | "adjust" | "refund";
 
 export type MemberSettings = {
   pointsEnabled?: boolean;
@@ -51,8 +51,10 @@ export type Customer = {
   phone: string;
   email?: string;
   birthday?: string;
+  note?: string;
   points: number;
   storedValueBalance: number;
+  balance?: number;
   totalSpent: number;
   totalOrders: number;
   lastOrderAt?: string;
@@ -78,10 +80,14 @@ export type StoredValueLog = {
   id: string;
   storeId: string;
   customerId: string;
+  memberId?: string;
+  memberName?: string;
   type: StoredValueLogType;
   amount: number;
   beforeBalance: number;
   afterBalance: number;
+  beforePoints?: number;
+  afterPoints?: number;
   orderId?: string;
   note?: string;
   createdAt: string;
@@ -409,7 +415,7 @@ export type OrderItemPayload = Omit<OrderItem, "id" | "orderId"> & {
   orderId?: string;
 };
 
-export type PaymentMethod = "cash" | "linepay" | "card" | "jkopay" | "ubereats" | "foodpanda" | "transfer" | "other";
+export type PaymentMethod = "cash" | "stored_value" | "linepay" | "card" | "jkopay" | "ubereats" | "foodpanda" | "transfer" | "other";
 
 export type PaymentMethodStat = {
   method: PaymentMethod | "unknown";

@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { doc, onSnapshot } from "firebase/firestore";
-import { CheckCircle2, ChevronLeft, Megaphone, Minus, Plus, Search, Send, ShoppingCart } from "lucide-react";
+import { collection, doc, getDocs, limit, onSnapshot, query as firestoreQuery, setDoc, where } from "firebase/firestore";
+import { CheckCircle2, ChevronLeft, Megaphone, Minus, Plus, Search, Send, ShoppingCart, UserPlus } from "lucide-react";
 import { ProductOptionModal } from "@/components/product-option-modal";
 import { useDemoStore } from "@/lib/demo-store";
 import { firebaseEnabled, firestore } from "@/lib/firebase";
@@ -11,7 +11,7 @@ import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { selectionsTotal } from "@/lib/product-options";
 import { calculatePromotions } from "@/lib/promotions";
 import { checkStoreAccess } from "@/lib/subscription";
-import type { Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product } from "@/lib/types";
+import type { Customer, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product } from "@/lib/types";
 
 type CartLine = {
   product: Product;
@@ -81,6 +81,21 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
   const [orderListenError, setOrderListenError] = useState("");
   const [submitError, setSubmitError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [memberPhone, setMemberPhone] = useState("");
+  const [memberName, setMemberName] = useState("");
+  const [memberBirthday, setMemberBirthday] = useState("");
+  const [member, setMember] = useState<Customer | null>(null);
+  const [memberMessage, setMemberMessage] = useState("");
+  const [memberLoading, setMemberLoading] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !firebaseEnabled || !firestore) return;
+    const savedMemberId = window.localStorage.getItem(`qr-member-id:${storeId}`);
+    if (!savedMemberId) return;
+    return onSnapshot(doc(firestore, "stores", storeId, "members", savedMemberId), (snapshot) => {
+      if (snapshot.exists()) setMember({ id: snapshot.id, ...snapshot.data() } as Customer);
+    });
+  }, [storeId]);
 
   const store = db.stores.find((item) => item.id === storeId);
   const announcement = (store?.temporaryNotice || store?.notice || "").trim();
@@ -163,6 +178,10 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
         total,
         source: "qr",
         status: "pending",
+        memberId: member?.id,
+        memberPhone: member?.phone,
+        memberName: member?.name,
+        ...(member ? { customer: { customerId: member.id, memberNo: member.memberNo, name: member.name, phone: member.phone } } : {}),
         promotionDiscounts: promotionCalculation.appliedPromotions,
         ...(promotionCalculation.discountTotal > 0 ? {
           discountSummary: {
@@ -212,6 +231,65 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
       setSubmitError(writeError instanceof Error ? writeError.message : "訂單送出失敗，請稍後再試");
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function lookupMember() {
+    if (!memberPhone.trim() || !firebaseEnabled || !firestore) return;
+    setMemberLoading(true);
+    setMemberMessage("");
+    try {
+      const result = await getDocs(firestoreQuery(collection(firestore, "stores", storeId, "members"), where("phone", "==", memberPhone.trim()), limit(1)));
+      const found = result.docs[0];
+      if (found) {
+        const next = { id: found.id, ...found.data() } as Customer;
+        setMember(next);
+        window.localStorage.setItem(`qr-member-id:${storeId}`, next.id);
+        setMemberMessage("已帶入會員資料");
+      } else {
+        setMember(null);
+        setMemberMessage("找不到會員，可直接建立。");
+      }
+    } catch (err) {
+      setMemberMessage(err instanceof Error ? err.message : "查詢會員失敗");
+    } finally {
+      setMemberLoading(false);
+    }
+  }
+
+  async function createMember() {
+    if (!memberPhone.trim() || !memberName.trim() || !firebaseEnabled || !firestore) {
+      setMemberMessage("請輸入姓名與手機");
+      return;
+    }
+    setMemberLoading(true);
+    setMemberMessage("");
+    try {
+      const memberRef = doc(collection(firestore, "stores", storeId, "members"));
+      const now = new Date().toISOString();
+      const next: Customer = {
+        id: memberRef.id,
+        storeId,
+        memberNo: `M${Date.now()}`,
+        name: memberName.trim(),
+        phone: memberPhone.trim(),
+        points: 0,
+        storedValueBalance: 0,
+        balance: 0,
+        totalSpent: 0,
+        totalOrders: 0,
+        createdAt: now,
+        updatedAt: now
+      };
+      if (memberBirthday) next.birthday = memberBirthday;
+      await setDoc(memberRef, next);
+      setMember(next);
+      window.localStorage.setItem(`qr-member-id:${storeId}`, next.id);
+      setMemberMessage("會員建立成功");
+    } catch (err) {
+      setMemberMessage(err instanceof Error ? err.message : "建立會員失敗");
+    } finally {
+      setMemberLoading(false);
     }
   }
 
@@ -270,6 +348,28 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
               </div>
               <input value={tableId ?? tableNo} onChange={(event) => setTableNo(event.target.value)} disabled={mode === "takeout" || Boolean(tableId)} placeholder="桌號" className="rounded-lg border border-orange-200 bg-white px-3 py-3 text-sm font-black disabled:bg-stone-100 sm:px-4 sm:py-4 sm:text-lg" />
             </div>
+          </div>
+
+          <div className="rounded-lg bg-white p-3 shadow-soft sm:p-4">
+            <div className="flex items-center gap-2">
+              <UserPlus className="size-5 text-leaf" />
+              <h2 className="text-lg font-black text-ink">會員登入 / 建立會員</h2>
+            </div>
+            {member ? (
+              <div className="mt-3 rounded-lg bg-blue-50 p-3">
+                <p className="font-black text-ink">{member.name} <span className="text-sm font-bold text-steel">({member.phone})</span></p>
+                <p className="text-sm font-bold text-steel">點數：{member.points} ｜ 儲值金：${member.balance ?? member.storedValueBalance}</p>
+              </div>
+            ) : (
+              <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
+                <input value={memberPhone} onChange={(event) => setMemberPhone(event.target.value)} placeholder="手機號碼" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold" />
+                <input value={memberName} onChange={(event) => setMemberName(event.target.value)} placeholder="新會員姓名" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold" />
+                <input value={memberBirthday} onChange={(event) => setMemberBirthday(event.target.value)} placeholder="生日（可選）" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold sm:col-span-2" />
+                <button onClick={lookupMember} disabled={memberLoading || !memberPhone.trim()} className="rounded-lg bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">查詢</button>
+                <button onClick={createMember} disabled={memberLoading || !memberPhone.trim() || !memberName.trim()} className="rounded-lg bg-leaf px-4 py-3 text-sm font-black text-white disabled:opacity-50">建立</button>
+              </div>
+            )}
+            {memberMessage && <p className="mt-2 text-xs font-black text-steel">{memberMessage}</p>}
           </div>
 
           {lastOrder && (

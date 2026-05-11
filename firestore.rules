@@ -257,7 +257,9 @@ service cloud.firestore {
           "phone",
           "email",
           "birthday",
+          "note",
           "points",
+          "balance",
           "storedValueBalance",
           "totalSpent",
           "totalOrders",
@@ -356,11 +358,11 @@ service cloud.firestore {
       allow create: if request.resource.data.storeId == storeId
         && request.resource.data.customerId is string
         && request.resource.data.amount is number
-        && request.resource.data.type in ["topup", "payment", "spend", "adjust", "refund"]
+        && request.resource.data.type in ["topup", "payment", "spend", "adjust", "refund", "points_add", "points_use"]
         && (
-          (request.resource.data.type == "topup" && canTopupStoredValue(storeId))
+          (request.resource.data.type == "topup" && (canTopupStoredValue(storeId) || canHandleOrders(storeId)))
           || (request.resource.data.type in ["payment", "spend"] && canHandleOrders(storeId))
-          || (request.resource.data.type in ["adjust", "refund"] && canTopupStoredValue(storeId))
+          || (request.resource.data.type in ["adjust", "refund", "points_add", "points_use"] && canTopupStoredValue(storeId))
         );
       allow update, delete: if isAdmin();
     }

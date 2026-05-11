@@ -1158,7 +1158,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
   }
 
-  async function createCustomer(data: { storeId: string; name: string; phone: string; email?: string; birthday?: string; createdBy?: string }): Promise<Customer> {
+  async function createCustomer(data: { storeId: string; name: string; phone: string; email?: string; birthday?: string; note?: string; createdBy?: string }): Promise<Customer> {
     const now = new Date().toISOString();
     const allCustomers = db.customers ?? [];
     const memberNo = generateMemberNo(allCustomers.filter((c) => c.storeId === data.storeId));
@@ -1171,8 +1171,10 @@ export function useDemoStore(options: StoreOptions = {}) {
       phone: data.phone,
       email: data.email,
       birthday: data.birthday,
+      note: data.note,
       points: 0,
       storedValueBalance: 0,
+      balance: 0,
       totalSpent: 0,
       totalOrders: 0,
       createdAt: now,
@@ -1205,7 +1207,8 @@ export function useDemoStore(options: StoreOptions = {}) {
   }
 
   function lookupCustomerByMemberNo(memberNo: string, targetStoreId: string): Customer | undefined {
-    return (db.customers ?? []).find((c) => c.storeId === targetStoreId && c.memberNo === memberNo.trim().toUpperCase());
+    const value = memberNo.trim();
+    return (db.customers ?? []).find((c) => c.storeId === targetStoreId && (c.id === value || c.memberNo === value.toUpperCase()));
   }
 
   async function adjustCustomerPoints(params: {
@@ -1265,23 +1268,27 @@ export function useDemoStore(options: StoreOptions = {}) {
   }) {
     const now = new Date().toISOString();
     const customer = (db.customers ?? []).find((c) => c.id === params.customerId);
-    const beforeBalance = customer?.storedValueBalance ?? 0;
+    const beforeBalance = customer?.balance ?? customer?.storedValueBalance ?? 0;
     const afterBalance = Math.max(0, beforeBalance + params.amount);
     const id = useFirestore && firestore ? doc(collection(firestore, "stores", params.storeId, "memberTransactions")).id : newId("svl");
     const log: StoredValueLog = stripUndefined({
       id,
       storeId: params.storeId,
       customerId: params.customerId,
+      memberId: params.customerId,
+      memberName: customer?.name,
       type: params.type,
       amount: params.amount,
       beforeBalance,
       afterBalance,
+      beforePoints: customer?.points ?? 0,
+      afterPoints: customer?.points ?? 0,
       orderId: params.orderId,
       note: params.note,
       createdAt: now,
       createdBy: params.createdBy
     });
-    const customerPatch = { storedValueBalance: afterBalance, updatedAt: now };
+    const customerPatch = { storedValueBalance: afterBalance, balance: afterBalance, updatedAt: now };
 
     if (useFirestore && firestore) {
       await Promise.all([

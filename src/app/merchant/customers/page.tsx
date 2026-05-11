@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 import { Contact, Plus, Search, X } from "lucide-react";
@@ -375,11 +375,11 @@ function StatBox({ label, value, color = "text-ink" }: { label: string; value: s
 }
 
 function pointLogTypeLabel(type: PointLog["type"]): string {
-  const labels: Record<PointLog["type"], string> = { earn: "消費獲點", redeem: "點數兌換", adjust: "手動調整", rollback: "點數回滾" };
+  const labels: Partial<Record<PointLog["type"], string>> = { earn: "消費獲點", redeem: "點數兌換", adjust: "手動調整", rollback: "點數回滾", points_add: "點數增加", points_use: "點數使用" };
   return labels[type] ?? type;
 }
 
 function svLogTypeLabel(type: StoredValueLog["type"]): string {
-  const labels: Record<StoredValueLog["type"], string> = { topup: "儲值加值", spend: "儲值消費", adjust: "手動調整", refund: "退款" };
+  const labels: Partial<Record<StoredValueLog["type"], string>> = { topup: "儲值加值", payment: "儲值付款", spend: "儲值消費", adjust: "手動調整", refund: "退款" };
   return labels[type] ?? type;
 }

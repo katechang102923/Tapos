@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, BarChart3, ChefHat, CheckCircle2, Clock3, FileText, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, WalletCards, XCircle } from "lucide-react";
+import { ArrowLeft, BarChart3, ChefHat, CheckCircle2, Clock3, FileText, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, UserPlus, WalletCards, XCircle } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { ProductOptionModal } from "@/components/product-option-modal";
 import { StatusPill } from "@/components/status-pill";
@@ -86,7 +86,7 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
 }
 
 function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeStoreRole, onStoreChange }: { profile: User | null; storeId: string; storeIds: string[]; activeStoreId: string; activeStoreRole: StoreMemberRole | null; onStoreChange: (storeId: string) => void }) {
-  const { db, createCashFlow, createOrder, todayCashFlows, todayOrders, updateOrderStatus, upsertCashFlowItem, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned } = useDemoStore({ storeId, loadCustomers: true, todayOrdersOnly: true });
+  const { db, createCashFlow, createCustomer, createOrder, todayCashFlows, todayOrders, updateOrderStatus, upsertCashFlowItem, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned } = useDemoStore({ storeId, loadCustomers: true, todayOrdersOnly: true });
   const store = db.stores.find((item) => item.id === storeId);
   const categories = useMemo(() => db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort), [db.categories, storeId]);
   const products = useMemo(() => db.products.filter((item) => item.storeId === storeId && item.isAvailable && !item.isSoldOut).sort((a, b) => a.sort - b.sort), [db.products, storeId]);
@@ -125,6 +125,8 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
   const [cashItemForm, setCashItemForm] = useState<CashItemForm>({ name: "", type: "expense", amountMode: "open", fixedAmount: "" });
   const [boundMember, setBoundMember] = useState<Customer | null>(null);
   const [storedValueUsed, setStoredValueUsed] = useState(0);
+  const [memberModalOpen, setMemberModalOpen] = useState(false);
+  const [topupModalOpen, setTopupModalOpen] = useState(false);
 
   const visibleProducts = activeCategoryId === "all" ? products : products.filter((product) => product.categoryId === activeCategoryId);
   const completedOrders = todayOrders.filter((order) => order.status === "completed");
@@ -196,6 +198,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
         memberId: boundMember?.id,
         memberPhone: boundMember?.phone,
         memberName: boundMember?.name,
+        ...(storedValueDeduction > 0 ? { paymentMethod: "stored_value" as const } : {}),
         ...(boundMember ? { customer: { customerId: boundMember.id, memberNo: boundMember.memberNo, name: boundMember.name, phone: boundMember.phone } } : {}),
         ...(pointsEarned > 0 ? { pointsEarned } : {}),
         ...(storedValueDeduction > 0 ? { storedValueUsed: storedValueDeduction } : {}),
@@ -246,7 +249,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
           await adjustCustomerPoints({ customerId: boundMember.id, storeId, type: "earn", points: pointsEarned, orderId: order.id, note: `訂單 ${order.orderNumber} 消費點數`, createdBy: profile?.email ?? "" });
         }
         if (storedValueDeduction > 0) {
-          await adjustStoredValue({ customerId: boundMember.id, storeId, type: "spend", amount: -storedValueDeduction, orderId: order.id, note: `訂單 ${order.orderNumber} 儲值消費`, createdBy: profile?.email ?? "" });
+          await adjustStoredValue({ customerId: boundMember.id, storeId, type: "payment", amount: -storedValueDeduction, orderId: order.id, note: `訂單 ${order.orderNumber} 儲值付款`, createdBy: profile?.email ?? "" });
         }
         setBoundMember(null);
         setStoredValueUsed(0);
@@ -266,6 +269,20 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
     setBoundMember(found);
     setStoredValueUsed(0);
     return found;
+  }
+
+  async function createMember(form: { name: string; phone: string; birthday?: string; note?: string }) {
+    const member = await createCustomer({ storeId, ...form, createdBy: profile?.email ?? profile?.id ?? "" });
+    setBoundMember(member);
+    setStoredValueUsed(0);
+    setMemberModalOpen(false);
+  }
+
+  async function topupMember(amount: number) {
+    if (!boundMember || amount <= 0) return;
+    await adjustStoredValue({ customerId: boundMember.id, storeId, type: "topup", amount, note: "POS 會員儲值", createdBy: profile?.email ?? "" });
+    setBoundMember({ ...boundMember, storedValueBalance: (boundMember.storedValueBalance ?? 0) + amount, balance: (boundMember.balance ?? boundMember.storedValueBalance ?? 0) + amount });
+    setTopupModalOpen(false);
   }
 
   async function submitCashFlow() {
@@ -350,7 +367,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
               <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
               <QuickOrder activeCategoryId={activeCategoryId} categories={categories} customerNote={customerNote} mode={mode} posEnabled={posEnabled} products={visibleProducts} setActiveCategoryId={setActiveCategoryId} setChoosingProduct={setChoosingProduct} setCustomerNote={setCustomerNote} setMode={setMode} setTableNo={setTableNo} tableNo={tableNo} />
               <aside className="space-y-5">
-                <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} />
+                <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />
               </aside>
             </div>
           </>
@@ -361,6 +378,8 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
         {activePanel === "daily" && (canViewReport ? <DailyReportPanel storeId={storeId} storeName={store.name} todayOrders={todayOrders} todayCashFlows={todayCashFlows} userEmail={profile?.email} userRole={effectiveRole ?? undefined} storeFeatures={store.features} customers={db.customers} pointLogs={db.pointLogs} storedValueLogs={db.storedValueLogs} dataRetentionMonths={store.dataRetentionMonths} /> : <PermissionNotice text="日結功能僅限 owner、manager 以上角色。" />)}
       </div>
       {choosingProduct && <ProductOptionModal product={choosingProduct} onClose={() => setChoosingProduct(null)} onConfirm={confirmProductOptions} />}
+      {memberModalOpen && <MemberModal onClose={() => setMemberModalOpen(false)} onSubmit={createMember} />}
+      {topupModalOpen && boundMember && <TopupModal member={boundMember} onClose={() => setTopupModalOpen(false)} onSubmit={topupMember} />}
     </main>
   );
 }
@@ -379,6 +398,85 @@ function OrderBoard({ activeOrderTab, canCancelOrders, displayedOrders, enablePi
         {displayedOrders.length === 0 ? <p className="rounded-lg bg-stone-50 p-5 text-center font-black text-steel">目前沒有訂單</p> : displayedOrders.map((order) => <OrderWorkCard key={order.id} canCancelOrders={canCancelOrders} enablePickupDisplay={enablePickupDisplay} order={order} updateOrderStatus={updateOrderStatus} />)}
       </div>
     </section>
+  );
+}
+
+function MemberModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (form: { name: string; phone: string; birthday?: string; note?: string }) => Promise<void> }) {
+  const [form, setForm] = useState({ name: "", phone: "", birthday: "", note: "" });
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    setError("");
+    if (!form.name.trim() || !form.phone.trim()) {
+      setError("姓名與手機必填");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSubmit({ name: form.name.trim(), phone: form.phone.trim(), birthday: form.birthday || undefined, note: form.note || undefined });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "建立會員失敗");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-soft">
+        <h2 className="text-2xl font-black text-ink">新增會員</h2>
+        <div className="mt-4 grid gap-3">
+          <Field label="姓名" value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
+          <Field label="手機" value={form.phone} onChange={(value) => setForm((current) => ({ ...current, phone: value }))} />
+          <Field label="生日" value={form.birthday} onChange={(value) => setForm((current) => ({ ...current, birthday: value }))} />
+          <Field label="備註" value={form.note} onChange={(value) => setForm((current) => ({ ...current, note: value }))} />
+        </div>
+        {error && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-sm font-black text-tomato">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg bg-stone-200 px-4 py-3 font-black text-steel">取消</button>
+          <button onClick={submit} disabled={saving} className="rounded-lg bg-leaf px-4 py-3 font-black text-white disabled:opacity-60">{saving ? "建立中..." : "建立會員"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TopupModal({ member, onClose, onSubmit }: { member: Customer; onClose: () => void; onSubmit: (amount: number) => Promise<void> }) {
+  const [amount, setAmount] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    const value = Math.round(Number(amount));
+    setError("");
+    if (!Number.isFinite(value) || value <= 0) {
+      setError("請輸入正確儲值金額");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSubmit(value);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "儲值失敗");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+      <div className="w-full max-w-sm rounded-lg bg-white p-5 shadow-soft">
+        <h2 className="text-2xl font-black text-ink">會員儲值</h2>
+        <p className="mt-2 text-sm font-bold text-steel">{member.name} ｜ 目前餘額 ${member.balance ?? member.storedValueBalance}</p>
+        <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="1" placeholder="儲值金額" className="mt-4 w-full rounded-lg border border-orange-100 px-3 py-3 font-bold" />
+        {error && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-sm font-black text-tomato">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg bg-stone-200 px-4 py-3 font-black text-steel">取消</button>
+          <button onClick={submit} disabled={saving} className="rounded-lg bg-leaf px-4 py-3 font-black text-white disabled:opacity-60">{saving ? "儲值中..." : "確認儲值"}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -577,7 +675,7 @@ function OrderItemLine({ item }: { item: OrderItem }) {
   return <div className="rounded-lg bg-stone-50 px-3 py-2"><p>{item.quantity} x {item.productName}</p>{selectedOptions.length > 0 && <div className="ml-3 mt-1 space-y-1 text-xs">{selectedOptions.map((option) => <p key={`${option.groupId}-${option.choiceId}`} style={{ marginLeft: `${(option.level ?? 0) * 12}px` }}>- {option.groupName}：{option.choiceName}{option.priceDelta ? ` +${option.priceDelta}` : ""}</p>)}</div>}{itemNote && <p className="ml-3 mt-1 rounded bg-amber-50 px-2 py-1 text-xs font-black text-amber-800">備註：{itemNote}</p>}</div>;
 }
 
-function CartPanel({ canApplyDiscounts, cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promotionDiscounts, finalTotal, cashDue, storedValueDeduction, orderDiscount, setOrderDiscount, removeLine, submitOrder, updateLine, isSubmitting, posEnabled, memberEnabled, memberStoredValueEnabled, canUseMemberLookup, canUseStoredValue, boundMember, storedValueUsed, onLookupMember, onClearMember, onStoredValueChange }: { canApplyDiscounts: boolean; cart: CartLine[]; itemsSubtotal: number; itemDiscountTotal: number; orderDiscAmt: number; promotionDiscounts: import("@/lib/types").PromotionDiscountLine[]; finalTotal: number; cashDue: number; storedValueDeduction: number; orderDiscount: CartItemDiscount; setOrderDiscount: (d: CartItemDiscount) => void; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean; memberEnabled: boolean; memberStoredValueEnabled: boolean; canUseMemberLookup: boolean; canUseStoredValue: boolean; boundMember: Customer | null; storedValueUsed: number; onLookupMember: (q: string) => Customer | null | undefined; onClearMember: () => void; onStoredValueChange: (amount: number) => void }) {
+function CartPanel({ canApplyDiscounts, cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promotionDiscounts, finalTotal, cashDue, storedValueDeduction, orderDiscount, setOrderDiscount, removeLine, submitOrder, updateLine, isSubmitting, posEnabled, memberEnabled, memberStoredValueEnabled, canUseMemberLookup, canUseStoredValue, boundMember, storedValueUsed, onLookupMember, onClearMember, onStoredValueChange, onOpenCreateMember, onOpenTopup }: { canApplyDiscounts: boolean; cart: CartLine[]; itemsSubtotal: number; itemDiscountTotal: number; orderDiscAmt: number; promotionDiscounts: import("@/lib/types").PromotionDiscountLine[]; finalTotal: number; cashDue: number; storedValueDeduction: number; orderDiscount: CartItemDiscount; setOrderDiscount: (d: CartItemDiscount) => void; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean; memberEnabled: boolean; memberStoredValueEnabled: boolean; canUseMemberLookup: boolean; canUseStoredValue: boolean; boundMember: Customer | null; storedValueUsed: number; onLookupMember: (q: string) => Customer | null | undefined; onClearMember: () => void; onStoredValueChange: (amount: number) => void; onOpenCreateMember: () => void; onOpenTopup: () => void }) {
   const [showOrderDiscForm, setShowOrderDiscForm] = useState(false);
   const [orderDiscType, setOrderDiscType] = useState<"amount" | "percent">("amount");
   const [orderDiscValue, setOrderDiscValue] = useState("");
@@ -649,6 +747,13 @@ function CartPanel({ canApplyDiscounts, cart, itemsSubtotal, itemDiscountTotal, 
               {memberNotFound && <p className="mt-1 text-xs font-black text-tomato">找不到會員，請確認手機或會員編號</p>}
             </div>
           )}
+        </div>
+      )}
+      {memberEnabled && canUseMemberLookup && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button onClick={onOpenCreateMember} className="inline-flex items-center gap-1 rounded-lg bg-leaf px-3 py-2 text-sm font-black text-white"><UserPlus className="size-4" />新增會員</button>
+          {boundMember && memberStoredValueEnabled && canUseStoredValue && <button onClick={onOpenTopup} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-black text-white">儲值</button>}
+          {boundMember && <span className="rounded-lg bg-stone-100 px-3 py-2 text-sm font-black text-steel">餘額 ${boundMember.balance ?? boundMember.storedValueBalance}</span>}
         </div>
       )}
       {cart.length === 0
