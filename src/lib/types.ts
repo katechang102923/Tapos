@@ -27,6 +27,70 @@ export type UserPermissions = {
   canCancelOrders: boolean;
   canApplyDiscounts: boolean;
   canViewPlatformTools: boolean;
+  // Member management
+  canManageMembers: boolean;
+  canUseMemberLookup: boolean;
+  canAdjustMemberPoints: boolean;
+  canUseStoredValue: boolean;
+};
+
+export type PointLogType = "earn" | "redeem" | "adjust" | "rollback";
+export type StoredValueLogType = "topup" | "spend" | "adjust" | "refund";
+
+export type MemberSettings = {
+  pointsEnabled?: boolean;
+  pointsPerAmount?: number; // spend this many yen to get pointsReward points
+  pointsReward?: number;    // points earned per unit
+};
+
+export type Customer = {
+  id: string;
+  storeId: string;
+  memberNo: string;
+  name: string;
+  phone: string;
+  email?: string;
+  birthday?: string;
+  points: number;
+  storedValueBalance: number;
+  totalSpent: number;
+  totalOrders: number;
+  lastOrderAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PointLog = {
+  id: string;
+  storeId: string;
+  customerId: string;
+  type: PointLogType;
+  points: number;
+  orderId?: string;
+  note?: string;
+  createdAt: string;
+  createdBy?: string;
+};
+
+export type StoredValueLog = {
+  id: string;
+  storeId: string;
+  customerId: string;
+  type: StoredValueLogType;
+  amount: number;
+  beforeBalance: number;
+  afterBalance: number;
+  orderId?: string;
+  note?: string;
+  createdAt: string;
+  createdBy?: string;
+};
+
+export type OrderCustomerInfo = {
+  customerId: string;
+  memberNo: string;
+  name: string;
+  phone: string;
 };
 export type DeviceType = "kitchen" | "label" | "display" | "scanner";
 export type DeviceConnectionType = "bluetooth" | "usb" | "lan";
@@ -99,7 +163,9 @@ export type Store = {
     promotionEnabled?: boolean;
     cashFlowEnabled?: boolean;
     memberEnabled?: boolean;
+    memberStoredValueEnabled?: boolean;
   };
+  memberSettings?: MemberSettings;
   createdAt: string;
 };
 
@@ -378,6 +444,10 @@ export type Order = {
   orderDiscount?: OrderDiscount;
   discountSummary?: DiscountSummary;
   promotionDiscounts?: PromotionDiscountLine[];
+  customer?: OrderCustomerInfo;
+  pointsEarned?: number;
+  pointsUsed?: number;
+  storedValueUsed?: number;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];
@@ -479,6 +549,9 @@ export type DemoDatabase = {
   dailyReports?: DailyReport[];
   promotions?: Promotion[];
   platformNotifications?: PlatformNotification[];
+  customers?: Customer[];
+  pointLogs?: PointLog[];
+  storedValueLogs?: StoredValueLog[];
 };
 
 export type CashFlowType = "income" | "expense";

@@ -14,7 +14,7 @@ import { calculatePromotions } from "@/lib/promotions";
 import { resolvePermissions } from "@/lib/permissions";
 import { accessibleStoreIds, defaultStoreId, storeRoleFor } from "@/lib/store-access";
 import { checkStoreAccess, checkUserAccess } from "@/lib/subscription";
-import type { CashFlow, CashFlowAmountMode, CashFlowItem, CashFlowType, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, StoreMemberRole, User } from "@/lib/types";
+import type { CashFlow, CashFlowAmountMode, CashFlowItem, CashFlowType, Customer, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, StoreMemberRole, User } from "@/lib/types";
 
 type CartItemDiscount = { type: "amount" | "percent"; value: number } | null;
 type CartLine = { product: Product; quantity: number; note: string; selectedOptions: OrderItemOption[]; discount: CartItemDiscount };
@@ -76,7 +76,7 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
 }
 
 function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeStoreRole, onStoreChange }: { profile: User | null; storeId: string; storeIds: string[]; activeStoreId: string; activeStoreRole: StoreMemberRole | null; onStoreChange: (storeId: string) => void }) {
-  const { db, createCashFlow, createOrder, todayCashFlows, todayOrders, updateOrderStatus, upsertCashFlowItem } = useDemoStore({ storeId });
+  const { db, createCashFlow, createOrder, todayCashFlows, todayOrders, updateOrderStatus, upsertCashFlowItem, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned } = useDemoStore({ storeId, loadCustomers: true });
   const store = db.stores.find((item) => item.id === storeId);
   const categories = useMemo(() => db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort), [db.categories, storeId]);
   const products = useMemo(() => db.products.filter((item) => item.storeId === storeId && item.isAvailable && !item.isSoldOut).sort((a, b) => a.sort - b.sort), [db.products, storeId]);
@@ -88,6 +88,10 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
   const canManageCashItems = permissions.canUseCashflow && permissions.canManageMenu;
   const canApplyDiscounts = permissions.canApplyDiscounts;
   const canCancelOrders = permissions.canCancelOrders;
+  const canUseMemberLookup = permissions.canUseMemberLookup;
+  const canUseStoredValue = permissions.canUseStoredValue;
+  const memberEnabled = store?.features?.memberEnabled ?? false;
+  const memberStoredValueEnabled = store?.features?.memberStoredValueEnabled ?? false;
   const posEnabled = store?.posOrderingEnabled ?? true;
   const enablePickupDisplay = store?.enablePickupDisplay ?? true;
   const dailyReportFeature = store?.features?.dailyReportEnabled ?? true;
@@ -109,6 +113,8 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
   const [cashError, setCashError] = useState("");
   const [cashForm, setCashForm] = useState<CashForm>({ itemId: "", amount: "", note: "" });
   const [cashItemForm, setCashItemForm] = useState<CashItemForm>({ name: "", type: "expense", amountMode: "open", fixedAmount: "" });
+  const [boundMember, setBoundMember] = useState<Customer | null>(null);
+  const [storedValueUsed, setStoredValueUsed] = useState(0);
 
   const visibleProducts = activeCategoryId === "all" ? products : products.filter((product) => product.categoryId === activeCategoryId);
   const completedOrders = todayOrders.filter((order) => order.status === "completed");
@@ -131,6 +137,8 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
   );
   const promotionDiscountTotal = promotionCalculation.discountTotal;
   const finalTotal = Math.max(0, afterItemDiscount - orderDiscAmt - promotionDiscountTotal);
+  const storedValueDeduction = Math.min(storedValueUsed, finalTotal);
+  const cashDue = finalTotal - storedValueDeduction;
   const cashIncome = todayCashFlows.filter((item) => item.type === "income").reduce((sum, item) => sum + item.amount, 0);
   const cashExpense = todayCashFlows.filter((item) => item.type === "expense").reduce((sum, item) => sum + item.amount, 0);
   const cashNet = cashIncome - cashExpense;
@@ -166,6 +174,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
     }
     setIsSubmitting(true);
     try {
+      const pointsEarned = boundMember ? getCalculatePointsEarned(finalTotal, storeId) : 0;
       const order = await createOrder({
         storeId,
         mode,
@@ -174,6 +183,9 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
         total: finalTotal,
         source: "pos",
         status: "accepted",
+        ...(boundMember ? { customer: { customerId: boundMember.id, memberNo: boundMember.memberNo, name: boundMember.name, phone: boundMember.phone } } : {}),
+        ...(pointsEarned > 0 ? { pointsEarned } : {}),
+        ...(storedValueDeduction > 0 ? { storedValueUsed: storedValueDeduction } : {}),
         items: cart.map<OrderItem>((line) => {
           const unitPrice = lineBasePrice(line);
           const discAmt = lineDiscountAmount(line);
@@ -205,11 +217,32 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
       setCustomerNote("");
       setOrderDiscount(null);
       setOrderSuccess(`POS 訂單已建立：${order.orderNumber}`);
+      if (boundMember) {
+        await updateCustomerOrderStats(boundMember.id, finalTotal);
+        if (pointsEarned > 0) {
+          await adjustCustomerPoints({ customerId: boundMember.id, storeId, type: "earn", points: pointsEarned, orderId: order.id, note: `訂單 ${order.orderNumber} 消費點數`, createdBy: profile?.email ?? "" });
+        }
+        if (storedValueDeduction > 0) {
+          await adjustStoredValue({ customerId: boundMember.id, storeId, type: "spend", amount: -storedValueDeduction, orderId: order.id, note: `訂單 ${order.orderNumber} 儲值消費`, createdBy: profile?.email ?? "" });
+        }
+        setBoundMember(null);
+        setStoredValueUsed(0);
+      }
     } catch (writeError) {
       setOrderError(writeError instanceof Error ? writeError.message : "訂單建立失敗");
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  function lookupMember(query: string) {
+    if (!query.trim()) return;
+    const byPhone = lookupCustomerByPhone(query.trim(), storeId);
+    const byMemberNo = lookupCustomerByMemberNo(query.trim(), storeId);
+    const found = byPhone ?? byMemberNo ?? null;
+    setBoundMember(found);
+    setStoredValueUsed(0);
+    return found;
   }
 
   async function submitCashFlow() {
@@ -300,7 +333,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
               <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
               <QuickOrder activeCategoryId={activeCategoryId} categories={categories} customerNote={customerNote} mode={mode} posEnabled={posEnabled} products={visibleProducts} setActiveCategoryId={setActiveCategoryId} setChoosingProduct={setChoosingProduct} setCustomerNote={setCustomerNote} setMode={setMode} setTableNo={setTableNo} tableNo={tableNo} />
               <aside className="space-y-5">
-                <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} />
+                <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} />
                 <SalesRanking ranking={ranking.slice(0, 5)} title="今日商品 TOP 5" />
               </aside>
             </div>
@@ -528,13 +561,22 @@ function OrderItemLine({ item }: { item: OrderItem }) {
   return <div className="rounded-lg bg-stone-50 px-3 py-2"><p>{item.quantity} x {item.productName}</p>{selectedOptions.length > 0 && <div className="ml-3 mt-1 space-y-1 text-xs">{selectedOptions.map((option) => <p key={`${option.groupId}-${option.choiceId}`} style={{ marginLeft: `${(option.level ?? 0) * 12}px` }}>- {option.groupName}：{option.choiceName}{option.priceDelta ? ` +${option.priceDelta}` : ""}</p>)}</div>}{itemNote && <p className="ml-3 mt-1 rounded bg-amber-50 px-2 py-1 text-xs font-black text-amber-800">備註：{itemNote}</p>}</div>;
 }
 
-function CartPanel({ canApplyDiscounts, cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promotionDiscounts, finalTotal, orderDiscount, setOrderDiscount, removeLine, submitOrder, updateLine, isSubmitting, posEnabled }: { canApplyDiscounts: boolean; cart: CartLine[]; itemsSubtotal: number; itemDiscountTotal: number; orderDiscAmt: number; promotionDiscounts: import("@/lib/types").PromotionDiscountLine[]; finalTotal: number; orderDiscount: CartItemDiscount; setOrderDiscount: (d: CartItemDiscount) => void; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean }) {
+function CartPanel({ canApplyDiscounts, cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promotionDiscounts, finalTotal, cashDue, storedValueDeduction, orderDiscount, setOrderDiscount, removeLine, submitOrder, updateLine, isSubmitting, posEnabled, memberEnabled, memberStoredValueEnabled, canUseMemberLookup, canUseStoredValue, boundMember, storedValueUsed, onLookupMember, onClearMember, onStoredValueChange }: { canApplyDiscounts: boolean; cart: CartLine[]; itemsSubtotal: number; itemDiscountTotal: number; orderDiscAmt: number; promotionDiscounts: import("@/lib/types").PromotionDiscountLine[]; finalTotal: number; cashDue: number; storedValueDeduction: number; orderDiscount: CartItemDiscount; setOrderDiscount: (d: CartItemDiscount) => void; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean; memberEnabled: boolean; memberStoredValueEnabled: boolean; canUseMemberLookup: boolean; canUseStoredValue: boolean; boundMember: Customer | null; storedValueUsed: number; onLookupMember: (q: string) => Customer | null | undefined; onClearMember: () => void; onStoredValueChange: (amount: number) => void }) {
   const [showOrderDiscForm, setShowOrderDiscForm] = useState(false);
   const [orderDiscType, setOrderDiscType] = useState<"amount" | "percent">("amount");
   const [orderDiscValue, setOrderDiscValue] = useState("");
+  const [memberQuery, setMemberQuery] = useState("");
+  const [memberNotFound, setMemberNotFound] = useState(false);
 
   const promotionDiscountTotal = promotionDiscounts.reduce((sum, p) => sum + p.amount, 0);
-  const hasDiscount = itemDiscountTotal > 0 || orderDiscAmt > 0 || promotionDiscountTotal > 0;
+  const hasDiscount = itemDiscountTotal > 0 || orderDiscAmt > 0 || promotionDiscountTotal > 0 || storedValueDeduction > 0;
+
+  function handleMemberLookup() {
+    if (!memberQuery.trim()) return;
+    const found = onLookupMember(memberQuery.trim());
+    setMemberNotFound(!found);
+    if (found) setMemberQuery("");
+  }
 
   function applyOrderDiscount() {
     const v = Math.round(Number(orderDiscValue));
@@ -548,6 +590,51 @@ function CartPanel({ canApplyDiscounts, cart, itemsSubtotal, itemDiscountTotal, 
     <section className="rounded-lg bg-white p-5 shadow-sm">
       <h2 className="text-2xl font-black">現場訂單購物車</h2>
       {!posEnabled && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-sm font-black text-tomato">POS 現場單目前暫停建立</p>}
+
+      {/* Member lookup */}
+      {memberEnabled && canUseMemberLookup && (
+        <div className="mt-4">
+          {boundMember ? (
+            <div className="rounded-lg bg-blue-50 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-black text-blue-800">已綁定會員</p>
+                  <p className="font-black text-ink">{boundMember.name} <span className="text-sm font-bold text-steel">({boundMember.memberNo})</span></p>
+                  <p className="text-sm font-bold text-steel">點數：{boundMember.points} 點 {memberStoredValueEnabled ? `｜儲值：$${boundMember.storedValueBalance}` : ""}</p>
+                </div>
+                <button onClick={onClearMember} className="rounded-lg bg-stone-200 px-2 py-1 text-xs font-black text-steel">清除</button>
+              </div>
+              {memberStoredValueEnabled && canUseStoredValue && boundMember.storedValueBalance > 0 && (
+                <div className="mt-2 flex items-center gap-2">
+                  <label className="text-xs font-black text-blue-700">使用儲值：$</label>
+                  <input
+                    type="number" min="0" max={boundMember.storedValueBalance}
+                    value={storedValueUsed || ""}
+                    onChange={(e) => onStoredValueChange(Math.min(Number(e.target.value) || 0, boundMember.storedValueBalance))}
+                    placeholder="0"
+                    className="w-24 rounded-lg border border-blue-200 px-2 py-1 text-sm font-bold"
+                  />
+                  <span className="text-xs text-steel">（餘額 ${boundMember.storedValueBalance}）</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <div className="flex gap-2">
+                <input
+                  value={memberQuery}
+                  onChange={(e) => { setMemberQuery(e.target.value); setMemberNotFound(false); }}
+                  onKeyDown={(e) => e.key === "Enter" && handleMemberLookup()}
+                  placeholder="手機 / 會員編號查詢"
+                  className="flex-1 rounded-lg border border-orange-100 px-3 py-2 text-sm font-bold"
+                />
+                <button onClick={handleMemberLookup} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-black text-white">查詢</button>
+              </div>
+              {memberNotFound && <p className="mt-1 text-xs font-black text-tomato">找不到會員，請確認手機或會員編號</p>}
+            </div>
+          )}
+        </div>
+      )}
       {cart.length === 0
         ? <p className="mt-4 rounded-lg bg-orange-50 p-4 text-center text-sm font-black text-steel">尚未加入餐點</p>
         : <div className="mt-4 space-y-4">{cart.map((line, index) => <CartLineCard key={`${line.product.id}-${index}`} canApplyDiscounts={canApplyDiscounts} index={index} line={line} removeLine={removeLine} updateLine={updateLine} />)}</div>}
@@ -562,7 +649,9 @@ function CartPanel({ canApplyDiscounts, cart, itemsSubtotal, itemDiscountTotal, 
             {promotionDiscounts.map((p) => (
               <div key={p.promotionId} className="flex justify-between text-sm font-bold text-leaf"><span>促銷：{p.promotionName}</span><span>-${p.amount}</span></div>
             ))}
-            <div className="flex justify-between border-t border-orange-200 pt-2 text-xl font-black text-ink"><span>應收總額</span><span>${finalTotal}</span></div>
+            <div className="flex justify-between border-t border-orange-200 pt-2 text-xl font-black text-ink"><span>訂單總額</span><span>${finalTotal}</span></div>
+            {storedValueDeduction > 0 && <div className="flex justify-between text-sm font-bold text-blue-600"><span>儲值扣抵</span><span>-${storedValueDeduction}</span></div>}
+            {storedValueDeduction > 0 && <div className="flex justify-between text-lg font-black text-ink"><span>實收現金</span><span>${cashDue}</span></div>}
           </div>
         ) : (
           <p className="text-xl font-black text-ink">總計：${finalTotal}</p>

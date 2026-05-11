@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChefHat, Cpu, Gift, LayoutDashboard, Menu as MenuIcon, Plus, Power, QrCode, ReceiptText, Settings, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
+import { ChefHat, Contact, Cpu, Gift, LayoutDashboard, Menu as MenuIcon, Plus, Power, QrCode, ReceiptText, Settings, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { resolvePermissions, roleLabel, roleBadgeClass } from "@/lib/permissions";
@@ -122,6 +122,7 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
           {store?.features?.promotionEnabled && permissions.canManagePromotions && <SidebarItem href="/merchant/promotions" icon={Gift} label="促銷活動" />}
           {canManageStore && <SidebarItem href="/merchant/settings" icon={Settings} label="店家設定" />}
           {permissions.canManageUsers && <SidebarItem href="/merchant/members" icon={Users} label="帳號管理" />}
+          {store?.features?.memberEnabled && permissions.canManageMembers && <SidebarItem href="/merchant/customers" icon={Contact} label="會員管理" />}
           <Link href="/merchant/pos" className="inline-flex items-center gap-3 rounded-lg bg-leaf px-4 py-3 font-black text-white"><ShoppingCart className="size-5" />前往 POS 前台</Link>
           {store?.features?.kdsEnabled && (
             <Link href={`/kitchen/${selectedStoreId}`} className="inline-flex items-center gap-3 rounded-lg bg-white/10 px-4 py-3 font-black text-white hover:bg-white/20"><ChefHat className="size-5" />廚房 KDS</Link>

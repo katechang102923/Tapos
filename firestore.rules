@@ -302,6 +302,72 @@ service cloud.firestore {
         && request.auth.token.email == "ciut0000@gmail.com";
     }
 
+    function canManageMembers(storeId) {
+      return isAdmin()
+        || membershipRole(storeId) in ["owner", "manager"]
+        || (approved() && userStoreId() == storeId && role() in ["merchant", "owner"]);
+    }
+
+    function canLookupMembers(storeId) {
+      return isAdmin()
+        || membershipRole(storeId) in ["owner", "manager", "staff"]
+        || (approved() && userStoreId() == storeId && role() in ["merchant", "owner"]);
+    }
+
+    function storeHasMemberEnabled(storeId) {
+      return exists(storePath(storeId))
+        && get(storePath(storeId)).data.features is map
+        && get(storePath(storeId)).data.features.memberEnabled == true;
+    }
+
+    function storeHasStoredValueEnabled(storeId) {
+      return exists(storePath(storeId))
+        && get(storePath(storeId)).data.features is map
+        && get(storePath(storeId)).data.features.memberStoredValueEnabled == true;
+    }
+
+    match /customers/{customerId} {
+      allow read: if resource.data.storeId is string
+        && storeHasMemberEnabled(resource.data.storeId)
+        && canLookupMembers(resource.data.storeId);
+      allow create: if request.resource.data.storeId is string
+        && storeHasMemberEnabled(request.resource.data.storeId)
+        && canManageMembers(request.resource.data.storeId)
+        && request.resource.data.name is string
+        && request.resource.data.phone is string
+        && request.resource.data.memberNo is string;
+      allow update: if resource.data.storeId is string
+        && storeHasMemberEnabled(resource.data.storeId)
+        && (canManageMembers(resource.data.storeId) || canLookupMembers(resource.data.storeId));
+      allow delete: if resource.data.storeId is string && isAdmin();
+    }
+
+    match /pointLogs/{logId} {
+      allow read: if resource.data.storeId is string
+        && storeHasMemberEnabled(resource.data.storeId)
+        && canLookupMembers(resource.data.storeId);
+      allow create: if request.resource.data.storeId is string
+        && storeHasMemberEnabled(request.resource.data.storeId)
+        && canLookupMembers(request.resource.data.storeId)
+        && request.resource.data.customerId is string
+        && request.resource.data.type in ["earn", "redeem", "adjust", "rollback"]
+        && request.resource.data.points is number;
+      allow update, delete: if isAdmin();
+    }
+
+    match /storedValueLogs/{logId} {
+      allow read: if resource.data.storeId is string
+        && storeHasStoredValueEnabled(resource.data.storeId)
+        && canLookupMembers(resource.data.storeId);
+      allow create: if request.resource.data.storeId is string
+        && storeHasStoredValueEnabled(request.resource.data.storeId)
+        && canLookupMembers(request.resource.data.storeId)
+        && request.resource.data.customerId is string
+        && request.resource.data.type in ["topup", "spend", "adjust", "refund"]
+        && request.resource.data.amount is number;
+      allow update, delete: if isAdmin();
+    }
+
     match /counters/orderNumbers {
       allow read: if true;
       allow create: if isAdmin() || (request.resource.data.keys().hasOnly(["qr", "pos"])

@@ -11,6 +11,10 @@ export const ALL_PERMISSIONS: UserPermissions = {
   canCancelOrders: true,
   canApplyDiscounts: true,
   canViewPlatformTools: true,
+  canManageMembers: true,
+  canUseMemberLookup: true,
+  canAdjustMemberPoints: true,
+  canUseStoredValue: true,
 };
 
 export const NO_PERMISSIONS: UserPermissions = {
@@ -24,6 +28,10 @@ export const NO_PERMISSIONS: UserPermissions = {
   canCancelOrders: false,
   canApplyDiscounts: false,
   canViewPlatformTools: false,
+  canManageMembers: false,
+  canUseMemberLookup: false,
+  canAdjustMemberPoints: false,
+  canUseStoredValue: false,
 };
 
 export const ROLE_DEFAULT_PERMISSIONS: Record<StoreMemberRole, UserPermissions> = {
@@ -38,6 +46,10 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<StoreMemberRole, UserPermissions> 
     canCancelOrders: true,
     canApplyDiscounts: true,
     canViewPlatformTools: false,
+    canManageMembers: true,
+    canUseMemberLookup: true,
+    canAdjustMemberPoints: true,
+    canUseStoredValue: true,
   },
   manager: {
     canViewDailyReport: true,
@@ -50,6 +62,10 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<StoreMemberRole, UserPermissions> 
     canCancelOrders: true,
     canApplyDiscounts: true,
     canViewPlatformTools: false,
+    canManageMembers: true,
+    canUseMemberLookup: true,
+    canAdjustMemberPoints: true,
+    canUseStoredValue: false,
   },
   staff: {
     canViewDailyReport: false,
@@ -62,6 +78,10 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<StoreMemberRole, UserPermissions> 
     canCancelOrders: false,
     canApplyDiscounts: false,
     canViewPlatformTools: false,
+    canManageMembers: false,
+    canUseMemberLookup: true,
+    canAdjustMemberPoints: false,
+    canUseStoredValue: false,
   },
   viewer: {
     canViewDailyReport: true,
@@ -74,6 +94,10 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<StoreMemberRole, UserPermissions> 
     canCancelOrders: false,
     canApplyDiscounts: false,
     canViewPlatformTools: false,
+    canManageMembers: false,
+    canUseMemberLookup: false,
+    canAdjustMemberPoints: false,
+    canUseStoredValue: false,
   },
 };
 
@@ -102,6 +126,10 @@ export const PERMISSION_LABELS: Record<keyof UserPermissions, string> = {
   canCancelOrders: "取消訂單",
   canApplyDiscounts: "使用折扣",
   canViewPlatformTools: "平台管理工具", // internal — never shown in store UI
+  canManageMembers: "會員管理",
+  canUseMemberLookup: "會員查詢",
+  canAdjustMemberPoints: "調整點數",
+  canUseStoredValue: "儲值功能",
 };
 
 /**
@@ -124,6 +152,10 @@ export const STORE_PERMISSION_KEYS: Array<keyof UserPermissions> = [
   "canViewOrders",
   "canCancelOrders",
   "canApplyDiscounts",
+  "canManageMembers",
+  "canUseMemberLookup",
+  "canAdjustMemberPoints",
+  "canUseStoredValue",
 ];
 
 export function roleLabel(role: string | null | undefined): string {

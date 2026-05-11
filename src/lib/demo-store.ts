@@ -22,7 +22,7 @@ import { firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { AccessStatus, CashFlow, CashFlowItem, Category, DailyReport, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, PlatformNotification, Product, Promotion, Store, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
+import type { AccessStatus, CashFlow, CashFlowItem, Category, Customer, DailyReport, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, PlatformNotification, PointLog, PointLogType, Product, Promotion, Store, StoredValueLog, StoredValueLogType, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -32,6 +32,7 @@ type StoreOptions = {
   admin?: boolean;
   customerSessionId?: string;
   skipOrderList?: boolean;
+  loadCustomers?: boolean;
 };
 
 function loadLocalData(): DemoDatabase {
@@ -111,8 +112,31 @@ function scopedQuery(collectionName: string, storeId?: string, admin?: boolean, 
   return query(ref, where("storeId", "==", storeId));
 }
 
+function generateMemberNo(existingCustomers: Customer[]): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  const prefix = `M${y}${m}${d}`;
+  const todayNos = existingCustomers
+    .map((c) => c.memberNo)
+    .filter((no) => no.startsWith(prefix))
+    .map((no) => parseInt(no.slice(prefix.length), 10))
+    .filter((n) => !isNaN(n));
+  const next = todayNos.length > 0 ? Math.max(...todayNos) + 1 : 1;
+  return `${prefix}${String(next).padStart(4, "0")}`;
+}
+
+function calculatePointsEarned(totalAmount: number, settings?: { pointsEnabled?: boolean; pointsPerAmount?: number; pointsReward?: number }): number {
+  if (!settings?.pointsEnabled) return 0;
+  const perAmount = settings.pointsPerAmount ?? 100;
+  const reward = settings.pointsReward ?? 1;
+  if (perAmount <= 0) return 0;
+  return Math.floor(totalAmount / perAmount) * reward;
+}
+
 export function useDemoStore(options: StoreOptions = {}) {
-  const { storeId, admin = false, customerSessionId, skipOrderList = false } = options;
+  const { storeId, admin = false, customerSessionId, skipOrderList = false, loadCustomers = false } = options;
   const [db, setDb] = useState<DemoDatabase>(initialData);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
@@ -136,7 +160,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
 
     setReady(false);
-    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [], promotions: [], platformNotifications: [] };
+    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [], promotions: [], platformNotifications: [], customers: [], pointLogs: [], storedValueLogs: [] };
     const commit = () => {
       setDb({ ...next });
       setReady(true);
@@ -199,13 +223,49 @@ export function useDemoStore(options: StoreOptions = {}) {
         )
       : () => undefined;
 
+    const unsubCustomers = (loadCustomers && storeId)
+      ? onSnapshot(
+          query(collection(firestore, "customers"), where("storeId", "==", storeId)),
+          (snapshot) => {
+            next.customers = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Customer);
+            commit();
+          },
+          handleError
+        )
+      : () => undefined;
+
+    const unsubPointLogs = (loadCustomers && storeId)
+      ? onSnapshot(
+          query(collection(firestore, "pointLogs"), where("storeId", "==", storeId)),
+          (snapshot) => {
+            next.pointLogs = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as PointLog);
+            commit();
+          },
+          handleError
+        )
+      : () => undefined;
+
+    const unsubStoredValueLogs = (loadCustomers && storeId)
+      ? onSnapshot(
+          query(collection(firestore, "storedValueLogs"), where("storeId", "==", storeId)),
+          (snapshot) => {
+            next.storedValueLogs = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as StoredValueLog);
+            commit();
+          },
+          handleError
+        )
+      : () => undefined;
+
     return () => {
       unsubStores();
       unsubscribers.forEach((unsubscribe) => unsubscribe());
       unsubUsers();
       unsubNotifications();
+      unsubCustomers();
+      unsubPointLogs();
+      unsubStoredValueLogs();
     };
-  }, [admin, customerSessionId, skipOrderList, storeId, useFirestore]);
+  }, [admin, customerSessionId, loadCustomers, skipOrderList, storeId, useFirestore]);
 
   useEffect(() => {
     if (!ready || useFirestore) return;
@@ -1010,6 +1070,172 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
   }
 
+  async function createCustomer(data: { storeId: string; name: string; phone: string; email?: string; birthday?: string; createdBy?: string }): Promise<Customer> {
+    const now = new Date().toISOString();
+    const allCustomers = db.customers ?? [];
+    const memberNo = generateMemberNo(allCustomers.filter((c) => c.storeId === data.storeId));
+    const id = useFirestore && firestore ? doc(collection(firestore, "customers")).id : newId("cust");
+    const customer: Customer = stripUndefined({
+      id,
+      storeId: data.storeId,
+      memberNo,
+      name: data.name,
+      phone: data.phone,
+      email: data.email,
+      birthday: data.birthday,
+      points: 0,
+      storedValueBalance: 0,
+      totalSpent: 0,
+      totalOrders: 0,
+      createdAt: now,
+      updatedAt: now
+    });
+    if (useFirestore && firestore) {
+      await setDoc(doc(firestore, "customers", id), customer);
+      setDb((current) => ({ ...current, customers: [customer, ...(current.customers ?? [])] }));
+      return customer;
+    }
+    setDb((current) => ({ ...current, customers: [customer, ...(current.customers ?? [])] }));
+    return customer;
+  }
+
+  async function updateCustomer(customerId: string, patch: Partial<Pick<Customer, "name" | "phone" | "email" | "birthday">>) {
+    const now = new Date().toISOString();
+    const cleanPatch = { ...stripUndefined(patch), updatedAt: now };
+    if (useFirestore && firestore) {
+      await updateDoc(doc(firestore, "customers", customerId), cleanPatch);
+      setDb((current) => ({ ...current, customers: (current.customers ?? []).map((c) => c.id === customerId ? { ...c, ...cleanPatch } : c) }));
+      return;
+    }
+    setDb((current) => ({ ...current, customers: (current.customers ?? []).map((c) => c.id === customerId ? { ...c, ...cleanPatch } : c) }));
+  }
+
+  function lookupCustomerByPhone(phone: string, targetStoreId: string): Customer | undefined {
+    return (db.customers ?? []).find((c) => c.storeId === targetStoreId && c.phone === phone.trim());
+  }
+
+  function lookupCustomerByMemberNo(memberNo: string, targetStoreId: string): Customer | undefined {
+    return (db.customers ?? []).find((c) => c.storeId === targetStoreId && c.memberNo === memberNo.trim().toUpperCase());
+  }
+
+  async function adjustCustomerPoints(params: {
+    customerId: string;
+    storeId: string;
+    type: PointLogType;
+    points: number;
+    orderId?: string;
+    note?: string;
+    createdBy?: string;
+  }) {
+    const now = new Date().toISOString();
+    const id = useFirestore && firestore ? doc(collection(firestore, "pointLogs")).id : newId("pl");
+    const log: PointLog = stripUndefined({
+      id,
+      storeId: params.storeId,
+      customerId: params.customerId,
+      type: params.type,
+      points: params.points,
+      orderId: params.orderId,
+      note: params.note,
+      createdAt: now,
+      createdBy: params.createdBy
+    });
+    const customer = (db.customers ?? []).find((c) => c.id === params.customerId);
+    const newPoints = Math.max(0, (customer?.points ?? 0) + params.points);
+    const customerPatch = { points: newPoints, updatedAt: now };
+
+    if (useFirestore && firestore) {
+      await Promise.all([
+        setDoc(doc(firestore, "pointLogs", id), log),
+        updateDoc(doc(firestore, "customers", params.customerId), customerPatch)
+      ]);
+      setDb((current) => ({
+        ...current,
+        pointLogs: [log, ...(current.pointLogs ?? [])],
+        customers: (current.customers ?? []).map((c) => c.id === params.customerId ? { ...c, ...customerPatch } : c)
+      }));
+      return log;
+    }
+    setDb((current) => ({
+      ...current,
+      pointLogs: [log, ...(current.pointLogs ?? [])],
+      customers: (current.customers ?? []).map((c) => c.id === params.customerId ? { ...c, ...customerPatch } : c)
+    }));
+    return log;
+  }
+
+  async function adjustStoredValue(params: {
+    customerId: string;
+    storeId: string;
+    type: StoredValueLogType;
+    amount: number;
+    orderId?: string;
+    note?: string;
+    createdBy?: string;
+  }) {
+    const now = new Date().toISOString();
+    const customer = (db.customers ?? []).find((c) => c.id === params.customerId);
+    const beforeBalance = customer?.storedValueBalance ?? 0;
+    const afterBalance = Math.max(0, beforeBalance + params.amount);
+    const id = useFirestore && firestore ? doc(collection(firestore, "storedValueLogs")).id : newId("svl");
+    const log: StoredValueLog = stripUndefined({
+      id,
+      storeId: params.storeId,
+      customerId: params.customerId,
+      type: params.type,
+      amount: params.amount,
+      beforeBalance,
+      afterBalance,
+      orderId: params.orderId,
+      note: params.note,
+      createdAt: now,
+      createdBy: params.createdBy
+    });
+    const customerPatch = { storedValueBalance: afterBalance, updatedAt: now };
+
+    if (useFirestore && firestore) {
+      await Promise.all([
+        setDoc(doc(firestore, "storedValueLogs", id), log),
+        updateDoc(doc(firestore, "customers", params.customerId), customerPatch)
+      ]);
+      setDb((current) => ({
+        ...current,
+        storedValueLogs: [log, ...(current.storedValueLogs ?? [])],
+        customers: (current.customers ?? []).map((c) => c.id === params.customerId ? { ...c, ...customerPatch } : c)
+      }));
+      return log;
+    }
+    setDb((current) => ({
+      ...current,
+      storedValueLogs: [log, ...(current.storedValueLogs ?? [])],
+      customers: (current.customers ?? []).map((c) => c.id === params.customerId ? { ...c, ...customerPatch } : c)
+    }));
+    return log;
+  }
+
+  async function updateCustomerOrderStats(customerId: string, orderTotal: number) {
+    const now = new Date().toISOString();
+    const customer = (db.customers ?? []).find((c) => c.id === customerId);
+    if (!customer) return;
+    const patch = {
+      totalSpent: (customer.totalSpent ?? 0) + orderTotal,
+      totalOrders: (customer.totalOrders ?? 0) + 1,
+      lastOrderAt: now,
+      updatedAt: now
+    };
+    if (useFirestore && firestore) {
+      await updateDoc(doc(firestore, "customers", customerId), patch);
+      setDb((current) => ({ ...current, customers: (current.customers ?? []).map((c) => c.id === customerId ? { ...c, ...patch } : c) }));
+      return;
+    }
+    setDb((current) => ({ ...current, customers: (current.customers ?? []).map((c) => c.id === customerId ? { ...c, ...patch } : c) }));
+  }
+
+  function getCalculatePointsEarned(totalAmount: number, targetStoreId: string): number {
+    const store = db.stores.find((s) => s.id === targetStoreId);
+    return calculatePointsEarned(totalAmount, store?.memberSettings);
+  }
+
   async function markNotificationRead(notifId: string) {
     if (useFirestore && firestore) {
       try {
@@ -1073,6 +1299,14 @@ export function useDemoStore(options: StoreOptions = {}) {
     updateUserStoreAccess,
     updateUserGlobalAccess,
     markNotificationRead,
+    createCustomer,
+    updateCustomer,
+    lookupCustomerByPhone,
+    lookupCustomerByMemberNo,
+    adjustCustomerPoints,
+    adjustStoredValue,
+    updateCustomerOrderStats,
+    getCalculatePointsEarned,
   };
 }
 

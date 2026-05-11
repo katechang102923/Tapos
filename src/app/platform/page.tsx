@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Bell, Building2, CalendarClock, ChefHat, Gift, Monitor, Search, ShieldCheck, Store, ToggleLeft, ToggleRight, Users } from "lucide-react";
+import { ArrowLeft, Bell, Building2, CalendarClock, ChefHat, Contact, Gift, Monitor, Search, ShieldCheck, Store, ToggleLeft, ToggleRight, Users, Wallet } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { ROLE_LABELS, roleBadgeClass, roleLabel } from "@/lib/permissions";
@@ -423,6 +423,8 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                       { key: "promotionEnabled" as const, label: "促銷活動", icon: Gift },
                       { key: "dailyReportEnabled" as const, label: "日報表", icon: Store },
                       { key: "cashFlowEnabled" as const, label: "現金流", icon: Store },
+                      { key: "memberEnabled" as const, label: "會員功能", icon: Contact },
+                      { key: "memberStoredValueEnabled" as const, label: "儲值功能", icon: Wallet },
                     ] as const
                   ).map(({ key, label, icon: Icon }) => (
                     <button
