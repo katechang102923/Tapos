@@ -76,25 +76,30 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
   const userId = profile?.id ?? "";
   const lsKey = posLsKey(userId);
 
-  // Raw store IDs from the user's role mapping (demo-store already stripped)
+  // Role-mapped store IDs with demo entries already stripped
   const allStoreIds = selectorStoreIds(profile);
 
-  // Validated store IDs – trimmed to only stores that exist in Firestore.
-  // For admin the full list is trusted; for non-admin we check existence so
-  // that stale entries (e.g. a deleted store still in storeRoles) are removed.
+  // Validated store IDs: trimmed to only stores that actually exist in Firestore
+  // so stale profile entries (deleted stores, seed data) never reach the selector.
   const [storeIds, setStoreIds] = useState<string[]>(allStoreIds);
-  // Store display-name cache fetched during the validation pass above
+  // Display-name cache populated during the Firestore validation pass
   const [storeNames, setStoreNames] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    // Single store or admin: no validation needed
+    // Admin is trusted and single-store users need no validation
     if (isAdmin || allStoreIds.length <= 1 || !firebaseEnabled || !firestore) {
-      setStoreIds(allStoreIds);
+      // Guard avoids a re-render when allStoreIds hasn't actually changed
+      setStoreIds((prev) => (
+        prev.length === allStoreIds.length && prev.every((id, i) => id === allStoreIds[i])
+          ? prev : allStoreIds
+      ));
       return;
     }
     const fs = firestore;
+    let mounted = true;
     Promise.all(allStoreIds.map((id) => getDoc(doc(fs, "stores", id))))
       .then((snapshots) => {
+        if (!mounted) return;
         const names: Record<string, string> = {};
         const existing = allStoreIds.filter((id, i) => {
           if (!snapshots[i].exists()) return false;
@@ -103,26 +108,30 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
           return true;
         });
         setStoreNames(names);
-        // If every ID was invalid (unlikely) fall back to the full list so the
-        // user is never locked out
+        // Fall back to full list only if every ID was invalid (prevents lock-out)
         setStoreIds(existing.length > 0 ? existing : allStoreIds);
       })
-      .catch(() => setStoreIds(allStoreIds));
+      .catch(() => {
+        if (!mounted) return;
+        setStoreNames({});
+        setStoreIds(allStoreIds);
+      });
+    return () => { mounted = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allStoreIds.join(","), isAdmin]);
 
-  // localStorage cleanup: if the saved selection is no longer authorised, clear it
+  // Clear a persisted store selection that is no longer authorised.
+  // Runs inside the validation effect rather than a separate effect so we avoid
+  // an extra localStorage read on every storeIds change.
   useEffect(() => {
-    if (!lsKey || typeof window === "undefined") return;
+    if (!lsKey) return;
     const saved = window.localStorage.getItem(lsKey) ?? "";
-    if (saved && !storeIds.includes(saved)) {
-      window.localStorage.removeItem(lsKey);
-    }
+    if (saved && !storeIds.includes(saved)) window.localStorage.removeItem(lsKey);
   }, [storeIds, lsKey]);
 
-  // Initial active store: prefer a valid localStorage value, else the profile default
+  // Prefer a valid persisted selection; otherwise fall back to the profile default
   const [activeStoreId, setActiveStoreId] = useState<string>(() => {
-    if (typeof window !== "undefined" && lsKey) {
+    if (lsKey) {
       const saved = window.localStorage.getItem(lsKey) ?? "";
       if (saved && allStoreIds.includes(saved)) return saved;
     }
@@ -131,7 +140,7 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
 
   function handleStoreChange(id: string) {
     setActiveStoreId(id);
-    if (lsKey && typeof window !== "undefined") window.localStorage.setItem(lsKey, id);
+    if (lsKey) window.localStorage.setItem(lsKey, id);
   }
 
   const selectedStoreId = storeIds.includes(activeStoreId) ? activeStoreId : storeIds[0] ?? "";

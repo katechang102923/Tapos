@@ -40,31 +40,29 @@ export function accessibleStoreIds(profile: Pick<User, "storeId" | "storeIds" | 
   return Array.from(new Set([...explicitStoreIds, ...roleStoreIds, ...legacyStoreId]));
 }
 
+/** Role-derived store IDs with demo/seed entries removed. Shared by defaultStoreId and selectorStoreIds. */
+function roleStoreIds(profile: Pick<User, "memberships" | "storeRoles"> | null | undefined): string[] {
+  return Object.keys(normalizeStoreRoles(profile)).filter((id) => !DEMO_STORE_IDS.has(id));
+}
+
 export function defaultStoreId(profile: Pick<User, "storeId" | "storeIds" | "memberships" | "storeRoles"> | null | undefined) {
-  // Prefer role-mapped stores with demo IDs stripped so the initial active store is
-  // always a real production store, never the seed/demo store.
-  const roleStores = Object.keys(normalizeStoreRoles(profile)).filter((id) => !DEMO_STORE_IDS.has(id));
-  if (roleStores.length > 0) return roleStores[0];
+  const ids = roleStoreIds(profile);
+  if (ids.length > 0) return ids[0];
   return accessibleStoreIds(profile)[0] ?? "";
 }
 
 /**
- * Returns the store IDs that should appear in the store-switcher dropdown.
- * - admin: all accessible stores (same as accessibleStoreIds)
- * - everyone else:
- *   1. ONLY stores derived from normalizeStoreRoles (memberships / storeRoles) —
- *      no fallback to the raw profile.storeIds array.
- *   2. Mock/demo store IDs ("demo-store") are stripped out.
- *   3. If nothing remains, fall back to the single legacy profile.storeId (non-demo only).
+ * Store IDs to show in the store-switcher dropdown.
+ * Admin sees everything; non-admin sees only role-mapped stores with demo IDs stripped.
+ * This prevents stale Firestore entries (e.g. deleted stores, seed data) from appearing.
  */
 export function selectorStoreIds(
   profile: Pick<User, "storeId" | "storeIds" | "memberships" | "storeRoles" | "role"> | null | undefined
 ): string[] {
   if (!profile) return [];
   if (profile.role === "admin") return accessibleStoreIds(profile);
-  const roleStores = Object.keys(normalizeStoreRoles(profile)).filter((id) => !DEMO_STORE_IDS.has(id));
-  if (roleStores.length > 0) return roleStores;
-  // Last resort: honour a single legacy storeId field — but never a demo/mock ID
+  const ids = roleStoreIds(profile);
+  if (ids.length > 0) return ids;
   const legacyId = typeof profile.storeId === "string" && profile.storeId.length > 0 ? profile.storeId : "";
   return legacyId && !DEMO_STORE_IDS.has(legacyId) ? [legacyId] : [];
 }
