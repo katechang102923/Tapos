@@ -108,12 +108,18 @@ export const PERMISSION_LABELS: Record<keyof UserPermissions, string> = {
  * Permission keys that store owners are allowed to configure for their staff.
  * canViewPlatformTools is intentionally excluded — it is system-determined only.
  */
+/**
+ * Permission keys that store owners are allowed to configure for their staff.
+ * canUseKDS is excluded — KDS access is controlled solely by the platform
+ *   switch (store.features.kdsEnabled). Individual KDS staff permissions
+ *   will be added in a future iteration.
+ * canViewPlatformTools is excluded — system-determined only.
+ */
 export const STORE_PERMISSION_KEYS: Array<keyof UserPermissions> = [
   "canViewDailyReport",
   "canManageMenu",
   "canManagePromotions",
   "canUseCashflow",
-  "canUseKDS",
   "canManageUsers",
   "canViewOrders",
   "canCancelOrders",

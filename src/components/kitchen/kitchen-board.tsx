@@ -7,8 +7,8 @@ import { LoginGate } from "@/components/auth/login-gate";
 import { StatusPill } from "@/components/status-pill";
 import { useDemoStore } from "@/lib/demo-store";
 import { normalizeSelectedOptions } from "@/lib/product-options";
-import { resolvePermissions } from "@/lib/permissions";
 import { checkStoreAccess, checkUserAccess } from "@/lib/subscription";
+import { accessibleStoreIds } from "@/lib/store-access";
 import type { Order, OrderItem, OrderStatus, User } from "@/lib/types";
 
 type Station = "all" | "hot" | "drink";
@@ -43,8 +43,12 @@ export function KitchenBoard({ storeId }: { storeId: string }) {
     <LoginGate allowedRoles={["merchant", "kitchen", "admin", "owner", "manager", "staff"]} title="廚房 KDS 登入">
       {({ profile }) => {
         const isAdmin = profile?.role === "admin";
-        const permissions = resolvePermissions(profile as User | null, storeId);
-        const hasKitchenAccess = isAdmin || permissions.canUseKDS;
+        // KDS access = platform kdsEnabled switch only (no individual canUseKDS permission).
+        // Any store member (or kitchen-role device) may enter — if the store has KDS enabled.
+        // The kdsEnabled gate is enforced below in KitchenBoardContent.
+        const isKitchenDevice = profile?.role === "kitchen";
+        const isStoreMember = accessibleStoreIds(profile as User | null).includes(storeId);
+        const hasKitchenAccess = isAdmin || isKitchenDevice || isStoreMember;
         if (!hasKitchenAccess) {
           return (
             <main className="grid min-h-screen place-items-center bg-[#111111] p-4 text-white">
