@@ -13,6 +13,7 @@ import { normalizeSelectedOptions, selectionsTotal } from "@/lib/product-options
 import { calculatePromotions } from "@/lib/promotions";
 import { resolvePermissions } from "@/lib/permissions";
 import { accessibleStoreIds, defaultStoreId, storeRoleFor } from "@/lib/store-access";
+import { checkStoreAccess, checkUserAccess } from "@/lib/subscription";
 import type { CashFlow, CashFlowAmountMode, CashFlowItem, CashFlowType, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, StoreMemberRole, User } from "@/lib/types";
 
 type CartItemDiscount = { type: "amount" | "percent"; value: number } | null;
@@ -138,6 +139,12 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
 
   if (!storeId) return <CenteredNotice title="請先完成店家設定" text="POS 前台需要綁定店家後才能使用。" />;
   if (!store) return <CenteredNotice title="載入店家資料..." text="" />;
+
+  const isAdmin = profile?.role === "admin";
+  const storeAccess = !isAdmin ? checkStoreAccess(store) : { ok: true, reason: "" };
+  const userAccess = !isAdmin ? checkUserAccess(profile, storeId) : { ok: true, reason: "" };
+  if (!userAccess.ok) return <CenteredNotice title="帳號存取受限" text={userAccess.reason} />;
+  if (!storeAccess.ok) return <CenteredNotice title="店家方案受限" text={storeAccess.reason} />;
 
   function confirmProductOptions(selectedOptions: OrderItemOption[]) {
     if (!choosingProduct) return;

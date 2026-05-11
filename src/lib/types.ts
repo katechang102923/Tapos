@@ -2,10 +2,18 @@ export type OrderStatus = "pending" | "waiting" | "unprocessed" | "accepted" | "
 export type OrderMode = "dine-in" | "takeout";
 export type StoreOrderStatus = "open" | "paused" | "closed";
 export type StoreMemberRole = "owner" | "manager" | "staff" | "viewer";
+export type SubscriptionStatus = "trial" | "active" | "expired" | "suspended";
+export type AccessStatus = "active" | "expired" | "suspended";
 export type UserRole = "user" | "merchant" | "kitchen" | "admin" | StoreMemberRole;
 export type StoreType = "breakfast" | "drink" | "snack" | "hotpot";
 export type DiscountType = "none" | "percent" | "amount" | "specialPrice";
 export type PromotionType = "buy_x_get_y" | "buy_one_get_one" | "second_half_price" | "percent_discount" | "amount_discount";
+
+export type StoreUserAccess = {
+  accessStartsAt?: string;
+  accessEndsAt?: string;
+  accessStatus?: AccessStatus;
+};
 
 export type UserPermissions = {
   canViewDailyReport: boolean;
@@ -78,6 +86,10 @@ export type Store = {
   demoBreakfastMenuImported?: boolean;
   temporaryNotice?: string;
   notice?: string;
+  subscriptionStatus?: SubscriptionStatus;
+  subscriptionStartsAt?: string;
+  subscriptionEndsAt?: string;
+  trialEndsAt?: string;
   features?: {
     kdsEnabled?: boolean;
     dailyReportEnabled?: boolean;
@@ -95,6 +107,9 @@ export type User = {
   memberships?: Record<string, StoreMemberRole>;
   storeRoles?: Record<string, StoreMemberRole>;
   storePermissions?: Record<string, Partial<UserPermissions>>;
+  storeAccess?: Record<string, StoreUserAccess>;
+  accessEndsAt?: string;
+  accessStatus?: AccessStatus;
   pending?: boolean;
   approved?: boolean;
   status?: "pending" | "active" | "rejected";

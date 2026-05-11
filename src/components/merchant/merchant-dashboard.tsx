@@ -7,6 +7,7 @@ import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { resolvePermissions, roleLabel, roleBadgeClass } from "@/lib/permissions";
 import { accessibleStoreIds, defaultStoreId, storeRoleFor } from "@/lib/store-access";
+import { checkStoreAccess, checkUserAccess } from "@/lib/subscription";
 import type { Category, Store, User } from "@/lib/types";
 
 type MerchantView = "dashboard" | "menu";
@@ -59,6 +60,32 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
   const role = profile.role === "admin" ? "admin" : storeRole;
   const permissions = resolvePermissions(profile, selectedStoreId);
   const canManageStore = permissions.canManageMenu || profile.role === "admin";
+  const storeAccessCheck = profile.role !== "admin" ? checkStoreAccess(store) : { ok: true, reason: "" };
+  const userAccessCheck = profile.role !== "admin" ? checkUserAccess(profile, selectedStoreId) : { ok: true, reason: "" };
+
+  // Access gates (skip while store data is loading)
+  if (db.stores.length > 0 && !userAccessCheck.ok) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#fff7e8] p-4">
+        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-soft">
+          <p className="text-sm font-black text-tomato">帳號存取受限</p>
+          <h1 className="mt-2 text-2xl font-black text-ink">{userAccessCheck.reason}</h1>
+          <button onClick={onSignOut} className="mt-5 rounded-lg bg-ink px-4 py-3 font-black text-white">登出</button>
+        </div>
+      </main>
+    );
+  }
+  if (db.stores.length > 0 && !storeAccessCheck.ok) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#fff7e8] p-4">
+        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-soft">
+          <p className="text-sm font-black text-tomato">店家方案受限</p>
+          <h1 className="mt-2 text-2xl font-black text-ink">{storeAccessCheck.reason}</h1>
+          <button onClick={onSignOut} className="mt-5 rounded-lg bg-ink px-4 py-3 font-black text-white">登出</button>
+        </div>
+      </main>
+    );
+  }
 
   function updateStore(patch: Partial<Store>) {
     if (!store) return;

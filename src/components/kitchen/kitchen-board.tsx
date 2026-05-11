@@ -8,6 +8,7 @@ import { StatusPill } from "@/components/status-pill";
 import { useDemoStore } from "@/lib/demo-store";
 import { normalizeSelectedOptions } from "@/lib/product-options";
 import { resolvePermissions } from "@/lib/permissions";
+import { checkStoreAccess, checkUserAccess } from "@/lib/subscription";
 import type { Order, OrderItem, OrderStatus, User } from "@/lib/types";
 
 type Station = "all" | "hot" | "drink";
@@ -80,6 +81,18 @@ function KitchenBoardContent({ storeId, isPlatformAdmin }: { storeId: string; is
     () => db.orders.filter((order) => order.storeId === storeId && activeTab.statuses.includes(order.status)).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
     [activeTab.statuses, db.orders, storeId]
   );
+
+  const storeAccessCheck = !isPlatformAdmin ? checkStoreAccess(store) : { ok: true, reason: "" };
+  if (!isPlatformAdmin && !storeAccessCheck.ok) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#111111] p-4">
+        <div className="rounded-lg bg-white p-6 text-ink shadow-soft">
+          <p className="text-sm font-black text-tomato">存取受限</p>
+          <h1 className="mt-2 text-2xl font-black">{storeAccessCheck.reason}</h1>
+        </div>
+      </main>
+    );
+  }
 
   if (!isPlatformAdmin && !store?.features?.kdsEnabled) {
     return (

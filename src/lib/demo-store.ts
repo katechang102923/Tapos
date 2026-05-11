@@ -22,7 +22,7 @@ import { firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { CashFlow, CashFlowItem, Category, DailyReport, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Promotion, Store, StoreMemberRole, Table, User, UserPermissions } from "./types";
+import type { AccessStatus, CashFlow, CashFlowItem, Category, DailyReport, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Promotion, Store, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -859,6 +859,88 @@ export function useDemoStore(options: StoreOptions = {}) {
     ]);
   }
 
+  async function updateStoreSubscription(
+    targetStoreId: string,
+    patch: {
+      subscriptionStatus?: SubscriptionStatus;
+      subscriptionStartsAt?: string;
+      subscriptionEndsAt?: string;
+      trialEndsAt?: string;
+    }
+  ) {
+    if (useFirestore && firestore) {
+      try {
+        await updateDoc(doc(firestore, "stores", targetStoreId), patch);
+      } catch (writeError) {
+        setError(writeError instanceof Error ? writeError.message : "updateStoreSubscription failed");
+        throw writeError;
+      }
+      return;
+    }
+    setDb((current) => ({
+      ...current,
+      stores: current.stores.map((s) =>
+        s.id !== targetStoreId ? s : { ...s, ...patch }
+      )
+    }));
+  }
+
+  async function updateUserStoreAccess(
+    email: string,
+    targetStoreId: string,
+    access: Partial<StoreUserAccess>
+  ) {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !targetStoreId) return;
+
+    if (useFirestore && firestore) {
+      try {
+        const usersSnap = await getDocs(query(collection(firestore, "users"), where("email", "==", normalizedEmail)));
+        if (!usersSnap.empty) {
+          await updateDoc(usersSnap.docs[0].ref, { [`storeAccess.${targetStoreId}`]: access });
+        }
+      } catch (writeError) {
+        setError(writeError instanceof Error ? writeError.message : "updateUserStoreAccess failed");
+        throw writeError;
+      }
+      return;
+    }
+
+    setDb((current) => ({
+      ...current,
+      users: current.users.map((u) =>
+        u.email.toLowerCase() !== normalizedEmail
+          ? u
+          : {
+              ...u,
+              storeAccess: {
+                ...(u.storeAccess ?? {}),
+                [targetStoreId]: access
+              }
+            }
+      )
+    }));
+  }
+
+  async function updateUserGlobalAccess(
+    userId: string,
+    patch: { accessEndsAt?: string; accessStatus?: AccessStatus }
+  ) {
+    if (useFirestore && firestore) {
+      try {
+        await updateDoc(doc(firestore, "users", userId), patch);
+      } catch (writeError) {
+        setError(writeError instanceof Error ? writeError.message : "updateUserGlobalAccess failed");
+        throw writeError;
+      }
+      return;
+    }
+    setDb((current) => ({
+      ...current,
+      users: current.users.map((u) => (u.id !== userId ? u : { ...u, ...patch }))
+    }));
+  }
+
   async function updateUserStorePermissions(email: string, targetStoreId: string, permissions: Partial<UserPermissions>) {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail || !targetStoreId) return;
@@ -946,7 +1028,10 @@ export function useDemoStore(options: StoreOptions = {}) {
     upsertTable,
     saveDailyReport,
     loadDailyReport,
-    updateUserStorePermissions
+    updateUserStorePermissions,
+    updateStoreSubscription,
+    updateUserStoreAccess,
+    updateUserGlobalAccess
   };
 }
 

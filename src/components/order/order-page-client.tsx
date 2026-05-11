@@ -10,6 +10,7 @@ import { firebaseEnabled, firestore } from "@/lib/firebase";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { selectionsTotal } from "@/lib/product-options";
 import { calculatePromotions } from "@/lib/promotions";
+import { checkStoreAccess } from "@/lib/subscription";
 import type { Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product } from "@/lib/types";
 
 type CartLine = {
@@ -83,7 +84,8 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
 
   const store = db.stores.find((item) => item.id === storeId);
   const announcement = (store?.temporaryNotice || store?.notice || "").trim();
-  const blockReason = orderBlockReason(store, mode);
+  const subscriptionCheck = checkStoreAccess(store);
+  const blockReason = !subscriptionCheck.ok ? subscriptionCheck.reason : orderBlockReason(store, mode);
   const lastOrder = liveOrder ?? submittedOrder ?? (lastOrderId ? db.orders.find((order) => order.id === lastOrderId) ?? null : null);
   const categories = db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort);
   const products = db.products
