@@ -66,7 +66,7 @@ export function KitchenBoard({ storeId }: { storeId: string }) {
 }
 
 function KitchenBoardContent({ storeId, isPlatformAdmin }: { storeId: string; isPlatformAdmin: boolean }) {
-  const { db, createMockOrder, updateOrderStatus } = useDemoStore({ storeId });
+  const { db, createMockOrder, updateOrderStatus } = useDemoStore({ storeId, todayOrdersOnly: true });
   const [activeStatus, setActiveStatus] = useState<OrderStatus>("pending");
   const [station, setStation] = useState<Station>("all");
   const [largeMode, setLargeMode] = useState(true);

@@ -2,13 +2,24 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  BarChart3, CheckCircle2, Clock3, CreditCard, Download, FileText,
-  Printer, Send, ShoppingCart, Star, Tag, WalletCards, XCircle
+  AlertTriangle, ArchiveRestore, BarChart3, CheckCircle2, Clock3, CreditCard,
+  Download, FileText, Printer, Send, ShoppingCart, Star, Tag, WalletCards, XCircle
 } from "lucide-react";
 import { useDemoStore } from "@/lib/demo-store";
 import { computeDailyReport, formatDate } from "@/lib/daily-report";
 import { roleDisplayName } from "@/lib/store-access";
-import type { CashFlow, DailyReport, HourSlotStat, Order, PaymentMethodStat } from "@/lib/types";
+import {
+  downloadAllBackupFiles,
+  downloadBlob,
+  generateCashFlowCsv,
+  generatePaymentStatsCsv,
+  generatePointLogsCsv,
+  generateProductSalesCsv,
+  generateStoredValueLogsCsv,
+  generateTransactionsCsv,
+} from "@/lib/csv-export";
+import type { BackupBundle } from "@/lib/csv-export";
+import type { CashFlow, Customer, DailyReport, HourSlotStat, Order, PaymentMethodStat, PointLog, Store, StoredValueLog } from "@/lib/types";
 
 // ─── Screen helpers ───────────────────────────────────────────────────────────
 
@@ -315,19 +326,33 @@ type DailyReportPanelProps = {
   todayCashFlows: CashFlow[];
   userEmail?: string;
   userRole?: string;
+  storeFeatures?: Store["features"];
+  customers?: Customer[];
+  pointLogs?: PointLog[];
+  storedValueLogs?: StoredValueLog[];
+  dataRetentionMonths?: number;
 };
 
-export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlows, userEmail, userRole }: DailyReportPanelProps) {
+export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlows, userEmail, userRole, storeFeatures, customers, pointLogs, storedValueLogs, dataRetentionMonths }: DailyReportPanelProps) {
   const operatorLabel = roleDisplayName(userRole);
-  const { loadDailyReport, saveDailyReport } = useDemoStore({ storeId, skipOrderList: true });
+  const { loadDailyReport, saveDailyReport, updateDailyReportBackup } = useDemoStore({ storeId, skipOrderList: true });
   const [selectedDate, setSelectedDate] = useState(formatDate());
   const [savedReport, setSavedReport] = useState<DailyReport | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [message, setMessage] = useState("");
   const [loadingReport, setLoadingReport] = useState(false);
   const [paperSize, setPaperSize] = useState<"58mm" | "80mm">("80mm");
   const printAreaRef = useRef<HTMLDivElement>(null);
+
+  const retentionMonths = dataRetentionMonths ?? 6;
+  const memberEnabled = storeFeatures?.memberEnabled ?? false;
+  const storedValueEnabled = storeFeatures?.memberStoredValueEnabled ?? false;
+
+  // Build customer lookup map for log exports
+  const customerMap = new Map<string, { name: string; phone: string }>();
+  (customers ?? []).forEach((c) => customerMap.set(c.id, { name: c.name, phone: c.phone }));
 
   const isToday = selectedDate === formatDate();
   const liveReport = computeDailyReport(storeId, selectedDate, isToday ? todayOrders : [], isToday ? todayCashFlows : [], operatorLabel);
@@ -350,11 +375,63 @@ export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlo
       const fresh = computeDailyReport(storeId, selectedDate, isToday ? todayOrders : [], isToday ? todayCashFlows : [], operatorLabel);
       await saveDailyReport(fresh);
       setSavedReport(fresh);
-      setMessage("日結報表已儲存");
+      setMessage("日結報表已儲存，請記得下載備份檔案。");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "儲存失敗");
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  function buildBackupBundle(r: DailyReport): BackupBundle {
+    return {
+      report: r,
+      storeName,
+      storeId,
+      orders: isToday ? todayOrders : [],
+      cashFlows: isToday ? todayCashFlows : [],
+      pointLogs: memberEnabled ? (pointLogs ?? []) : undefined,
+      storedValueLogs: storedValueEnabled ? (storedValueLogs ?? []) : undefined,
+      memberEnabled,
+      memberStoredValueEnabled: storedValueEnabled,
+      customerMap,
+    };
+  }
+
+  async function handleDownloadAll() {
+    if (!savedReport) return;
+    setIsDownloadingAll(true);
+    try {
+      const fileTypes = downloadAllBackupFiles(buildBackupBundle(savedReport));
+      await updateDailyReportBackup(savedReport.id, {
+        backupDownloaded: true,
+        backupDownloadedAt: new Date().toISOString(),
+        backupFilesGenerated: true,
+        backupFileTypes: fileTypes,
+      });
+      setSavedReport((prev) => prev ? { ...prev, backupDownloaded: true, backupDownloadedAt: new Date().toISOString(), backupFilesGenerated: true, backupFileTypes: fileTypes } : prev);
+      setMessage("備份檔案已下載完成。");
+    } finally {
+      setIsDownloadingAll(false);
+    }
+  }
+
+  function handleDownloadSingle(type: string) {
+    if (!savedReport) return;
+    const date = selectedDate;
+    const prefix = `${storeId}-${date}`;
+    if (type === "transactions") {
+      downloadBlob(`${prefix}-transactions.csv`, generateTransactionsCsv(isToday ? todayOrders : []));
+    } else if (type === "products") {
+      downloadBlob(`${prefix}-products.csv`, generateProductSalesCsv(savedReport));
+    } else if (type === "cashflow") {
+      downloadBlob(`${prefix}-cashflow.csv`, generateCashFlowCsv(isToday ? todayCashFlows : []));
+    } else if (type === "payment") {
+      downloadBlob(`${prefix}-payment.csv`, generatePaymentStatsCsv(savedReport.paymentStats ?? []));
+    } else if (type === "points") {
+      downloadBlob(`${prefix}-points.csv`, generatePointLogsCsv(pointLogs ?? [], customerMap));
+    } else if (type === "storedvalue") {
+      downloadBlob(`${prefix}-storedvalue.csv`, generateStoredValueLogsCsv(storedValueLogs ?? [], customerMap));
     }
   }
 
@@ -445,10 +522,78 @@ export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlo
           </div>
         </div>
 
+        {/* Backup not-downloaded warning */}
+        {savedReport && savedReport.backupDownloaded === false && (
+          <div className="flex items-start gap-3 rounded-lg bg-amber-50 p-4 shadow-sm">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-500" />
+            <div>
+              <p className="font-black text-amber-700">此日結尚未下載備份</p>
+              <p className="mt-0.5 text-sm font-bold text-amber-600">請至下方下載備份檔案，以避免資料遺失。</p>
+            </div>
+          </div>
+        )}
+
         {message && (
           <div className={`rounded-lg p-4 font-black ${message.includes("失敗") ? "bg-tomato/10 text-tomato" : "bg-leaf/10 text-leaf"}`}>
             {message}
           </div>
+        )}
+
+        {/* Backup download panel — shown once a report is saved */}
+        {savedReport && (
+          <section className="rounded-lg bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="flex items-center gap-2 text-lg font-black text-ink">
+                  <ArchiveRestore className="size-5 text-leaf" />
+                  備份下載
+                </h3>
+                <p className="mt-1 text-sm font-bold text-steel">
+                  系統雲端僅保留最近 {retentionMonths} 個月交易明細，請務必下載今日備份。
+                </p>
+              </div>
+              <button
+                onClick={handleDownloadAll}
+                disabled={isDownloadingAll}
+                className="inline-flex items-center gap-2 rounded-lg bg-leaf px-5 py-3 font-black text-white disabled:opacity-60"
+              >
+                <Download className="size-5" />
+                {isDownloadingAll ? "下載中…" : "一鍵全部下載"}
+              </button>
+            </div>
+
+            {savedReport.backupDownloaded && (
+              <p className="mt-3 flex items-center gap-1.5 text-sm font-bold text-leaf">
+                <CheckCircle2 className="size-4" />
+                已下載（{savedReport.backupDownloadedAt ? new Date(savedReport.backupDownloadedAt).toLocaleString("zh-TW") : ""}）
+              </p>
+            )}
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button onClick={() => handleDownloadSingle("transactions")} className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-black text-ink hover:bg-stone-100">
+                <Download className="size-4 text-steel" />交易明細
+              </button>
+              <button onClick={() => handleDownloadSingle("products")} className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-black text-ink hover:bg-stone-100">
+                <Download className="size-4 text-steel" />商品銷售
+              </button>
+              <button onClick={() => handleDownloadSingle("cashflow")} className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-black text-ink hover:bg-stone-100">
+                <Download className="size-4 text-steel" />現金流
+              </button>
+              <button onClick={() => handleDownloadSingle("payment")} className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-black text-ink hover:bg-stone-100">
+                <Download className="size-4 text-steel" />付款統計
+              </button>
+              {memberEnabled && (
+                <button onClick={() => handleDownloadSingle("points")} className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-black text-ink hover:bg-stone-100">
+                  <Download className="size-4 text-steel" />點數記錄
+                </button>
+              )}
+              {storedValueEnabled && (
+                <button onClick={() => handleDownloadSingle("storedvalue")} className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-black text-ink hover:bg-stone-100">
+                  <Download className="size-4 text-steel" />儲值記錄
+                </button>
+              )}
+            </div>
+          </section>
         )}
 
         {loadingReport && <div className="rounded-lg bg-white p-8 text-center font-black text-steel shadow-sm">載入報表中…</div>}

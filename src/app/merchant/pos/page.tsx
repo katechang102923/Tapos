@@ -76,7 +76,7 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
 }
 
 function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeStoreRole, onStoreChange }: { profile: User | null; storeId: string; storeIds: string[]; activeStoreId: string; activeStoreRole: StoreMemberRole | null; onStoreChange: (storeId: string) => void }) {
-  const { db, createCashFlow, createOrder, todayCashFlows, todayOrders, updateOrderStatus, upsertCashFlowItem, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned } = useDemoStore({ storeId, loadCustomers: true });
+  const { db, createCashFlow, createOrder, todayCashFlows, todayOrders, updateOrderStatus, upsertCashFlowItem, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned } = useDemoStore({ storeId, loadCustomers: true, todayOrdersOnly: true });
   const store = db.stores.find((item) => item.id === storeId);
   const categories = useMemo(() => db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort), [db.categories, storeId]);
   const products = useMemo(() => db.products.filter((item) => item.storeId === storeId && item.isAvailable && !item.isSoldOut).sort((a, b) => a.sort - b.sort), [db.products, storeId]);
@@ -342,7 +342,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
 
         {activePanel === "report" && (canViewReport ? <DailySalesPanel averageOrderValue={averageOrderValue} cashExpense={cashExpense} cashIncome={cashIncome} cashNet={cashNet} cancelledCount={cancelledOrders.length} completedRevenue={completedRevenue} estimatedCashBalance={estimatedCashBalance} orderCount={todayOrders.length} ranking={ranking} totalRevenue={totalRevenue} /> : <PermissionNotice text="staff 可新增現金流，但不能查看完整每日報表。" />)}
         {activePanel === "cash" && <CashFlowPanel addCashFlowItem={addCashFlowItem} canAddCashFlow={canAddCashFlow} canManageCashItems={canManageCashItems} cashError={cashError} cashFlows={todayCashFlows} cashForm={cashForm} cashItemForm={cashItemForm} cashItems={cashFlowItems} cashMessage={cashMessage} cashNet={cashNet} chooseCashItem={chooseCashItem} selectedCashItem={selectedCashItem} setCashForm={setCashForm} setCashItemForm={setCashItemForm} submitCashFlow={submitCashFlow} />}
-        {activePanel === "daily" && (canViewReport ? <DailyReportPanel storeId={storeId} storeName={store.name} todayOrders={todayOrders} todayCashFlows={todayCashFlows} userEmail={profile?.email} userRole={effectiveRole ?? undefined} /> : <PermissionNotice text="日結功能僅限 owner、manager 以上角色。" />)}
+        {activePanel === "daily" && (canViewReport ? <DailyReportPanel storeId={storeId} storeName={store.name} todayOrders={todayOrders} todayCashFlows={todayCashFlows} userEmail={profile?.email} userRole={effectiveRole ?? undefined} storeFeatures={store.features} customers={db.customers} pointLogs={db.pointLogs} storedValueLogs={db.storedValueLogs} dataRetentionMonths={store.dataRetentionMonths} /> : <PermissionNotice text="日結功能僅限 owner、manager 以上角色。" />)}
       </div>
       {choosingProduct && <ProductOptionModal product={choosingProduct} onClose={() => setChoosingProduct(null)} onConfirm={confirmProductOptions} />}
     </main>

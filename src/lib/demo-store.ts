@@ -33,6 +33,7 @@ type StoreOptions = {
   customerSessionId?: string;
   skipOrderList?: boolean;
   loadCustomers?: boolean;
+  todayOrdersOnly?: boolean; // Only query today's orders from Firestore (for POS/KDS optimization)
 };
 
 function loadLocalData(): DemoDatabase {
@@ -104,11 +105,14 @@ function optionDefaults(product: Product) {
   return legacySelections(product);
 }
 
-function scopedQuery(collectionName: string, storeId?: string, admin?: boolean, customerSessionId?: string) {
+function scopedQuery(collectionName: string, storeId?: string, admin?: boolean, customerSessionId?: string, todayOrdersOnly?: boolean) {
   if (!firestore) return null;
   const ref = collection(firestore, collectionName);
   if (admin || !storeId || collectionName === "stores") return ref;
   if (collectionName === "orders" && customerSessionId) return query(ref, where("customerSessionId", "==", customerSessionId));
+  if (collectionName === "orders" && todayOrdersOnly) {
+    return query(ref, where("storeId", "==", storeId), where("createdAt", ">=", todayStartIso()));
+  }
   return query(ref, where("storeId", "==", storeId));
 }
 
@@ -135,8 +139,14 @@ function calculatePointsEarned(totalAmount: number, settings?: { pointsEnabled?:
   return Math.floor(totalAmount / perAmount) * reward;
 }
 
+function todayStartIso(): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
 export function useDemoStore(options: StoreOptions = {}) {
-  const { storeId, admin = false, customerSessionId, skipOrderList = false, loadCustomers = false } = options;
+  const { storeId, admin = false, customerSessionId, skipOrderList = false, loadCustomers = false, todayOrdersOnly = false } = options;
   const [db, setDb] = useState<DemoDatabase>(initialData);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
@@ -190,7 +200,7 @@ export function useDemoStore(options: StoreOptions = {}) {
 
     const collectionNames = skipOrderList ? ["categories", "products", "devices", "tables", "promotions"] : ["categories", "products", "orders", "cashFlows", "cashFlowItems", "devices", "tables", "promotions"];
     const unsubscribers = collectionNames.map((collectionName) => {
-      const ref = scopedQuery(collectionName, storeId, admin, customerSessionId);
+      const ref = scopedQuery(collectionName, storeId, admin, customerSessionId, todayOrdersOnly);
       if (!ref) return () => undefined;
       return onSnapshot(
         ref,
@@ -265,7 +275,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       unsubPointLogs();
       unsubStoredValueLogs();
     };
-  }, [admin, customerSessionId, loadCustomers, skipOrderList, storeId, useFirestore]);
+  }, [admin, customerSessionId, loadCustomers, skipOrderList, storeId, todayOrdersOnly, useFirestore]);
 
   useEffect(() => {
     if (!ready || useFirestore) return;
@@ -274,6 +284,7 @@ export function useDemoStore(options: StoreOptions = {}) {
 
   const todayOrders = useMemo(() => {
     const today = new Date().toDateString();
+    // When todayOrdersOnly, Firestore already filtered; for local mode filter here
     return db.orders.filter((order) => new Date(order.createdAt).toDateString() === today);
   }, [db.orders]);
 
@@ -1236,6 +1247,85 @@ export function useDemoStore(options: StoreOptions = {}) {
     return calculatePointsEarned(totalAmount, store?.memberSettings);
   }
 
+  /**
+   * Mark records older than retentionMonths as archive-eligible.
+   * Does NOT delete them. Collections: orders, cashFlows, pointLogs, storedValueLogs.
+   */
+  async function markRecordsForArchive(targetStoreId: string, retentionMonths = 6) {
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - retentionMonths);
+    const cutoffIso = cutoff.toISOString();
+    const now = new Date().toISOString();
+
+    if (useFirestore && firestore) {
+      try {
+        const collections = ["orders", "cashFlows", "pointLogs", "storedValueLogs"];
+        await Promise.all(collections.map(async (col) => {
+          const snap = await getDocs(query(
+            collection(firestore!, col),
+            where("storeId", "==", targetStoreId),
+            where("createdAt", "<", cutoffIso)
+          ));
+          const batch = writeBatch(firestore!);
+          snap.docs.forEach((d) => {
+            if (!d.data().archiveEligible) {
+              batch.update(d.ref, { archiveEligible: true, archivedAt: null });
+            }
+          });
+          if (snap.docs.length > 0) await batch.commit();
+        }));
+      } catch (e) {
+        console.warn("markRecordsForArchive failed", e);
+      }
+      return;
+    }
+
+    // Local mode: mark in-memory
+    setDb((current) => ({
+      ...current,
+      orders: current.orders.map((o) =>
+        o.storeId === targetStoreId && o.createdAt < cutoffIso && !o.archiveEligible
+          ? { ...o, archiveEligible: true, archivedAt: null }
+          : o
+      ),
+      cashFlows: (current.cashFlows ?? []).map((c) =>
+        c.storeId === targetStoreId && c.createdAt < cutoffIso && !c.archiveEligible
+          ? { ...c, archiveEligible: true, archivedAt: null }
+          : c
+      ),
+      pointLogs: (current.pointLogs ?? []).map((l) =>
+        l.storeId === targetStoreId && l.createdAt < cutoffIso && !l.archiveEligible
+          ? { ...l, archiveEligible: true, archivedAt: null }
+          : l
+      ),
+      storedValueLogs: (current.storedValueLogs ?? []).map((l) =>
+        l.storeId === targetStoreId && l.createdAt < cutoffIso && !l.archiveEligible
+          ? { ...l, archiveEligible: true, archivedAt: null }
+          : l
+      )
+    }));
+    void now; // suppress unused warning
+  }
+
+  async function updateDailyReportBackup(
+    reportId: string,
+    patch: { backupDownloaded?: boolean; backupDownloadedAt?: string; backupFilesGenerated?: boolean; backupFileTypes?: string[]; retentionNoticeShown?: boolean }
+  ) {
+    const cleanPatch = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+    if (firebaseEnabled && firestore) {
+      try {
+        await updateDoc(doc(firestore, "dailyReports", reportId), cleanPatch);
+      } catch (e) {
+        console.warn("updateDailyReportBackup failed", e);
+      }
+      return;
+    }
+    setDb((current) => ({
+      ...current,
+      dailyReports: (current.dailyReports ?? []).map((r) => r.id === reportId ? { ...r, ...cleanPatch } : r)
+    }));
+  }
+
   async function markNotificationRead(notifId: string) {
     if (useFirestore && firestore) {
       try {
@@ -1307,6 +1397,8 @@ export function useDemoStore(options: StoreOptions = {}) {
     adjustStoredValue,
     updateCustomerOrderStats,
     getCalculatePointsEarned,
+    markRecordsForArchive,
+    updateDailyReportBackup,
   };
 }
 

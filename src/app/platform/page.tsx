@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Bell, Building2, CalendarClock, ChefHat, Contact, Gift, Monitor, Search, ShieldCheck, Store, ToggleLeft, ToggleRight, Users, Wallet } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Bell, Building2, CalendarClock, ChefHat, Contact, Gift, Monitor, Search, ShieldCheck, Store, ToggleLeft, ToggleRight, Users, Wallet } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { ROLE_LABELS, roleBadgeClass, roleLabel } from "@/lib/permissions";
@@ -26,7 +26,7 @@ export default function PlatformPage() {
 }
 
 function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
-  const { db, bindStoreUser, unbindStoreUser, upsertStore, updateStoreSubscription, markNotificationRead } = useDemoStore({ admin: true });
+  const { db, bindStoreUser, unbindStoreUser, upsertStore, updateStoreSubscription, markNotificationRead, markRecordsForArchive } = useDemoStore({ admin: true });
   const [search, setSearch] = useState("");
   const [notifSearch, setNotifSearch] = useState("");
   const [bindingEmail, setBindingEmail] = useState<Record<string, string>>({});
@@ -36,6 +36,7 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [saving, setSaving] = useState("");
   const [subEditorOpen, setSubEditorOpen] = useState<Record<string, boolean>>({});
   const [subForm, setSubForm] = useState<Record<string, { status: SubscriptionStatus; endsAt: string; trialEndsAt: string }>>({});
+  const [archiving, setArchiving] = useState<Record<string, boolean>>({});
 
   const filteredStores = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -183,6 +184,30 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       setError(e instanceof Error ? e.message : "恢復失敗");
     } finally {
       setSaving("");
+    }
+  }
+
+  async function handleSetRetention(store: StoreType, months: number) {
+    try {
+      await upsertStore({ ...store, dataRetentionMonths: months });
+      setMessage(`${store.name} 資料保留期限已設為 ${months} 個月`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "設定失敗");
+    }
+  }
+
+  async function handleMarkArchive(store: StoreType) {
+    const months = store.dataRetentionMonths ?? 6;
+    if (!confirm(`確定標記 ${store.name} 超過 ${months} 個月的資料為封存？此操作不可逆（軟封存，不刪除資料）。`)) return;
+    setArchiving((prev) => ({ ...prev, [store.id]: true }));
+    setError("");
+    try {
+      await markRecordsForArchive(store.id, months);
+      setMessage(`${store.name} 已完成資料封存標記`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "封存失敗");
+    } finally {
+      setArchiving((prev) => ({ ...prev, [store.id]: false }));
     }
   }
 
@@ -436,6 +461,29 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                       {label}
                     </button>
                   ))}
+                </div>
+
+                {/* Data retention settings */}
+                <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-white/10 pt-4">
+                  <p className="w-full text-xs font-black text-white/40">資料保留策略</p>
+                  <span className="text-xs font-bold text-white/50">保留期限：</span>
+                  {[3, 6, 12, 24].map((months) => (
+                    <button
+                      key={months}
+                      onClick={() => handleSetRetention(store, months)}
+                      className={`rounded px-2 py-1 text-xs font-black ${(store.dataRetentionMonths ?? 6) === months ? "bg-amber-500/30 text-amber-400" : "bg-white/10 text-white/50 hover:bg-white/20"}`}
+                    >
+                      {months} 個月
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => handleMarkArchive(store)}
+                    disabled={archiving[store.id]}
+                    className="inline-flex items-center gap-1.5 rounded bg-tomato/20 px-3 py-1.5 text-xs font-black text-tomato hover:bg-tomato/30 disabled:opacity-40"
+                  >
+                    <ArchiveRestore className="size-3.5" />
+                    {archiving[store.id] ? "封存中…" : "立即封存舊資料"}
+                  </button>
                 </div>
 
                 {/* Bound users — read-only summary, full management is in merchant members page */}

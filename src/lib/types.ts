@@ -70,6 +70,8 @@ export type PointLog = {
   note?: string;
   createdAt: string;
   createdBy?: string;
+  archiveEligible?: boolean;
+  archivedAt?: string | null;
 };
 
 export type StoredValueLog = {
@@ -84,6 +86,8 @@ export type StoredValueLog = {
   note?: string;
   createdAt: string;
   createdBy?: string;
+  archiveEligible?: boolean;
+  archivedAt?: string | null;
 };
 
 export type OrderCustomerInfo = {
@@ -134,6 +138,7 @@ export type Store = {
   address?: string;
   businessHours?: string;
   description?: string;
+  dataRetentionMonths?: number; // default 6
   takeoutEnabled?: boolean;
   dineInEnabled?: boolean;
   takeoutOrderingEnabled?: boolean;
@@ -428,6 +433,8 @@ export type Order = {
   pickupNumber: string;
   mode: OrderMode;
   tableNo: string;
+  archiveEligible?: boolean;
+  archivedAt?: string | null;
   customerName?: string;
   customerSessionId?: string;
   orderType?: OrderMode;
@@ -487,6 +494,12 @@ export type DailyReport = {
   hourSlots?: HourSlotStat[];
   discountSummary?: DiscountSummary;
   promotionSummary?: PromotionUsageStat[];
+  // Backup tracking
+  backupFilesGenerated?: boolean;
+  backupDownloaded?: boolean;
+  backupDownloadedAt?: string;
+  backupFileTypes?: string[];
+  retentionNoticeShown?: boolean;
 };
 
 export type PromotionUsageStat = {
@@ -567,6 +580,8 @@ export type CashFlow = {
   note: string;
   createdAt: string;
   createdBy?: string;
+  archiveEligible?: boolean;
+  archivedAt?: string | null;
 };
 
 export type CashFlowAmountMode = "open" | "fixed";
