@@ -534,7 +534,7 @@ function OrderWorkCard({ canCancelOrders, enablePickupDisplay, order, updateOrde
   const isPosDirectComplete = order.source === "pos" && !enablePickupDisplay;
   return (
     <article className={`rounded-lg border p-4 ${["pending", "waiting", "unprocessed"].includes(order.status) ? "animate-order-pop border-tomato bg-tomato/5" : "border-stone-200 bg-white"}`}>
-      <div className="flex items-start justify-between gap-3"><div><p className="text-3xl font-black">#{order.orderNumber}</p><p className="mt-1 text-sm font-bold text-steel">{order.source === "qr" ? "QR 進單" : "POS 現場單"} / {order.mode === "takeout" ? "外帶" : `內用 ${order.tableName ?? order.tableNo}`} / {new Date(order.createdAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}</p></div><StatusPill status={order.status} /></div>
+      <div className="flex items-start justify-between gap-3"><div><p className="text-3xl font-black">#{order.orderNumber}</p><p className="mt-1 text-sm font-bold text-steel">{order.source === "qr" ? "QR 進單" : order.source === "pos" ? "POS 現場單" : "自助機/其他"} / {order.mode === "takeout" ? "外帶" : `內用 ${order.tableName ?? order.tableNo}`} / {new Date(order.createdAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}</p></div><StatusPill status={order.status} /></div>
       {cancelReason && order.status === "cancelled" && <p className="mt-3 rounded-lg bg-tomato/10 px-3 py-2 text-sm font-black text-tomato">取消原因：{cancelReason}</p>}
       {order.customerNote && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-black text-amber-800">訂單備註：{order.customerNote}</p>}
       <div className="mt-3 space-y-2 text-sm font-bold text-steel">{order.items.map((item) => <OrderItemLine key={item.id} item={item} />)}</div>

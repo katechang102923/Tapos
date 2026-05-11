@@ -73,7 +73,7 @@ export function generateTransactionsCsv(orders: Order[], categoryMap?: Map<strin
     if (order.items.length === 0) {
       lines.push(row([
         formatTs(order.createdAt), order.orderNumber,
-        order.source === "pos" ? "POS" : "QR",
+        order.source === "pos" ? "POS" : order.source === "qr" ? "QR" : "KIOSK",
         order.mode === "dine-in" ? "內用" : "外帶",
         "（無品項）", 0, 0, 0, orderDiscAmt, promoAmt, order.total,
         payMethod, memberName, memberPhone, order.status, order.customerNote ?? ""
@@ -83,7 +83,7 @@ export function generateTransactionsCsv(orders: Order[], categoryMap?: Map<strin
         const itemDisc = item.discount?.amount ?? 0;
         lines.push(row([
           formatTs(order.createdAt), order.orderNumber,
-          order.source === "pos" ? "POS" : "QR",
+          order.source === "pos" ? "POS" : order.source === "qr" ? "QR" : "KIOSK",
           order.mode === "dine-in" ? "內用" : "外帶",
           item.productName, item.quantity, item.unitPrice,
           itemDisc,

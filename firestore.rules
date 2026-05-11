@@ -145,7 +145,7 @@ service cloud.firestore {
         && request.resource.data.totalAmount is number
         && request.resource.data.createdAt is string
         && request.resource.data.updatedAt is string
-        && request.resource.data.source in ["qr", "pos"];
+        && request.resource.data.source in ["qr", "pos", "kiosk"];
     }
 
     function validQrOrderCreate() {
@@ -163,7 +163,7 @@ service cloud.firestore {
 
     function validPosOrderCreate() {
       return validOrderCreateCommon()
-        && request.resource.data.source == "pos"
+        && request.resource.data.source in ["pos", "kiosk"]
         && request.resource.data.status in ["pending", "accepted"]
         && signedIn()
         && canHandleOrders(request.resource.data.storeId);
@@ -374,14 +374,17 @@ service cloud.firestore {
 
     match /counters/orderNumbers {
       allow read: if true;
-      allow create: if isAdmin() || (request.resource.data.keys().hasOnly(["qr", "pos"])
-        && request.resource.data.qr is number
-        && request.resource.data.pos is number);
-      allow update: if isAdmin() || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["qr", "pos"])
+      allow create: if isAdmin() || (request.resource.data.keys().hasOnly(["qr", "pos", "kiosk"])
         && request.resource.data.qr is number
         && request.resource.data.pos is number
+        && request.resource.data.kiosk is number);
+      allow update: if isAdmin() || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["qr", "pos", "kiosk"])
+        && request.resource.data.qr is number
+        && request.resource.data.pos is number
+        && request.resource.data.kiosk is number
         && request.resource.data.qr >= resource.data.qr
-        && request.resource.data.pos >= resource.data.pos);
+        && request.resource.data.pos >= resource.data.pos
+        && (resource.data.kiosk is number ? request.resource.data.kiosk >= resource.data.kiosk : request.resource.data.kiosk is number));
       allow delete: if isAdmin();
     }
 

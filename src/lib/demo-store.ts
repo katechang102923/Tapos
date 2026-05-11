@@ -75,8 +75,8 @@ function orderDayKey(value = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-function formatOrderNumber(source: "qr" | "pos", sequence: number) {
-  return `${source === "pos" ? "P" : "Q"}${String(sequence).padStart(3, "0")}`;
+function formatOrderNumber(source: "qr" | "pos" | "kiosk", sequence: number) {
+  return `${source === "pos" ? "P" : source === "kiosk" ? "K" : "Q"}${String(sequence).padStart(3, "0")}`;
 }
 
 function stripUndefined<T>(value: T): T {
@@ -285,8 +285,8 @@ export function useDemoStore(options: StoreOptions = {}) {
   const todayOrders = useMemo(() => {
     const today = new Date().toDateString();
     // When todayOrdersOnly, Firestore already filtered; for local mode filter here
-    return db.orders.filter((order) => new Date(order.createdAt).toDateString() === today);
-  }, [db.orders]);
+    return db.orders.filter((order) => (!storeId || order.storeId === storeId) && new Date(order.createdAt).toDateString() === today);
+  }, [db.orders, storeId]);
 
   const todayCashFlows = useMemo(() => {
     const today = new Date().toDateString();
@@ -326,7 +326,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       const db = firestore;
       const orderRef = doc(db, "orders", id);
       const counterRef = doc(db, "counters", "orderNumbers");
-      const counterKey = source === "pos" ? "pos" : "qr";
+      const counterKey = source === "pos" ? "pos" : source === "kiosk" ? "kiosk" : "qr";
       const nextOrder = await runTransaction(db, async (transaction) => {
         const counterSnapshot = await transaction.get(counterRef);
         const counterData = counterSnapshot.exists() ? counterSnapshot.data() : {};

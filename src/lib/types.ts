@@ -442,7 +442,7 @@ export type Order = {
   tableNumber?: string;
   customerNote: string;
   status: OrderStatus;
-  source: "qr" | "pos";
+  source: "qr" | "pos" | "kiosk";
   rejectReason?: string;
   cancelReason?: string;
   total: number;
@@ -463,7 +463,7 @@ export type Order = {
 export type OrderPayload = Omit<Order, "id" | "orderNumber" | "pickupNumber" | "createdAt" | "updatedAt" | "items" | "status" | "source"> & {
   items: OrderItemPayload[];
   status?: OrderStatus;
-  source?: "qr" | "pos";
+  source?: "qr" | "pos" | "kiosk";
 };
 
 export type DailyReportProduct = {
