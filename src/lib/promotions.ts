@@ -52,9 +52,20 @@ export function calculatePromotions(
         for (const line of targetLines) {
           for (let i = 0; i < line.quantity; i++) prices.push(line.unitPrice);
         }
-        prices.sort((a, b) => a - b);
+        prices.sort((a, b) => a - b); // cheapest first → auto-apply to lowest price
         const freeCount = Math.min(sets * promotion.freeQty, prices.length);
         amount = prices.slice(0, freeCount).reduce((sum, p) => sum + p, 0);
+      }
+    } else if (promotion.type === "second_half_price") {
+      // Each pair of items: the cheaper one (second) is 50% off.
+      // Sort descending so every second index (1, 3, 5…) is the cheaper of its pair.
+      const prices: number[] = [];
+      for (const line of targetLines) {
+        for (let i = 0; i < line.quantity; i++) prices.push(line.unitPrice);
+      }
+      prices.sort((a, b) => b - a); // most expensive first
+      for (let i = 1; i < prices.length; i += 2) {
+        amount += Math.round(prices[i] * 0.5);
       }
     }
 

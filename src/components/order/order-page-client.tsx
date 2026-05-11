@@ -435,15 +435,17 @@ function CartPanel({
         </div>
       )}
       <textarea value={customerNote} onChange={(event) => setCustomerNote(event.target.value)} placeholder="整張訂單備註，例如餐具、取餐提醒" className="mt-3 min-h-16 w-full rounded-lg border border-orange-100 px-3 py-2 text-sm sm:mt-4 sm:min-h-20 sm:px-3 sm:py-3 sm:text-lg" />
-      {promotionDiscounts.length > 0 && (
-        <div className="mt-3 rounded-lg bg-leaf/10 p-3 text-sm font-black text-leaf">
-          <p>活動優惠</p>
+      {promotionDiscounts.length > 0 ? (
+        <div className="mt-3 space-y-1.5 rounded-lg bg-orange-50 p-3">
+          <div className="flex justify-between text-sm font-bold text-steel"><span>小計</span><span>${cart.reduce((s, l) => s + lineUnitPrice(l) * l.quantity, 0)}</span></div>
           {promotionDiscounts.map((discount) => (
-            <p key={discount.promotionId} className="mt-1">- {discount.promotionName} -${discount.amount}</p>
+            <div key={discount.promotionId} className="flex justify-between text-sm font-black text-leaf"><span>促銷：{discount.promotionName}</span><span>-${discount.amount}</span></div>
           ))}
+          <div className="flex justify-between border-t border-orange-200 pt-2 text-lg font-black sm:text-xl"><span>總計</span><span>${total}</span></div>
         </div>
+      ) : (
+        <div className="mt-3 flex items-center justify-between text-lg font-black sm:mt-4 sm:text-2xl"><span>總計</span><span>${total}</span></div>
       )}
-      <div className="mt-3 flex items-center justify-between text-lg font-black sm:mt-4 sm:text-2xl"><span>總計</span><span>${total}</span></div>
       {submitError && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-sm font-black text-tomato">{submitError}</p>}
       <button onClick={submitOrder} disabled={!canSubmit} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-tomato px-3 py-4 text-sm font-black text-white disabled:bg-stone-300 sm:mt-4 sm:px-4 sm:py-5 sm:text-lg">
         <Send className="size-5 sm:size-6" />

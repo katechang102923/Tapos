@@ -25,10 +25,11 @@ type PromotionForm = {
 };
 
 const typeLabels: Record<PromotionType, string> = {
-  percent_discount: "折扣百分比",
-  amount_discount: "折扣金額",
-  buy_one_get_one: "買一送一",
-  buy_x_get_y: "買 X 送 Y",
+  percent_discount: "百分比折扣",
+  amount_discount: "固定金額折扣",
+  buy_one_get_one: "買一送一（自動折最低價）",
+  buy_x_get_y: "買 X 送 Y（自動折最低價）",
+  second_half_price: "第二件半價",
 };
 
 const typeIcons: Record<PromotionType, React.ElementType> = {
@@ -36,6 +37,7 @@ const typeIcons: Record<PromotionType, React.ElementType> = {
   amount_discount: Tag,
   buy_one_get_one: Gift,
   buy_x_get_y: Gift,
+  second_half_price: Tag,
 };
 
 function emptyForm(): PromotionForm {
@@ -86,15 +88,17 @@ function PromotionsShell({ profile }: { profile: User | null }) {
     );
   }
 
-  return <PromotionsContent storeId={selectedStoreId} storeIds={storeIds} activeStoreId={activeStoreId} onStoreChange={setActiveStoreId} />;
+  return <PromotionsContent storeId={selectedStoreId} storeIds={storeIds} activeStoreId={activeStoreId} onStoreChange={setActiveStoreId} isPlatformAdmin={isAdmin} />;
 }
 
-function PromotionsContent({ storeId, storeIds, activeStoreId, onStoreChange }: { storeId: string; storeIds: string[]; activeStoreId: string; onStoreChange: (id: string) => void }) {
+function PromotionsContent({ storeId, storeIds, activeStoreId, onStoreChange, isPlatformAdmin }: { storeId: string; storeIds: string[]; activeStoreId: string; onStoreChange: (id: string) => void; isPlatformAdmin: boolean }) {
   const { db, upsertPromotion, deletePromotion } = useDemoStore({ storeId, skipOrderList: true });
   const store = db.stores.find((s) => s.id === storeId);
   const categories = useMemo(() => db.categories.filter((c) => c.storeId === storeId).sort((a, b) => a.sort - b.sort), [db.categories, storeId]);
   const products = useMemo(() => db.products.filter((p) => p.storeId === storeId).sort((a, b) => a.sort - b.sort), [db.products, storeId]);
   const promotions = useMemo(() => (db.promotions ?? []).filter((p) => p.storeId === storeId).sort((a, b) => b.priority - a.priority), [db.promotions, storeId]);
+
+  const promotionEnabled = isPlatformAdmin || (store?.features?.promotionEnabled ?? false);
 
   const [form, setForm] = useState<PromotionForm>(emptyForm());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -103,6 +107,19 @@ function PromotionsContent({ storeId, storeIds, activeStoreId, onStoreChange }: 
   const [message, setMessage] = useState("");
 
   const today = new Date().toISOString().slice(0, 10);
+
+  if (!promotionEnabled) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4">
+        <div className="rounded-lg bg-white p-6 shadow-soft text-center">
+          <Gift className="mx-auto size-12 text-stone-300" />
+          <h1 className="mt-4 text-2xl font-black text-ink">促銷功能尚未開啟</h1>
+          <p className="mt-3 text-steel">請聯絡平台管理員開啟促銷活動功能。</p>
+          <Link href="/merchant/dashboard" className="mt-5 inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white"><ArrowLeft className="size-4" />返回設定中心</Link>
+        </div>
+      </main>
+    );
+  }
 
   function startCreate() {
     setForm(emptyForm());

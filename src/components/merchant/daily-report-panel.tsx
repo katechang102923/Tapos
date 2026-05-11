@@ -330,7 +330,7 @@ export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlo
   const printAreaRef = useRef<HTMLDivElement>(null);
 
   const isToday = selectedDate === formatDate();
-  const liveReport = computeDailyReport(storeId, selectedDate, isToday ? todayOrders : [], isToday ? todayCashFlows : [], userEmail);
+  const liveReport = computeDailyReport(storeId, selectedDate, isToday ? todayOrders : [], isToday ? todayCashFlows : [], operatorLabel);
   const report: DailyReport = isToday ? liveReport : (savedReport ?? liveReport);
 
   useEffect(() => {
@@ -347,7 +347,7 @@ export function DailyReportPanel({ storeId, storeName, todayOrders, todayCashFlo
     setIsSaving(true);
     setMessage("");
     try {
-      const fresh = computeDailyReport(storeId, selectedDate, isToday ? todayOrders : [], isToday ? todayCashFlows : [], userEmail);
+      const fresh = computeDailyReport(storeId, selectedDate, isToday ? todayOrders : [], isToday ? todayCashFlows : [], operatorLabel);
       await saveDailyReport(fresh);
       setSavedReport(fresh);
       setMessage("日結報表已儲存");

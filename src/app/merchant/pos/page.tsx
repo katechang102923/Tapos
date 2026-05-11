@@ -87,6 +87,8 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
   const canManageCashItems = effectiveRole === "admin" || effectiveRole === "owner" || effectiveRole === "manager";
   const posEnabled = store?.posOrderingEnabled ?? true;
   const enablePickupDisplay = store?.enablePickupDisplay ?? true;
+  const dailyReportFeature = store?.features?.dailyReportEnabled ?? true;
+  const cashFlowFeature = store?.features?.cashFlowEnabled ?? true;
 
   const [activePanel, setActivePanel] = useState<PosPanel>("orders");
   const [activeOrderTab, setActiveOrderTab] = useState<(typeof orderTabs)[number]["key"]>("new");
@@ -269,9 +271,9 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
 
         <section className="mb-5 grid gap-3 md:grid-cols-4">
           <PanelButton active={activePanel === "orders"} icon={ReceiptText} label="接單工作台" onClick={() => setActivePanel("orders")} />
-          <PanelButton active={activePanel === "report"} icon={BarChart3} label="每日報表" onClick={() => setActivePanel("report")} disabled={!canViewReport} />
-          <PanelButton active={activePanel === "cash"} icon={WalletCards} label="現金流" onClick={() => setActivePanel("cash")} disabled={!canAddCashFlow && !canViewReport} />
-          <PanelButton active={activePanel === "daily"} icon={FileText} label="日結" onClick={() => setActivePanel("daily")} disabled={!canViewReport} />
+          <PanelButton active={activePanel === "report"} icon={BarChart3} label="每日報表" onClick={() => setActivePanel("report")} disabled={!canViewReport || !dailyReportFeature} />
+          <PanelButton active={activePanel === "cash"} icon={WalletCards} label="現金流" onClick={() => setActivePanel("cash")} disabled={(!canAddCashFlow && !canViewReport) || !cashFlowFeature} />
+          <PanelButton active={activePanel === "daily"} icon={FileText} label="日結" onClick={() => setActivePanel("daily")} disabled={!canViewReport || !dailyReportFeature} />
         </section>
 
         {orderSuccess && <div className="mb-5 rounded-lg border border-leaf/30 bg-leaf/10 p-5 font-black text-leaf">{orderSuccess}</div>}
