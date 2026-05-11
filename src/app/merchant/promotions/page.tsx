@@ -5,7 +5,8 @@ import Link from "next/link";
 import { ArrowLeft, Calendar, Gift, Percent, Plus, Tag, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
-import { accessibleStoreIds, defaultStoreId, storeRoleFor } from "@/lib/store-access";
+import { resolvePermissions } from "@/lib/permissions";
+import { accessibleStoreIds, defaultStoreId } from "@/lib/store-access";
 import type { Promotion, PromotionType, User } from "@/lib/types";
 
 type PromotionForm = {
@@ -72,9 +73,9 @@ function PromotionsShell({ profile }: { profile: User | null }) {
   const storeIds = accessibleStoreIds(profile);
   const [activeStoreId, setActiveStoreId] = useState(defaultStoreId(profile));
   const selectedStoreId = storeIds.includes(activeStoreId) ? activeStoreId : storeIds[0] ?? "";
-  const storeRole = storeRoleFor(profile, selectedStoreId);
   const isAdmin = profile?.role === "admin";
-  const canManage = isAdmin || storeRole === "owner" || storeRole === "manager";
+  const permissions = resolvePermissions(profile, selectedStoreId);
+  const canManage = permissions.canManagePromotions;
 
   if (!canManage) {
     return (

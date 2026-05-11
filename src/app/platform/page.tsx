@@ -5,7 +5,8 @@ import Link from "next/link";
 import { ArrowLeft, Building2, ChefHat, Gift, Monitor, Search, ShieldCheck, Store, ToggleLeft, ToggleRight, Users } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
-import type { Store as StoreType, StoreMemberRole } from "@/lib/types";
+import { PERMISSION_LABELS, ROLE_LABELS, defaultPermissionsForRole, roleBadgeClass, roleLabel } from "@/lib/permissions";
+import type { Store as StoreType, StoreMemberRole, User, UserPermissions } from "@/lib/types";
 
 export default function PlatformPage() {
   return (
@@ -16,13 +17,15 @@ export default function PlatformPage() {
 }
 
 function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
-  const { db, bindStoreUser, unbindStoreUser, upsertStore } = useDemoStore({ admin: true });
+  const { db, bindStoreUser, unbindStoreUser, upsertStore, updateUserStorePermissions } = useDemoStore({ admin: true });
   const [search, setSearch] = useState("");
   const [bindingEmail, setBindingEmail] = useState<Record<string, string>>({});
   const [bindingRole, setBindingRole] = useState<Record<string, StoreMemberRole>>({});
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState("");
+  const [permEditorOpen, setPermEditorOpen] = useState<Record<string, boolean>>({});
+  const [permEdits, setPermEdits] = useState<Record<string, Partial<UserPermissions>>>({});
 
   const filteredStores = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -63,13 +66,57 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     }
   }
 
-  async function handleUnbind(email: string, storeId: string) {
+  async function handleUnbind(userId: string, storeId: string, email: string) {
     if (!confirm(`確定解除 ${email} 對此店家的綁定？`)) return;
     try {
-      await unbindStoreUser(email, storeId);
+      await unbindStoreUser(userId, storeId);
       setMessage(`已解除 ${email} 的綁定`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "解除失敗");
+    }
+  }
+
+  function permKey(storeId: string, userId: string) {
+    return `${storeId}-${userId}`;
+  }
+
+  function openPermEditor(storeId: string, user: User) {
+    const key = permKey(storeId, user.id);
+    const storeRole = user.storeRoles?.[storeId] ?? user.memberships?.[storeId] ?? "staff";
+    const roleDefaults = defaultPermissionsForRole(storeRole as StoreMemberRole);
+    const custom = user.storePermissions?.[storeId] ?? {};
+    setPermEdits((prev) => ({ ...prev, [key]: { ...roleDefaults, ...custom } }));
+    setPermEditorOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  async function savePermissions(storeId: string, user: User) {
+    const key = permKey(storeId, user.id);
+    const edits = permEdits[key];
+    if (!edits) return;
+    setSaving(`perm-${key}`);
+    try {
+      await updateUserStorePermissions(user.email, storeId, edits);
+      setMessage(`已更新 ${user.email} 的自訂權限`);
+      setPermEditorOpen((prev) => ({ ...prev, [key]: false }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "儲存失敗");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function resetPermissions(storeId: string, user: User) {
+    const storeRole = user.storeRoles?.[storeId] ?? user.memberships?.[storeId] ?? "staff";
+    const key = permKey(storeId, user.id);
+    setSaving(`perm-${key}`);
+    try {
+      await updateUserStorePermissions(user.email, storeId, {});
+      setPermEdits((prev) => ({ ...prev, [key]: defaultPermissionsForRole(storeRole as StoreMemberRole) }));
+      setMessage(`已重設 ${user.email} 為角色預設權限`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "重設失敗");
+    } finally {
+      setSaving("");
     }
   }
 
@@ -166,14 +213,57 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 {users.length > 0 && (
                   <div className="mt-4 border-t border-white/10 pt-4">
                     <p className="mb-2 text-xs font-black text-white/40">已綁定帳號</p>
-                    <div className="flex flex-wrap gap-2">
-                      {users.map((user) => (
-                        <div key={user.id} className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-1.5">
-                          <span className="text-sm font-bold text-white">{user.email}</span>
-                          <span className="text-xs font-black text-white/40">{user.storeRoles?.[store.id] ?? user.memberships?.[store.id] ?? user.role}</span>
-                          <button onClick={() => handleUnbind(user.email, store.id)} className="text-xs font-black text-tomato hover:underline">解除</button>
-                        </div>
-                      ))}
+                    <div className="space-y-2">
+                      {users.map((user) => {
+                        const userStoreRole = (user.storeRoles?.[store.id] ?? user.memberships?.[store.id] ?? null) as StoreMemberRole | null;
+                        const key = permKey(store.id, user.id);
+                        const editorOpen = permEditorOpen[key] ?? false;
+                        const edits = permEdits[key] ?? {};
+                        const isSavingPerm = saving === `perm-${key}`;
+                        return (
+                          <div key={user.id} className="rounded-lg bg-white/5">
+                            <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+                              <span className="text-sm font-bold text-white">{user.email}</span>
+                              {userStoreRole && (
+                                <span className={`rounded px-2 py-0.5 text-xs font-black ${roleBadgeClass(userStoreRole)}`}>{roleLabel(userStoreRole)}</span>
+                              )}
+                              {user.storePermissions?.[store.id] && Object.keys(user.storePermissions[store.id]!).length > 0 && (
+                                <span className="rounded bg-purple-900/50 px-2 py-0.5 text-xs font-black text-purple-300">自訂權限</span>
+                              )}
+                              <button onClick={() => openPermEditor(store.id, user)} className="rounded bg-white/10 px-2 py-0.5 text-xs font-black text-white/70 hover:bg-white/20">
+                                {editorOpen ? "收起" : "編輯權限"}
+                              </button>
+                              <button onClick={() => handleUnbind(user.id, store.id, user.email)} className="text-xs font-black text-tomato hover:underline">解除</button>
+                            </div>
+                            {editorOpen && (
+                              <div className="border-t border-white/10 px-3 py-3">
+                                <p className="mb-2 text-xs font-black text-white/40">自訂權限（勾選覆蓋角色預設）</p>
+                                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                                  {(Object.keys(PERMISSION_LABELS) as Array<keyof UserPermissions>).map((permKey_) => (
+                                    <label key={permKey_} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs font-bold text-white/70 hover:bg-white/10">
+                                      <input
+                                        type="checkbox"
+                                        checked={edits[permKey_] ?? false}
+                                        onChange={(e) => setPermEdits((prev) => ({ ...prev, [key]: { ...prev[key], [permKey_]: e.target.checked } }))}
+                                        className="size-4 accent-leaf"
+                                      />
+                                      {PERMISSION_LABELS[permKey_]}
+                                    </label>
+                                  ))}
+                                </div>
+                                <div className="mt-3 flex gap-2">
+                                  <button onClick={() => savePermissions(store.id, user)} disabled={isSavingPerm} className="rounded-lg bg-leaf px-3 py-2 text-xs font-black text-white disabled:opacity-60">
+                                    {isSavingPerm ? "儲存中..." : "儲存自訂權限"}
+                                  </button>
+                                  <button onClick={() => resetPermissions(store.id, user)} disabled={isSavingPerm} className="rounded-lg bg-white/10 px-3 py-2 text-xs font-black text-white/70 disabled:opacity-60">
+                                    重設為角色預設
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -191,7 +281,7 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                     onChange={(e) => setBindingRole((prev) => ({ ...prev, [store.id]: e.target.value as StoreMemberRole }))}
                     className="rounded-lg bg-white/10 px-3 py-2 text-sm font-bold text-white"
                   >
-                    {roleMemberRoles.map((r) => <option key={r} value={r}>{r}</option>)}
+                    {roleMemberRoles.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]} ({r})</option>)}
                   </select>
                   <button
                     onClick={() => handleBind(store.id)}

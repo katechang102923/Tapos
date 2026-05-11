@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChefHat, Cpu, Gift, LayoutDashboard, Menu as MenuIcon, Plus, Power, QrCode, ReceiptText, Settings, ShoppingCart, SlidersHorizontal } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
+import { resolvePermissions, roleLabel, roleBadgeClass } from "@/lib/permissions";
 import { accessibleStoreIds, defaultStoreId, storeRoleFor } from "@/lib/store-access";
 import type { Category, Store, User } from "@/lib/types";
 
@@ -54,8 +55,10 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
 
   const store = db.stores.find((item) => item.id === selectedStoreId);
   const categories = db.categories.filter((item) => item.storeId === selectedStoreId).sort((a, b) => a.sort - b.sort);
-  const role = profile.role === "admin" ? "admin" : storeRoleFor(profile, selectedStoreId);
-  const canManageStore = role === "admin" || role === "owner" || role === "manager" || profile.role === "merchant";
+  const storeRole = storeRoleFor(profile, selectedStoreId);
+  const role = profile.role === "admin" ? "admin" : storeRole;
+  const permissions = resolvePermissions(profile, selectedStoreId);
+  const canManageStore = permissions.canManageMenu || profile.role === "admin";
 
   function updateStore(patch: Partial<Store>) {
     if (!store) return;
@@ -78,6 +81,7 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
         <div className="flex items-center gap-3">
           <div className="grid size-11 place-items-center rounded-lg bg-tomato"><ReceiptText className="size-5" /></div>
           <div>
+            {storeRole && <span className={`mb-1 inline-block rounded px-2 py-0.5 text-xs font-black ${roleBadgeClass(storeRole)}`}>{roleLabel(storeRole)}</span>}
             <p className="font-black">{store?.name ?? "店家後台"}</p>
             <p className="text-xs font-bold text-white/55">資料設定中心</p>
           </div>
@@ -88,10 +92,10 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
           <SidebarItem href="/merchant/options" icon={SlidersHorizontal} label="商品選項管理" />
           <SidebarItem href="/merchant/qr" icon={QrCode} label="線上點餐 QR Code" />
           <SidebarItem href="/merchant/devices" icon={Cpu} label="設備與列印設定" />
-          {store?.features?.promotionEnabled && canManageStore && <SidebarItem href="/merchant/promotions" icon={Gift} label="促銷活動" />}
+          {store?.features?.promotionEnabled && permissions.canManagePromotions && <SidebarItem href="/merchant/promotions" icon={Gift} label="促銷活動" />}
           {canManageStore && <SidebarItem href="/merchant/settings" icon={Settings} label="店家設定" />}
           <Link href="/merchant/pos" className="inline-flex items-center gap-3 rounded-lg bg-leaf px-4 py-3 font-black text-white"><ShoppingCart className="size-5" />前往 POS 前台</Link>
-          {store?.features?.kdsEnabled && (
+          {store?.features?.kdsEnabled && permissions.canUseKDS && (
             <Link href={`/kitchen/${selectedStoreId}`} className="inline-flex items-center gap-3 rounded-lg bg-white/10 px-4 py-3 font-black text-white hover:bg-white/20"><ChefHat className="size-5" />廚房 KDS</Link>
           )}
         </nav>

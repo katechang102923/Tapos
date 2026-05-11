@@ -11,6 +11,7 @@ import { useDemoStore } from "@/lib/demo-store";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { normalizeSelectedOptions, selectionsTotal } from "@/lib/product-options";
 import { calculatePromotions } from "@/lib/promotions";
+import { resolvePermissions } from "@/lib/permissions";
 import { accessibleStoreIds, defaultStoreId, storeRoleFor } from "@/lib/store-access";
 import type { CashFlow, CashFlowAmountMode, CashFlowItem, CashFlowType, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, StoreMemberRole, User } from "@/lib/types";
 
@@ -48,8 +49,6 @@ const orderTabs: Array<{ key: "new" | "processing" | "completed" | "cancelled"; 
   { key: "cancelled", label: "已取消", statuses: ["cancelled"] }
 ];
 
-const reportRoles: Array<StoreMemberRole | "admin"> = ["owner", "manager", "viewer", "admin"];
-const cashWriteRoles: Array<StoreMemberRole | "admin"> = ["owner", "manager", "staff", "admin"];
 const posAccessRoles: StoreMemberRole[] = ["owner", "manager", "staff", "viewer"];
 
 export default function MerchantPosPage() {
@@ -81,10 +80,13 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
   const categories = useMemo(() => db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort), [db.categories, storeId]);
   const products = useMemo(() => db.products.filter((item) => item.storeId === storeId && item.isAvailable && !item.isSoldOut).sort((a, b) => a.sort - b.sort), [db.products, storeId]);
   const cashFlowItems = useMemo(() => (db.cashFlowItems ?? []).filter((item) => item.storeId === storeId && item.enabled).sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")), [db.cashFlowItems, storeId]);
+  const permissions = resolvePermissions(profile, storeId);
   const effectiveRole = profile?.role === "admin" ? "admin" : activeStoreRole;
-  const canViewReport = Boolean(effectiveRole && reportRoles.includes(effectiveRole));
-  const canAddCashFlow = Boolean(effectiveRole && cashWriteRoles.includes(effectiveRole));
-  const canManageCashItems = effectiveRole === "admin" || effectiveRole === "owner" || effectiveRole === "manager";
+  const canViewReport = permissions.canViewDailyReport;
+  const canAddCashFlow = permissions.canUseCashflow;
+  const canManageCashItems = permissions.canUseCashflow && permissions.canManageMenu;
+  const canApplyDiscounts = permissions.canApplyDiscounts;
+  const canCancelOrders = permissions.canCancelOrders;
   const posEnabled = store?.posOrderingEnabled ?? true;
   const enablePickupDisplay = store?.enablePickupDisplay ?? true;
   const dailyReportFeature = store?.features?.dailyReportEnabled ?? true;
@@ -288,10 +290,10 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
               <MetricCard icon={Table2} label="內用 / 外帶" value={`${todayOrders.filter((order) => order.mode === "dine-in").length} / ${todayOrders.filter((order) => order.mode === "takeout").length}`} tone="text-leaf" />
             </section>
             <div className="grid gap-5 2xl:grid-cols-[minmax(520px,0.95fr)_minmax(560px,1.05fr)_420px]">
-              <OrderBoard activeOrderTab={activeOrderTab} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
+              <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
               <QuickOrder activeCategoryId={activeCategoryId} categories={categories} customerNote={customerNote} mode={mode} posEnabled={posEnabled} products={visibleProducts} setActiveCategoryId={setActiveCategoryId} setChoosingProduct={setChoosingProduct} setCustomerNote={setCustomerNote} setMode={setMode} setTableNo={setTableNo} tableNo={tableNo} />
               <aside className="space-y-5">
-                <CartPanel cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} />
+                <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} />
                 <SalesRanking ranking={ranking.slice(0, 5)} title="今日商品 TOP 5" />
               </aside>
             </div>
@@ -307,7 +309,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
   );
 }
 
-function OrderBoard({ activeOrderTab, displayedOrders, enablePickupDisplay, setActiveOrderTab, updateOrderStatus }: { activeOrderTab: string; displayedOrders: Order[]; enablePickupDisplay: boolean; setActiveOrderTab: (key: (typeof orderTabs)[number]["key"]) => void; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
+function OrderBoard({ activeOrderTab, canCancelOrders, displayedOrders, enablePickupDisplay, setActiveOrderTab, updateOrderStatus }: { activeOrderTab: string; canCancelOrders: boolean; displayedOrders: Order[]; enablePickupDisplay: boolean; setActiveOrderTab: (key: (typeof orderTabs)[number]["key"]) => void; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
   return (
     <section className="rounded-lg bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
@@ -318,7 +320,7 @@ function OrderBoard({ activeOrderTab, displayedOrders, enablePickupDisplay, setA
         {orderTabs.map((tab) => <button key={tab.key} onClick={() => setActiveOrderTab(tab.key)} className={`rounded-lg px-3 py-3 font-black ${activeOrderTab === tab.key ? "bg-ink text-white" : "bg-stone-100 text-steel"}`}>{tab.label}</button>)}
       </div>
       <div className="mt-4 space-y-3">
-        {displayedOrders.length === 0 ? <p className="rounded-lg bg-stone-50 p-5 text-center font-black text-steel">目前沒有訂單</p> : displayedOrders.map((order) => <OrderWorkCard key={order.id} enablePickupDisplay={enablePickupDisplay} order={order} updateOrderStatus={updateOrderStatus} />)}
+        {displayedOrders.length === 0 ? <p className="rounded-lg bg-stone-50 p-5 text-center font-black text-steel">目前沒有訂單</p> : displayedOrders.map((order) => <OrderWorkCard key={order.id} canCancelOrders={canCancelOrders} enablePickupDisplay={enablePickupDisplay} order={order} updateOrderStatus={updateOrderStatus} />)}
       </div>
     </section>
   );
@@ -494,7 +496,7 @@ function CenteredNotice({ title, text }: { title: string; text: string }) {
   return <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4"><div className="rounded-lg bg-white p-6 shadow-soft"><h1 className="text-2xl font-black text-ink">{title}</h1>{text && <p className="mt-3 text-steel">{text}</p>}</div></main>;
 }
 
-function OrderWorkCard({ enablePickupDisplay, order, updateOrderStatus }: { enablePickupDisplay: boolean; order: Order; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
+function OrderWorkCard({ canCancelOrders, enablePickupDisplay, order, updateOrderStatus }: { canCancelOrders: boolean; enablePickupDisplay: boolean; order: Order; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
   const cancelReason = order.cancelReason ?? order.rejectReason;
   const isPosDirectComplete = order.source === "pos" && !enablePickupDisplay;
   return (
@@ -507,7 +509,7 @@ function OrderWorkCard({ enablePickupDisplay, order, updateOrderStatus }: { enab
       <div className="mt-3 flex flex-wrap gap-2">
         {["pending", "waiting", "unprocessed"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "accepted")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white"><CheckCircle2 className="size-4" />接單</button>}
         {["accepted", "cooking", "preparing", "ready"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "completed")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white"><CheckCircle2 className="size-4" />{isPosDirectComplete ? "直接完成" : "餐點完成"}</button>}
-        {!["completed", "cancelled"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "cancelled")} className="inline-flex items-center gap-2 rounded-lg bg-tomato px-3 py-2 font-black text-white"><XCircle className="size-4" />取消</button>}
+        {canCancelOrders && !["completed", "cancelled"].includes(order.status) && <button onClick={() => updateOrderStatus(order.id, "cancelled")} className="inline-flex items-center gap-2 rounded-lg bg-tomato px-3 py-2 font-black text-white"><XCircle className="size-4" />取消</button>}
       </div>
     </article>
   );
@@ -519,7 +521,7 @@ function OrderItemLine({ item }: { item: OrderItem }) {
   return <div className="rounded-lg bg-stone-50 px-3 py-2"><p>{item.quantity} x {item.productName}</p>{selectedOptions.length > 0 && <div className="ml-3 mt-1 space-y-1 text-xs">{selectedOptions.map((option) => <p key={`${option.groupId}-${option.choiceId}`} style={{ marginLeft: `${(option.level ?? 0) * 12}px` }}>- {option.groupName}：{option.choiceName}{option.priceDelta ? ` +${option.priceDelta}` : ""}</p>)}</div>}{itemNote && <p className="ml-3 mt-1 rounded bg-amber-50 px-2 py-1 text-xs font-black text-amber-800">備註：{itemNote}</p>}</div>;
 }
 
-function CartPanel({ cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promotionDiscounts, finalTotal, orderDiscount, setOrderDiscount, removeLine, submitOrder, updateLine, isSubmitting, posEnabled }: { cart: CartLine[]; itemsSubtotal: number; itemDiscountTotal: number; orderDiscAmt: number; promotionDiscounts: import("@/lib/types").PromotionDiscountLine[]; finalTotal: number; orderDiscount: CartItemDiscount; setOrderDiscount: (d: CartItemDiscount) => void; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean }) {
+function CartPanel({ canApplyDiscounts, cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promotionDiscounts, finalTotal, orderDiscount, setOrderDiscount, removeLine, submitOrder, updateLine, isSubmitting, posEnabled }: { canApplyDiscounts: boolean; cart: CartLine[]; itemsSubtotal: number; itemDiscountTotal: number; orderDiscAmt: number; promotionDiscounts: import("@/lib/types").PromotionDiscountLine[]; finalTotal: number; orderDiscount: CartItemDiscount; setOrderDiscount: (d: CartItemDiscount) => void; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean }) {
   const [showOrderDiscForm, setShowOrderDiscForm] = useState(false);
   const [orderDiscType, setOrderDiscType] = useState<"amount" | "percent">("amount");
   const [orderDiscValue, setOrderDiscValue] = useState("");
@@ -541,7 +543,7 @@ function CartPanel({ cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promo
       {!posEnabled && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-sm font-black text-tomato">POS 現場單目前暫停建立</p>}
       {cart.length === 0
         ? <p className="mt-4 rounded-lg bg-orange-50 p-4 text-center text-sm font-black text-steel">尚未加入餐點</p>
-        : <div className="mt-4 space-y-4">{cart.map((line, index) => <CartLineCard key={`${line.product.id}-${index}`} index={index} line={line} removeLine={removeLine} updateLine={updateLine} />)}</div>}
+        : <div className="mt-4 space-y-4">{cart.map((line, index) => <CartLineCard key={`${line.product.id}-${index}`} canApplyDiscounts={canApplyDiscounts} index={index} line={line} removeLine={removeLine} updateLine={updateLine} />)}</div>}
 
       {/* Total breakdown */}
       <div className="mt-6 rounded-lg bg-orange-50 p-4">
@@ -561,12 +563,12 @@ function CartPanel({ cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promo
       </div>
 
       {/* Order-level discount */}
-      {orderDiscount ? (
+      {canApplyDiscounts && orderDiscount ? (
         <div className="mt-3 flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2">
           <p className="text-sm font-black text-amber-700">整單折扣：{orderDiscount.type === "amount" ? `-$${orderDiscount.value}` : `${orderDiscount.value}%`}（實折 -$${orderDiscAmt}）</p>
           <button onClick={() => setOrderDiscount(null)} className="rounded-lg bg-stone-200 px-2 py-1 text-xs font-black text-steel">清除</button>
         </div>
-      ) : showOrderDiscForm ? (
+      ) : canApplyDiscounts && showOrderDiscForm ? (
         <div className="mt-3 rounded-lg bg-stone-50 p-3 space-y-3">
           <p className="text-sm font-black text-steel">整單折扣</p>
           <div className="flex gap-2">
@@ -579,18 +581,18 @@ function CartPanel({ cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promo
             <button onClick={() => { setShowOrderDiscForm(false); setOrderDiscValue(""); }} className="rounded-lg bg-stone-200 px-3 py-2 text-sm font-black text-steel">取消</button>
           </div>
         </div>
-      ) : (
+      ) : canApplyDiscounts ? (
         <button onClick={() => setShowOrderDiscForm(true)} disabled={cart.length === 0} className="mt-3 w-full rounded-lg border border-dashed border-stone-300 px-3 py-2 text-sm font-black text-steel hover:border-stone-400 disabled:opacity-40">
           + 整單折扣
         </button>
-      )}
+      ) : null}
 
       <button onClick={submitOrder} disabled={cart.length === 0 || isSubmitting || !posEnabled} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-leaf px-4 py-4 font-black text-white disabled:opacity-60"><Send className="size-5" />{isSubmitting ? "送出中..." : "送出訂單"}</button>
     </section>
   );
 }
 
-function CartLineCard({ index, line, removeLine, updateLine }: { index: number; line: CartLine; removeLine: (index: number) => void; updateLine: (index: number, patch: Partial<CartLine>) => void }) {
+function CartLineCard({ canApplyDiscounts, index, line, removeLine, updateLine }: { canApplyDiscounts: boolean; index: number; line: CartLine; removeLine: (index: number) => void; updateLine: (index: number, patch: Partial<CartLine>) => void }) {
   const [discOpen, setDiscOpen] = useState(false);
   const [discType, setDiscType] = useState<"amount" | "percent">("amount");
   const [discValue, setDiscValue] = useState("");
@@ -636,12 +638,14 @@ function CartLineCard({ index, line, removeLine, updateLine }: { index: number; 
         </div>
         <div className="flex shrink-0 flex-col gap-1.5">
           <button onClick={() => removeLine(index)} className="rounded-lg bg-tomato px-3 py-1.5 text-sm font-black text-white">刪除</button>
-          <button
-            onClick={() => discOpen ? setDiscOpen(false) : openDiscountForm()}
-            className={`rounded-lg px-3 py-1.5 text-sm font-black ${line.discount ? "bg-amber-100 text-amber-700" : "bg-stone-100 text-steel"}`}
-          >
-            {line.discount ? "編輯折扣" : "折扣"}
-          </button>
+          {canApplyDiscounts && (
+            <button
+              onClick={() => discOpen ? setDiscOpen(false) : openDiscountForm()}
+              className={`rounded-lg px-3 py-1.5 text-sm font-black ${line.discount ? "bg-amber-100 text-amber-700" : "bg-stone-100 text-steel"}`}
+            >
+              {line.discount ? "編輯折扣" : "折扣"}
+            </button>
+          )}
         </div>
       </div>
 

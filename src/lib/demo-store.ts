@@ -22,7 +22,7 @@ import { firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { CashFlow, CashFlowItem, Category, DailyReport, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Promotion, Store, StoreMemberRole, Table, User } from "./types";
+import type { CashFlow, CashFlowItem, Category, DailyReport, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, Product, Promotion, Store, StoreMemberRole, Table, User, UserPermissions } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -859,6 +859,40 @@ export function useDemoStore(options: StoreOptions = {}) {
     ]);
   }
 
+  async function updateUserStorePermissions(email: string, targetStoreId: string, permissions: Partial<UserPermissions>) {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !targetStoreId) return;
+
+    if (useFirestore && firestore) {
+      try {
+        const usersSnap = await getDocs(query(collection(firestore, "users"), where("email", "==", normalizedEmail)));
+        if (!usersSnap.empty) {
+          await updateDoc(usersSnap.docs[0].ref, { [`storePermissions.${targetStoreId}`]: permissions });
+        }
+      } catch (writeError) {
+        console.error("updateUserStorePermissions failed", writeError);
+        setError(writeError instanceof Error ? writeError.message : "updateUserStorePermissions failed");
+        throw writeError;
+      }
+      return;
+    }
+
+    setDb((current) => ({
+      ...current,
+      users: current.users.map((u) =>
+        u.email.toLowerCase() !== normalizedEmail
+          ? u
+          : {
+              ...u,
+              storePermissions: {
+                ...(u.storePermissions ?? {}),
+                [targetStoreId]: permissions
+              }
+            }
+      )
+    }));
+  }
+
   async function saveDailyReport(report: DailyReport) {
     if (firebaseEnabled && firestore) {
       await setDoc(doc(firestore, "dailyReports", report.id), report);
@@ -911,7 +945,8 @@ export function useDemoStore(options: StoreOptions = {}) {
     upsertDevice,
     upsertTable,
     saveDailyReport,
-    loadDailyReport
+    loadDailyReport,
+    updateUserStorePermissions
   };
 }
 

@@ -6,6 +6,19 @@ export type UserRole = "user" | "merchant" | "kitchen" | "admin" | StoreMemberRo
 export type StoreType = "breakfast" | "drink" | "snack" | "hotpot";
 export type DiscountType = "none" | "percent" | "amount" | "specialPrice";
 export type PromotionType = "buy_x_get_y" | "buy_one_get_one" | "second_half_price" | "percent_discount" | "amount_discount";
+
+export type UserPermissions = {
+  canViewDailyReport: boolean;
+  canManageMenu: boolean;
+  canManagePromotions: boolean;
+  canUseCashflow: boolean;
+  canUseKDS: boolean;
+  canManageUsers: boolean;
+  canViewOrders: boolean;
+  canCancelOrders: boolean;
+  canApplyDiscounts: boolean;
+  canViewPlatformTools: boolean;
+};
 export type DeviceType = "kitchen" | "label" | "display" | "scanner";
 export type DeviceConnectionType = "bluetooth" | "usb" | "lan";
 export type PrinterStation = "kitchen" | "counter" | "bar" | "custom";
@@ -81,6 +94,7 @@ export type User = {
   storeIds?: string[];
   memberships?: Record<string, StoreMemberRole>;
   storeRoles?: Record<string, StoreMemberRole>;
+  storePermissions?: Record<string, Partial<UserPermissions>>;
   pending?: boolean;
   approved?: boolean;
   status?: "pending" | "active" | "rejected";
