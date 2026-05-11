@@ -323,18 +323,11 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
 
         {activePanel === "orders" && (
           <>
-            <section className="mb-5 grid gap-4 md:grid-cols-4">
-              <MetricCard icon={BarChart3} label="今日營收" value={`$${totalRevenue}`} tone="text-tomato" />
-              <MetricCard icon={ReceiptText} label="今日訂單數" value={todayOrders.length.toString()} />
-              <MetricCard icon={ShoppingCart} label="平均客單價" value={`$${completedOrders.length ? Math.round(completedRevenue / completedOrders.length) : 0}`} />
-              <MetricCard icon={Table2} label="內用 / 外帶" value={`${todayOrders.filter((order) => order.mode === "dine-in").length} / ${todayOrders.filter((order) => order.mode === "takeout").length}`} tone="text-leaf" />
-            </section>
             <div className="grid gap-5 2xl:grid-cols-[minmax(520px,0.95fr)_minmax(560px,1.05fr)_420px]">
               <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
               <QuickOrder activeCategoryId={activeCategoryId} categories={categories} customerNote={customerNote} mode={mode} posEnabled={posEnabled} products={visibleProducts} setActiveCategoryId={setActiveCategoryId} setChoosingProduct={setChoosingProduct} setCustomerNote={setCustomerNote} setMode={setMode} setTableNo={setTableNo} tableNo={tableNo} />
               <aside className="space-y-5">
                 <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} />
-                <SalesRanking ranking={ranking.slice(0, 5)} title="今日商品 TOP 5" />
               </aside>
             </div>
           </>

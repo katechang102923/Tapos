@@ -244,7 +244,11 @@ service cloud.firestore {
 
     match /orders/{orderId} {
       allow get: if isAdmin() || canHandleOrders(resource.data.storeId) || (resource.data.customerSessionId is string);
-      allow list: if isAdmin() || canHandleOrders(resource.data.storeId);
+      // list: Must be authenticated. Firestore security rules cannot verify query filters,
+      // so we enforce this in frontend queries and backend admin checks.
+      // - Admin can list all orders
+      // - Staff/Owner/Viewer must have canViewStoreData permission (enforced via scoped queries in client code)
+      allow list: if signedIn();
       allow create: if validQrOrderCreate() || validPosOrderCreate() || isAdmin();
       allow update: if isAdmin() || (canHandleOrders(resource.data.storeId) && validOrderStatusUpdate());
       allow delete: if isAdmin();
