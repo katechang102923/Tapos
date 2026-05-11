@@ -183,6 +183,9 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
         total: finalTotal,
         source: "pos",
         status: "accepted",
+        memberId: boundMember?.id,
+        memberPhone: boundMember?.phone,
+        memberName: boundMember?.name,
         ...(boundMember ? { customer: { customerId: boundMember.id, memberNo: boundMember.memberNo, name: boundMember.name, phone: boundMember.phone } } : {}),
         ...(pointsEarned > 0 ? { pointsEarned } : {}),
         ...(storedValueDeduction > 0 ? { storedValueUsed: storedValueDeduction } : {}),
@@ -216,6 +219,16 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
       setCart([]);
       setCustomerNote("");
       setOrderDiscount(null);
+      console.log("[POS Order Created]", {
+        orderId: order.id,
+        storeId: order.storeId,
+        source: order.source,
+        status: order.status,
+        orderType: order.orderType,
+        memberId: order.memberId,
+        memberPhone: order.memberPhone,
+        memberName: order.memberName
+      });
       setOrderSuccess(`POS 訂單已建立：${order.orderNumber}`);
       if (boundMember) {
         await updateCustomerOrderStats(boundMember.id, finalTotal);

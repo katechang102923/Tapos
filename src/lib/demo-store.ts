@@ -205,7 +205,18 @@ export function useDemoStore(options: StoreOptions = {}) {
       return onSnapshot(
         ref,
         (snapshot) => {
-          (next as unknown as Record<string, unknown[]>)[collectionName] = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+          const docs = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+          if (collectionName === "orders") {
+            const queryInfo = `orders [storeId==${storeId ?? "<unset>"}${todayOrdersOnly ? `, createdAt>=${todayStartIso()}` : ""}]`;
+            console.log("[DemoStore] POS order listener", {
+              currentStoreId: storeId,
+              queryPath: "orders",
+              queryCondition: todayOrdersOnly ? `storeId == ${storeId} AND createdAt >= ${todayStartIso()}` : `storeId == ${storeId}`,
+              snapshotSize: snapshot.size,
+              orders: docs.map((order) => ({ orderId: (order as any).id, storeId: (order as any).storeId, status: (order as any).status, source: (order as any).source, orderType: (order as any).orderType }))
+            });
+          }
+          (next as unknown as Record<string, unknown[]>)[collectionName] = docs;
           commit();
         },
         handleError
@@ -311,6 +322,9 @@ export function useDemoStore(options: StoreOptions = {}) {
       pickupNumber: orderNumber,
       status: blockReason ? "cancelled" : order.status ?? "pending",
       source,
+      memberId: order.memberId,
+      memberPhone: order.memberPhone,
+      memberName: order.memberName,
       rejectReason: blockReason || order.rejectReason,
       cancelReason: blockReason ? `${blockReason}，系統自動拒單` : order.cancelReason,
       createdAt,

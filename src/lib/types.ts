@@ -452,6 +452,9 @@ export type Order = {
   discountSummary?: DiscountSummary;
   promotionDiscounts?: PromotionDiscountLine[];
   customer?: OrderCustomerInfo;
+  memberId?: string;
+  memberPhone?: string;
+  memberName?: string;
   pointsEarned?: number;
   pointsUsed?: number;
   storedValueUsed?: number;
@@ -464,6 +467,9 @@ export type OrderPayload = Omit<Order, "id" | "orderNumber" | "pickupNumber" | "
   items: OrderItemPayload[];
   status?: OrderStatus;
   source?: "qr" | "pos" | "kiosk";
+  memberId?: string;
+  memberPhone?: string;
+  memberName?: string;
 };
 
 export type DailyReportProduct = {

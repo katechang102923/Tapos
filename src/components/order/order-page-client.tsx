@@ -161,6 +161,8 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
         customerSessionId,
         customerNote,
         total,
+        source: "qr",
+        status: "pending",
         promotionDiscounts: promotionCalculation.appliedPromotions,
         ...(promotionCalculation.discountTotal > 0 ? {
           discountSummary: {
@@ -170,7 +172,6 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
             totalDiscount: promotionCalculation.discountTotal
           }
         } : {}),
-        source: "qr",
         items: cart.map<OrderItem>((line) => ({
           id: "",
           orderId: "",
@@ -192,6 +193,14 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
       });
       setLastOrderId(order.id);
       window.localStorage.setItem(`lastOrderId:${storeId}`, order.id);
+      console.log("[QR Order Created]", {
+        orderId: order.id,
+        storeId: order.storeId,
+        collectionPath: "orders",
+        status: order.status,
+        source: order.source,
+        orderType: order.orderType
+      });
       setSubmittedOrder(order);
       setLiveOrder(null);
       setOrderListenError("");
