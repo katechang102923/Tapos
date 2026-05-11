@@ -169,6 +169,133 @@ service cloud.firestore {
         && canHandleOrders(request.resource.data.storeId);
     }
 
+    function validNestedOrderCreateCommon(storeId) {
+      return request.resource.data.storeId == storeId
+        && request.resource.data.items is list
+        && request.resource.data.total is number
+        && request.resource.data.createdAt is string
+        && request.resource.data.source in ["qr", "pos", "kiosk"]
+        && request.resource.data.keys().hasOnly([
+          "id",
+          "storeId",
+          "mode",
+          "tableNo",
+          "tableName",
+          "tableNumber",
+          "customerName",
+          "customerPhone",
+          "customerSessionId",
+          "customerNote",
+          "archiveEligible",
+          "archivedAt",
+          "note",
+          "memberId",
+          "memberPhone",
+          "memberName",
+          "customer",
+          "items",
+          "total",
+          "totalAmount",
+          "orderType",
+          "source",
+          "status",
+          "queueNumber",
+          "orderNumber",
+          "pickupNumber",
+          "createdAt",
+          "updatedAt",
+          "promotionDiscounts",
+          "orderDiscount",
+          "discountSummary",
+          "pointsEarned",
+          "pointsUsed",
+          "storedValueUsed",
+          "paymentMethod",
+          "cancelReason",
+          "rejectReason"
+        ]);
+    }
+
+    function validNestedQrOrderCreate(storeId) {
+      return validNestedOrderCreateCommon(storeId)
+        && request.resource.data.source == "qr"
+        && (
+          request.resource.data.status == "pending"
+          || (
+            request.resource.data.status == "cancelled"
+            && request.resource.data.cancelReason is string
+          )
+        );
+    }
+
+    function validNestedPosOrderCreate(storeId) {
+      return validNestedOrderCreateCommon(storeId)
+        && request.resource.data.source in ["pos", "kiosk"]
+        && request.resource.data.status in ["pending", "accepted"]
+        && canHandleOrders(storeId);
+    }
+
+    function validQrMemberCreate(storeId) {
+      return request.resource.data.storeId == storeId
+        && request.resource.data.phone is string
+        && request.resource.data.name is string
+        && request.resource.data.keys().hasOnly([
+          "id",
+          "storeId",
+          "memberNo",
+          "name",
+          "phone",
+          "email",
+          "birthday",
+          "points",
+          "storedValueBalance",
+          "totalSpent",
+          "totalOrders",
+          "lastOrderAt",
+          "createdAt",
+          "updatedAt",
+          "createdBy"
+        ]);
+    }
+
+    function validQrMemberSelfUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "phone", "email", "birthday", "updatedAt"]);
+    }
+
+    function canTopupStoredValue(storeId) {
+      return isAdmin()
+        || membershipRole(storeId) in ["owner", "manager"]
+        || (
+          hasUserDoc()
+          && userDoc().data.topupStoreIds is list
+          && storeId in userDoc().data.topupStoreIds
+        );
+    }
+
+    function canManageMembers(storeId) {
+      return isAdmin()
+        || membershipRole(storeId) in ["owner", "manager"]
+        || (approved() && userStoreId() == storeId && role() in ["merchant", "owner"]);
+    }
+
+    function canLookupMembers(storeId) {
+      return isAdmin()
+        || membershipRole(storeId) in ["owner", "manager", "staff"]
+        || (approved() && userStoreId() == storeId && role() in ["merchant", "owner"]);
+    }
+
+    function storeHasMemberEnabled(storeId) {
+      return exists(storePath(storeId))
+        && get(storePath(storeId)).data.features is map
+        && get(storePath(storeId)).data.features.memberEnabled == true;
+    }
+
+    function storeHasStoredValueEnabled(storeId) {
+      return exists(storePath(storeId))
+        && get(storePath(storeId)).data.features is map
+        && get(storePath(storeId)).data.features.memberStoredValueEnabled == true;
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin() || resource.data.email == request.auth.token.email);
       allow create: if validOwnerUserCreate(userId) || isAdmin();
@@ -184,6 +311,48 @@ service cloud.firestore {
       allow update: if isAdmin()
         || (canManageStore(storeId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["features"]));
       allow delete: if isAdmin();
+    }
+
+    match /stores/{storeId}/orders/{orderId} {
+      // QR customers use direct document listeners after creating an order.
+      // Allow get on QR orders, but never allow anonymous list over a store's orders.
+      allow get: if isAdmin() || canViewStoreData(storeId) || resource.data.source == "qr";
+      allow list: if isAdmin() || canViewStoreData(storeId);
+      allow create: if validNestedQrOrderCreate(storeId) || validNestedPosOrderCreate(storeId) || isAdmin();
+      allow update: if isAdmin() || (canHandleOrders(storeId) && validOrderStatusUpdate());
+      allow delete: if isAdmin();
+    }
+
+    match /stores/{storeId}/members/{memberId} {
+      // POS can list/query members. QR can create a member and read a single member doc,
+      // but cannot list the full member database.
+      allow get: if canLookupMembers(storeId) || resource.data.phone is string;
+      allow list: if canLookupMembers(storeId) || request.query.limit <= 1;
+      allow create: if validQrMemberCreate(storeId) || (canLookupMembers(storeId) && validQrMemberCreate(storeId));
+      allow update: if (
+          canLookupMembers(storeId)
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(["storedValueBalance"])
+            || canTopupStoredValue(storeId)
+            || canHandleOrders(storeId)
+          )
+        )
+        || validQrMemberSelfUpdate();
+      allow delete: if isAdmin();
+    }
+
+    match /stores/{storeId}/memberTransactions/{transactionId} {
+      allow read: if canLookupMembers(storeId);
+      allow create: if request.resource.data.storeId == storeId
+        && request.resource.data.customerId is string
+        && request.resource.data.amount is number
+        && request.resource.data.type in ["topup", "payment", "spend", "adjust", "refund"]
+        && (
+          (request.resource.data.type == "topup" && canTopupStoredValue(storeId))
+          || (request.resource.data.type in ["payment", "spend"] && canHandleOrders(storeId))
+          || (request.resource.data.type in ["adjust", "refund"] && canTopupStoredValue(storeId))
+        );
+      allow update, delete: if isAdmin();
     }
 
     match /categories/{categoryId} {
@@ -304,30 +473,6 @@ service cloud.firestore {
       // Only the platform admin can read, update (mark-read), or delete
       allow read, update, delete: if signedIn()
         && request.auth.token.email == "ciut0000@gmail.com";
-    }
-
-    function canManageMembers(storeId) {
-      return isAdmin()
-        || membershipRole(storeId) in ["owner", "manager"]
-        || (approved() && userStoreId() == storeId && role() in ["merchant", "owner"]);
-    }
-
-    function canLookupMembers(storeId) {
-      return isAdmin()
-        || membershipRole(storeId) in ["owner", "manager", "staff"]
-        || (approved() && userStoreId() == storeId && role() in ["merchant", "owner"]);
-    }
-
-    function storeHasMemberEnabled(storeId) {
-      return exists(storePath(storeId))
-        && get(storePath(storeId)).data.features is map
-        && get(storePath(storeId)).data.features.memberEnabled == true;
-    }
-
-    function storeHasStoredValueEnabled(storeId) {
-      return exists(storePath(storeId))
-        && get(storePath(storeId)).data.features is map
-        && get(storePath(storeId)).data.features.memberStoredValueEnabled == true;
     }
 
     match /customers/{customerId} {

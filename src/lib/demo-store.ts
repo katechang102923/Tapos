@@ -107,6 +107,12 @@ function optionDefaults(product: Product) {
 
 function scopedQuery(collectionName: string, storeId?: string, admin?: boolean, customerSessionId?: string, todayOrdersOnly?: boolean) {
   if (!firestore) return null;
+  if (collectionName === "orders" && storeId && !admin) {
+    const ref = collection(firestore, "stores", storeId, "orders");
+    if (customerSessionId) return query(ref, where("customerSessionId", "==", customerSessionId));
+    if (todayOrdersOnly) return query(ref, where("createdAt", ">=", todayStartIso()));
+    return ref;
+  }
   const ref = collection(firestore, collectionName);
   if (admin || !storeId || collectionName === "stores") return ref;
   if (collectionName === "orders" && customerSessionId) return query(ref, where("customerSessionId", "==", customerSessionId));
@@ -210,7 +216,7 @@ export function useDemoStore(options: StoreOptions = {}) {
             const queryCondition = todayOrdersOnly ? `storeId == ${storeId} AND createdAt >= ${todayStartIso()}` : `storeId == ${storeId}`;
             console.log("[DemoStore] POS order listener", {
               currentStoreId: storeId,
-              queryFullPath: "orders",
+              queryFullPath: `stores/${storeId}/orders`,
               statusFilter: "none",
               queryCondition,
               snapshotSize: snapshot.size,
@@ -254,7 +260,7 @@ export function useDemoStore(options: StoreOptions = {}) {
 
     const unsubCustomers = (loadCustomers && storeId)
       ? onSnapshot(
-          query(collection(firestore, "customers"), where("storeId", "==", storeId)),
+          collection(firestore, "stores", storeId, "members"),
           (snapshot) => {
             next.customers = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Customer);
             commit();
@@ -276,7 +282,7 @@ export function useDemoStore(options: StoreOptions = {}) {
 
     const unsubStoredValueLogs = (loadCustomers && storeId)
       ? onSnapshot(
-          query(collection(firestore, "storedValueLogs"), where("storeId", "==", storeId)),
+          collection(firestore, "stores", storeId, "memberTransactions"),
           (snapshot) => {
             next.storedValueLogs = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as StoredValueLog);
             commit();
@@ -322,7 +328,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     const source = order.source ?? "qr";
     const store = db.stores.find((item) => item.id === order.storeId);
     const blockReason = source === "qr" ? qrBlockReason(store, order.mode) : "";
-    const id = useFirestore && firestore ? doc(collection(firestore, "orders")).id : newId("o");
+    const id = useFirestore && firestore ? doc(collection(firestore, "stores", order.storeId, "orders")).id : newId("o");
     const buildOrder = (orderNumber: string): Order => stripUndefined({
       ...order,
       id,
@@ -346,7 +352,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     } as Order);
     if (useFirestore && firestore) {
       const db = firestore;
-      const orderRef = doc(db, "orders", id);
+      const orderRef = doc(db, "stores", order.storeId, "orders", id);
       const counterRef = doc(db, "counters", "orderNumbers");
       const counterKey = source === "pos" ? "pos" : source === "kiosk" ? "kiosk" : "qr";
       const nextOrder = await runTransaction(db, async (transaction) => {
@@ -355,7 +361,7 @@ export function useDemoStore(options: StoreOptions = {}) {
         const currentSequence = typeof counterData[counterKey] === "number" ? counterData[counterKey] : 1;
         const orderNumber = formatOrderNumber(source, currentSequence);
         const createdOrder = buildOrder(orderNumber);
-        const orderPath = `orders/${id}`;
+        const orderPath = `stores/${order.storeId}/orders/${id}`;
         console.log("[DemoStore] createOrder write", {
           orderId: id,
           queueNumber: createdOrder.pickupNumber ?? createdOrder.orderNumber,
@@ -492,11 +498,16 @@ export function useDemoStore(options: StoreOptions = {}) {
   function updateOrderStatus(orderId: string, status: OrderStatus) {
     const updatedAt = new Date().toISOString();
     if (useFirestore && firestore) {
+      const targetStoreId = db.orders.find((order) => order.id === orderId)?.storeId ?? storeId;
+      if (!targetStoreId) {
+        setError("找不到訂單所屬店家，無法更新狀態。");
+        return;
+      }
       setDb((current) => ({
         ...current,
         orders: current.orders.map((order) => (order.id === orderId ? { ...order, status, updatedAt } : order))
       }));
-      updateDoc(doc(firestore, "orders", orderId), { status, updatedAt }).catch((writeError: Error) => setError(writeError.message));
+      updateDoc(doc(firestore, "stores", targetStoreId, "orders", orderId), { status, updatedAt }).catch((writeError: Error) => setError(writeError.message));
       return;
     }
     setDb((current) => ({
@@ -509,7 +520,13 @@ export function useDemoStore(options: StoreOptions = {}) {
 
   function rejectOrder(orderId: string, rejectReason: string) {
     if (useFirestore && firestore) {
-      updateDoc(doc(firestore, "orders", orderId), { status: "cancelled", rejectReason, updatedAt: new Date().toISOString() });
+      const targetStoreId = db.orders.find((order) => order.id === orderId)?.storeId ?? storeId;
+      if (!targetStoreId) {
+        setError("找不到訂單所屬店家，無法取消訂單。");
+        return;
+      }
+      updateDoc(doc(firestore, "stores", targetStoreId, "orders", orderId), { status: "cancelled", rejectReason, updatedAt: new Date().toISOString() })
+        .catch((writeError: Error) => setError(writeError.message));
       return;
     }
     setDb((current) => ({
@@ -967,7 +984,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       ...initialData.stores.map((item) => setDoc(doc(db, "stores", item.id), item, { merge: true })),
       ...initialData.categories.map((item) => setDoc(doc(db, "categories", item.id), item, { merge: true })),
       ...initialData.products.map((item) => setDoc(doc(db, "products", item.id), item, { merge: true })),
-      ...initialData.orders.map((item) => setDoc(doc(db, "orders", item.id), item, { merge: true })),
+      ...initialData.orders.map((item) => setDoc(doc(db, "stores", item.storeId, "orders", item.id), item, { merge: true })),
       ...(initialData.cashFlows ?? []).map((item) => setDoc(doc(db, "cashFlows", item.id), item, { merge: true })),
       ...(initialData.cashFlowItems ?? []).map((item) => setDoc(doc(db, "cashFlowItems", item.id), item, { merge: true })),
       ...(initialData.promotions ?? []).map((item) => setDoc(doc(db, "promotions", item.id), item, { merge: true }))
@@ -1117,7 +1134,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     const now = new Date().toISOString();
     const allCustomers = db.customers ?? [];
     const memberNo = generateMemberNo(allCustomers.filter((c) => c.storeId === data.storeId));
-    const id = useFirestore && firestore ? doc(collection(firestore, "customers")).id : newId("cust");
+    const id = useFirestore && firestore ? doc(collection(firestore, "stores", data.storeId, "members")).id : newId("cust");
     const customer: Customer = stripUndefined({
       id,
       storeId: data.storeId,
@@ -1134,7 +1151,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       updatedAt: now
     });
     if (useFirestore && firestore) {
-      await setDoc(doc(firestore, "customers", id), customer);
+      await setDoc(doc(firestore, "stores", data.storeId, "members", id), customer);
       setDb((current) => ({ ...current, customers: [customer, ...(current.customers ?? [])] }));
       return customer;
     }
@@ -1146,7 +1163,9 @@ export function useDemoStore(options: StoreOptions = {}) {
     const now = new Date().toISOString();
     const cleanPatch = { ...stripUndefined(patch), updatedAt: now };
     if (useFirestore && firestore) {
-      await updateDoc(doc(firestore, "customers", customerId), cleanPatch);
+      const customer = (db.customers ?? []).find((item) => item.id === customerId);
+      if (!customer?.storeId) throw new Error("找不到會員所屬店家，無法更新會員。");
+      await updateDoc(doc(firestore, "stores", customer.storeId, "members", customerId), cleanPatch);
       setDb((current) => ({ ...current, customers: (current.customers ?? []).map((c) => c.id === customerId ? { ...c, ...cleanPatch } : c) }));
       return;
     }
@@ -1190,7 +1209,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     if (useFirestore && firestore) {
       await Promise.all([
         setDoc(doc(firestore, "pointLogs", id), log),
-        updateDoc(doc(firestore, "customers", params.customerId), customerPatch)
+        updateDoc(doc(firestore, "stores", params.storeId, "members", params.customerId), customerPatch)
       ]);
       setDb((current) => ({
         ...current,
@@ -1220,7 +1239,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     const customer = (db.customers ?? []).find((c) => c.id === params.customerId);
     const beforeBalance = customer?.storedValueBalance ?? 0;
     const afterBalance = Math.max(0, beforeBalance + params.amount);
-    const id = useFirestore && firestore ? doc(collection(firestore, "storedValueLogs")).id : newId("svl");
+    const id = useFirestore && firestore ? doc(collection(firestore, "stores", params.storeId, "memberTransactions")).id : newId("svl");
     const log: StoredValueLog = stripUndefined({
       id,
       storeId: params.storeId,
@@ -1238,8 +1257,8 @@ export function useDemoStore(options: StoreOptions = {}) {
 
     if (useFirestore && firestore) {
       await Promise.all([
-        setDoc(doc(firestore, "storedValueLogs", id), log),
-        updateDoc(doc(firestore, "customers", params.customerId), customerPatch)
+        setDoc(doc(firestore, "stores", params.storeId, "memberTransactions", id), log),
+        updateDoc(doc(firestore, "stores", params.storeId, "members", params.customerId), customerPatch)
       ]);
       setDb((current) => ({
         ...current,
@@ -1267,7 +1286,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       updatedAt: now
     };
     if (useFirestore && firestore) {
-      await updateDoc(doc(firestore, "customers", customerId), patch);
+      await updateDoc(doc(firestore, "stores", customer.storeId, "members", customerId), patch);
       setDb((current) => ({ ...current, customers: (current.customers ?? []).map((c) => c.id === customerId ? { ...c, ...patch } : c) }));
       return;
     }

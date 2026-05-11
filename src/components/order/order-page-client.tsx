@@ -111,7 +111,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
     }
     if (!firebaseEnabled || !firestore) return;
     const unsubscribe = onSnapshot(
-      doc(firestore, "orders", lastOrderId),
+      doc(firestore, "stores", storeId, "orders", lastOrderId),
       (snapshot) => {
         setOrderListenError("");
         if (snapshot.exists()) {
@@ -123,7 +123,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
       }
     );
     return unsubscribe;
-  }, [lastOrderId]);
+  }, [lastOrderId, storeId]);
 
   function addToCart(product: Product) {
     if (!store?.isOpen || product.isSoldOut || !product.isAvailable) return;
@@ -197,7 +197,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
         orderId: order.id,
         queueNumber: order.pickupNumber ?? order.orderNumber,
         storeId: order.storeId,
-        fullPath: `orders/${order.id}`,
+        fullPath: `stores/${storeId}/orders/${order.id}`,
         status: order.status,
         source: order.source,
         orderType: order.orderType
