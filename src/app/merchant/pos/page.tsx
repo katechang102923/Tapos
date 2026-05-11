@@ -3,16 +3,18 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, BarChart3, ChefHat, CheckCircle2, Clock3, FileText, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, UserPlus, WalletCards, XCircle } from "lucide-react";
+import { doc, getDoc } from "firebase/firestore";
 import { LoginGate } from "@/components/auth/login-gate";
 import { ProductOptionModal } from "@/components/product-option-modal";
 import { StatusPill } from "@/components/status-pill";
 import { DailyReportPanel } from "@/components/merchant/daily-report-panel";
 import { useDemoStore } from "@/lib/demo-store";
+import { firebaseEnabled, firestore } from "@/lib/firebase";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { normalizeSelectedOptions, selectionsTotal } from "@/lib/product-options";
 import { calculatePromotions } from "@/lib/promotions";
 import { resolvePermissions } from "@/lib/permissions";
-import { accessibleStoreIds, defaultStoreId, selectorStoreIds, storeRoleFor } from "@/lib/store-access";
+import { defaultStoreId, selectorStoreIds, storeRoleFor } from "@/lib/store-access";
 import { checkStoreAccess, checkUserAccess } from "@/lib/subscription";
 import type { CashFlow, CashFlowAmountMode, CashFlowItem, CashFlowType, Customer, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, StoreMemberRole, User } from "@/lib/types";
 
@@ -60,32 +62,100 @@ export default function MerchantPosPage() {
   );
 }
 
+/**
+ * Per-user localStorage key used to persist the last POS store selection.
+ * The value is validated against the allowed list on every mount; if it is no
+ * longer authorised the entry is removed and the first allowed store is used.
+ */
+function posLsKey(userId: string) {
+  return userId ? `pos:storeId:${userId}` : "";
+}
+
 function MerchantPosShell({ profile }: { profile: User | null }) {
-  const storeIds = selectorStoreIds(profile);
-  const [activeStoreId, setActiveStoreId] = useState(defaultStoreId(profile));
+  const isAdmin = profile?.role === "admin";
+  const userId = profile?.id ?? "";
+  const lsKey = posLsKey(userId);
+
+  // Raw store IDs from the user's role mapping (demo-store already stripped)
+  const allStoreIds = selectorStoreIds(profile);
+
+  // Validated store IDs – trimmed to only stores that exist in Firestore.
+  // For admin the full list is trusted; for non-admin we check existence so
+  // that stale entries (e.g. a deleted store still in storeRoles) are removed.
+  const [storeIds, setStoreIds] = useState<string[]>(allStoreIds);
+  // Store display-name cache fetched during the validation pass above
+  const [storeNames, setStoreNames] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    // Single store or admin: no validation needed
+    if (isAdmin || allStoreIds.length <= 1 || !firebaseEnabled || !firestore) {
+      setStoreIds(allStoreIds);
+      return;
+    }
+    const fs = firestore;
+    Promise.all(allStoreIds.map((id) => getDoc(doc(fs, "stores", id))))
+      .then((snapshots) => {
+        const names: Record<string, string> = {};
+        const existing = allStoreIds.filter((id, i) => {
+          if (!snapshots[i].exists()) return false;
+          const n = snapshots[i].data()?.name;
+          if (typeof n === "string" && n) names[id] = n;
+          return true;
+        });
+        setStoreNames(names);
+        // If every ID was invalid (unlikely) fall back to the full list so the
+        // user is never locked out
+        setStoreIds(existing.length > 0 ? existing : allStoreIds);
+      })
+      .catch(() => setStoreIds(allStoreIds));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allStoreIds.join(","), isAdmin]);
+
+  // localStorage cleanup: if the saved selection is no longer authorised, clear it
+  useEffect(() => {
+    if (!lsKey || typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(lsKey) ?? "";
+    if (saved && !storeIds.includes(saved)) {
+      window.localStorage.removeItem(lsKey);
+    }
+  }, [storeIds, lsKey]);
+
+  // Initial active store: prefer a valid localStorage value, else the profile default
+  const [activeStoreId, setActiveStoreId] = useState<string>(() => {
+    if (typeof window !== "undefined" && lsKey) {
+      const saved = window.localStorage.getItem(lsKey) ?? "";
+      if (saved && allStoreIds.includes(saved)) return saved;
+    }
+    return defaultStoreId(profile);
+  });
+
+  function handleStoreChange(id: string) {
+    setActiveStoreId(id);
+    if (lsKey && typeof window !== "undefined") window.localStorage.setItem(lsKey, id);
+  }
+
   const selectedStoreId = storeIds.includes(activeStoreId) ? activeStoreId : storeIds[0] ?? "";
   const storeRole = storeRoleFor(profile, selectedStoreId);
-  const isAdmin = profile?.role === "admin";
   const hasStoreAccess = Boolean(selectedStoreId && storeRole && posAccessRoles.includes(storeRole));
 
   useEffect(() => {
     console.log("[POS] auth/store access", {
-      currentUserUid: profile?.id ?? null,
+      currentUserUid: userId || null,
       role: profile?.role ?? null,
       storeRole,
       allowedStoreIds: storeIds,
       currentStoreId: selectedStoreId
     });
-  }, [profile?.id, profile?.role, selectedStoreId, storeIds, storeRole]);
+  }, [userId, profile?.role, selectedStoreId, storeIds, storeRole]);
 
   if (selectedStoreId && !hasStoreAccess && !isAdmin) {
     return <CenteredNotice title="此帳號無法使用 POS 前台" text="請確認此帳號已被綁定為 owner、manager、staff 或 viewer。" />;
   }
 
-  return <MerchantPosContent profile={profile} storeId={selectedStoreId} storeIds={storeIds} activeStoreId={selectedStoreId} activeStoreRole={storeRole} onStoreChange={setActiveStoreId} />;
+  return <MerchantPosContent profile={profile} storeId={selectedStoreId} storeIds={storeIds} storeNames={storeNames} activeStoreId={selectedStoreId} activeStoreRole={storeRole} onStoreChange={handleStoreChange} />;
 }
 
-function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeStoreRole, onStoreChange }: { profile: User | null; storeId: string; storeIds: string[]; activeStoreId: string; activeStoreRole: StoreMemberRole | null; onStoreChange: (storeId: string) => void }) {
+function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activeStoreId, activeStoreRole, onStoreChange }: { profile: User | null; storeId: string; storeIds: string[]; storeNames?: Record<string, string>; activeStoreId: string; activeStoreRole: StoreMemberRole | null; onStoreChange: (storeId: string) => void }) {
   const { db, createCashFlow, createCustomer, createOrder, todayCashFlows, todayOrders, updateOrderStatus, upsertCashFlowItem, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned, loadMemberRules } = useDemoStore({ storeId, loadCustomers: true, todayOrdersOnly: true });
   const store = db.stores.find((item) => item.id === storeId);
   const categories = useMemo(() => db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort), [db.categories, storeId]);
@@ -344,7 +414,7 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
           <div className="flex flex-wrap gap-2">
             {storeIds.length > 1 && (
               <select value={activeStoreId} onChange={(event) => onStoreChange(event.target.value)} className="rounded-lg border border-white/20 bg-white px-4 py-3 font-black text-ink">
-                {storeIds.map((id) => <option key={id} value={id}>{db.stores.find((item) => item.id === id)?.name ?? id}</option>)}
+                {storeIds.map((id) => <option key={id} value={id}>{storeNames[id] ?? db.stores.find((item) => item.id === id)?.name ?? id}</option>)}
               </select>
             )}
             {store.features?.kdsEnabled && (
