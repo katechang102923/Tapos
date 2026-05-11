@@ -220,6 +220,9 @@ service cloud.firestore {
           "pointsEarned",
           "pointsUsed",
           "storedValueUsed",
+          "couponId",
+          "couponTitle",
+          "couponDiscountAmount",
           "paymentMethod",
           "cancelReason",
           "rejectReason"
@@ -344,12 +347,37 @@ service cloud.firestore {
       allow update: if (
           canLookupMembers(storeId)
           && (
-            !request.resource.data.diff(resource.data).affectedKeys().hasAny(["storedValueBalance"])
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(["storedValueBalance", "balance", "points"])
             || canTopupStoredValue(storeId)
             || canHandleOrders(storeId)
           )
         )
-        || validQrMemberSelfUpdate();
+        || validQrMemberSelfUpdate()
+        || (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(["points", "updatedAt"])
+          && request.resource.data.points is number
+          && request.resource.data.points <= resource.data.points
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /stores/{storeId}/settings/memberRules {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() || membershipRole(storeId) in ["owner", "manager"];
+    }
+
+    match /stores/{storeId}/rewardCoupons/{couponId} {
+      allow get, list: if resource.data.enabled == true || canViewStoreData(storeId);
+      allow create, update, delete: if isAdmin() || membershipRole(storeId) in ["owner", "manager"];
+    }
+
+    match /stores/{storeId}/memberCoupons/{memberCouponId} {
+      allow get: if canViewStoreData(storeId) || resource.data.memberId is string;
+      allow list: if canViewStoreData(storeId) || request.query.limit <= 20;
+      allow create: if request.resource.data.storeId == storeId
+        && request.resource.data.memberId is string
+        && request.resource.data.status == "unused";
+      allow update: if canHandleOrders(storeId) || isAdmin();
       allow delete: if isAdmin();
     }
 
@@ -362,7 +390,8 @@ service cloud.firestore {
         && (
           (request.resource.data.type == "topup" && (canTopupStoredValue(storeId) || canHandleOrders(storeId)))
           || (request.resource.data.type in ["payment", "spend"] && canHandleOrders(storeId))
-          || (request.resource.data.type in ["adjust", "refund", "points_add", "points_use"] && canTopupStoredValue(storeId))
+          || (request.resource.data.type in ["adjust", "refund", "points_add"] && canTopupStoredValue(storeId))
+          || request.resource.data.type == "points_use"
         );
       allow update, delete: if isAdmin();
     }

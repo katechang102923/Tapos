@@ -22,7 +22,7 @@ import { auth, firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { AccessStatus, CashFlow, CashFlowItem, Category, Customer, DailyReport, DemoDatabase, Device, Order, OrderItem, OrderPayload, OrderStatus, PlatformNotification, PointLog, PointLogType, Product, Promotion, Store, StoredValueLog, StoredValueLogType, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
+import type { AccessStatus, CashFlow, CashFlowItem, Category, Customer, DailyReport, DemoDatabase, Device, MemberCoupon, MemberRules, Order, OrderItem, OrderPayload, OrderStatus, PlatformNotification, PointLog, PointLogType, Product, Promotion, RewardCoupon, Store, StoredValueLog, StoredValueLogType, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -147,6 +147,21 @@ function calculatePointsEarned(totalAmount: number, settings?: { pointsEnabled?:
   return Math.floor(totalAmount / perAmount) * reward;
 }
 
+const defaultMemberRules: MemberRules = {
+  enablePoints: false,
+  earnAmount: 100,
+  earnPoints: 1,
+  pointValue: 1,
+  enableCouponExchange: true,
+  birthdayRewardEnabled: false,
+  birthdayRewardPoints: 0
+};
+
+function pointsFromRules(totalAmount: number, rules?: MemberRules | null): number {
+  if (!rules?.enablePoints || rules.earnAmount <= 0 || rules.earnPoints <= 0) return 0;
+  return Math.floor(totalAmount / rules.earnAmount) * rules.earnPoints;
+}
+
 function todayStartIso(): string {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
@@ -178,7 +193,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
 
     setReady(false);
-    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [], promotions: [], platformNotifications: [], customers: [], pointLogs: [], storedValueLogs: [] };
+    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [], promotions: [], platformNotifications: [], customers: [], pointLogs: [], storedValueLogs: [], rewardCoupons: [], memberCoupons: [] };
     const commit = () => {
       setDb({ ...next });
       setReady(true);
@@ -1234,12 +1249,32 @@ export function useDemoStore(options: StoreOptions = {}) {
       createdBy: params.createdBy
     });
     const customer = (db.customers ?? []).find((c) => c.id === params.customerId);
-    const newPoints = Math.max(0, (customer?.points ?? 0) + params.points);
+    const beforePoints = customer?.points ?? 0;
+    const newPoints = Math.max(0, beforePoints + params.points);
     const customerPatch = { points: newPoints, updatedAt: now };
+    const transactionType: StoredValueLogType = params.points >= 0 ? "points_add" : "points_use";
+    const pointTransaction: StoredValueLog = stripUndefined({
+      id: `${id}-tx`,
+      storeId: params.storeId,
+      customerId: params.customerId,
+      memberId: params.customerId,
+      memberName: customer?.name,
+      type: transactionType,
+      amount: 0,
+      beforeBalance: customer?.balance ?? customer?.storedValueBalance ?? 0,
+      afterBalance: customer?.balance ?? customer?.storedValueBalance ?? 0,
+      beforePoints,
+      afterPoints: newPoints,
+      orderId: params.orderId,
+      note: params.note,
+      createdAt: now,
+      createdBy: params.createdBy
+    });
 
     if (useFirestore && firestore) {
       await Promise.all([
         setDoc(doc(firestore, "pointLogs", id), log),
+        setDoc(doc(firestore, "stores", params.storeId, "memberTransactions", pointTransaction.id), pointTransaction),
         updateDoc(doc(firestore, "stores", params.storeId, "members", params.customerId), customerPatch)
       ]);
       setDb((current) => ({
@@ -1330,7 +1365,15 @@ export function useDemoStore(options: StoreOptions = {}) {
 
   function getCalculatePointsEarned(totalAmount: number, targetStoreId: string): number {
     const store = db.stores.find((s) => s.id === targetStoreId);
-    return calculatePointsEarned(totalAmount, store?.memberSettings);
+    return pointsFromRules(totalAmount, store?.memberRules) || calculatePointsEarned(totalAmount, store?.memberSettings);
+  }
+
+  async function loadMemberRules(targetStoreId: string): Promise<MemberRules> {
+    if (useFirestore && firestore) {
+      const snapshot = await getDoc(doc(firestore, "stores", targetStoreId, "settings", "memberRules"));
+      if (snapshot.exists()) return { ...defaultMemberRules, ...snapshot.data() } as MemberRules;
+    }
+    return db.stores.find((store) => store.id === targetStoreId)?.memberRules ?? defaultMemberRules;
   }
 
   /**
@@ -1483,6 +1526,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     adjustStoredValue,
     updateCustomerOrderStats,
     getCalculatePointsEarned,
+    loadMemberRules,
     markRecordsForArchive,
     updateDailyReportBackup,
   };

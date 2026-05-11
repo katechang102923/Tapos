@@ -86,7 +86,7 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
 }
 
 function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeStoreRole, onStoreChange }: { profile: User | null; storeId: string; storeIds: string[]; activeStoreId: string; activeStoreRole: StoreMemberRole | null; onStoreChange: (storeId: string) => void }) {
-  const { db, createCashFlow, createCustomer, createOrder, todayCashFlows, todayOrders, updateOrderStatus, upsertCashFlowItem, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned } = useDemoStore({ storeId, loadCustomers: true, todayOrdersOnly: true });
+  const { db, createCashFlow, createCustomer, createOrder, todayCashFlows, todayOrders, updateOrderStatus, upsertCashFlowItem, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned, loadMemberRules } = useDemoStore({ storeId, loadCustomers: true, todayOrdersOnly: true });
   const store = db.stores.find((item) => item.id === storeId);
   const categories = useMemo(() => db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort), [db.categories, storeId]);
   const products = useMemo(() => db.products.filter((item) => item.storeId === storeId && item.isAvailable && !item.isSoldOut).sort((a, b) => a.sort - b.sort), [db.products, storeId]);
@@ -186,7 +186,10 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
     }
     setIsSubmitting(true);
     try {
-      const pointsEarned = boundMember ? getCalculatePointsEarned(finalTotal, storeId) : 0;
+      const memberRules = boundMember ? await loadMemberRules(storeId) : null;
+      const pointsEarned = boundMember && memberRules?.enablePoints && memberRules.earnAmount > 0
+        ? Math.floor(finalTotal / memberRules.earnAmount) * memberRules.earnPoints
+        : boundMember ? getCalculatePointsEarned(finalTotal, storeId) : 0;
       const order = await createOrder({
         storeId,
         mode,
@@ -278,9 +281,9 @@ function MerchantPosContent({ profile, storeId, storeIds, activeStoreId, activeS
     setMemberModalOpen(false);
   }
 
-  async function topupMember(amount: number) {
+  async function topupMember(amount: number, note?: string) {
     if (!boundMember || amount <= 0) return;
-    await adjustStoredValue({ customerId: boundMember.id, storeId, type: "topup", amount, note: "POS 會員儲值", createdBy: profile?.email ?? "" });
+    await adjustStoredValue({ customerId: boundMember.id, storeId, type: "topup", amount, note: note || "POS 會員儲值", createdBy: profile?.email ?? "" });
     setBoundMember({ ...boundMember, storedValueBalance: (boundMember.storedValueBalance ?? 0) + amount, balance: (boundMember.balance ?? boundMember.storedValueBalance ?? 0) + amount });
     setTopupModalOpen(false);
   }
@@ -442,8 +445,9 @@ function MemberModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (fo
   );
 }
 
-function TopupModal({ member, onClose, onSubmit }: { member: Customer; onClose: () => void; onSubmit: (amount: number) => Promise<void> }) {
+function TopupModal({ member, onClose, onSubmit }: { member: Customer; onClose: () => void; onSubmit: (amount: number, note?: string) => Promise<void> }) {
   const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -456,7 +460,7 @@ function TopupModal({ member, onClose, onSubmit }: { member: Customer; onClose: 
     }
     setSaving(true);
     try {
-      await onSubmit(value);
+      await onSubmit(value, note.trim() || undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "儲值失敗");
     } finally {
@@ -470,6 +474,7 @@ function TopupModal({ member, onClose, onSubmit }: { member: Customer; onClose: 
         <h2 className="text-2xl font-black text-ink">會員儲值</h2>
         <p className="mt-2 text-sm font-bold text-steel">{member.name} ｜ 目前餘額 ${member.balance ?? member.storedValueBalance}</p>
         <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" min="1" placeholder="儲值金額" className="mt-4 w-full rounded-lg border border-orange-100 px-3 py-3 font-bold" />
+        <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="備註" className="mt-3 min-h-20 w-full rounded-lg border border-orange-100 px-3 py-3 font-bold" />
         {error && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-sm font-black text-tomato">{error}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} className="rounded-lg bg-stone-200 px-4 py-3 font-black text-steel">取消</button>

@@ -35,12 +35,23 @@ export type UserPermissions = {
 };
 
 export type PointLogType = "earn" | "redeem" | "adjust" | "rollback" | "points_add" | "points_use";
-export type StoredValueLogType = "topup" | "payment" | "spend" | "adjust" | "refund";
+export type StoredValueLogType = "topup" | "payment" | "spend" | "adjust" | "refund" | "points_add" | "points_use";
 
 export type MemberSettings = {
   pointsEnabled?: boolean;
   pointsPerAmount?: number; // spend this many yen to get pointsReward points
   pointsReward?: number;    // points earned per unit
+};
+
+export type MemberRules = {
+  enablePoints: boolean;
+  earnAmount: number;
+  earnPoints: number;
+  pointValue: number;
+  enableCouponExchange: boolean;
+  birthdayRewardEnabled: boolean;
+  birthdayRewardPoints: number;
+  updatedAt?: string;
 };
 
 export type Customer = {
@@ -94,6 +105,33 @@ export type StoredValueLog = {
   createdBy?: string;
   archiveEligible?: boolean;
   archivedAt?: string | null;
+};
+
+export type RewardCoupon = {
+  id: string;
+  storeId: string;
+  title: string;
+  type: "discount" | "exchange";
+  pointsCost: number;
+  discountAmount: number;
+  exchangeItemName?: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MemberCoupon = {
+  id: string;
+  storeId: string;
+  memberId: string;
+  couponId: string;
+  title: string;
+  type: "discount" | "exchange";
+  discountAmount?: number;
+  exchangeItemName?: string;
+  status: "unused" | "used";
+  createdAt: string;
+  usedAt?: string;
 };
 
 export type OrderCustomerInfo = {
@@ -177,6 +215,7 @@ export type Store = {
     memberStoredValueEnabled?: boolean;
   };
   memberSettings?: MemberSettings;
+  memberRules?: MemberRules;
   createdAt: string;
 };
 
@@ -464,6 +503,9 @@ export type Order = {
   pointsEarned?: number;
   pointsUsed?: number;
   storedValueUsed?: number;
+  couponId?: string;
+  couponTitle?: string;
+  couponDiscountAmount?: number;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];
@@ -577,6 +619,8 @@ export type DemoDatabase = {
   customers?: Customer[];
   pointLogs?: PointLog[];
   storedValueLogs?: StoredValueLog[];
+  rewardCoupons?: RewardCoupon[];
+  memberCoupons?: MemberCoupon[];
 };
 
 export type CashFlowType = "income" | "expense";

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { collection, doc, getDocs, limit, onSnapshot, query as firestoreQuery, setDoc, where } from "firebase/firestore";
+import { collection, doc, getDocs, limit, onSnapshot, query as firestoreQuery, setDoc, updateDoc, where } from "firebase/firestore";
 import { CheckCircle2, ChevronLeft, Megaphone, Minus, Plus, Search, Send, ShoppingCart, UserPlus } from "lucide-react";
 import { ProductOptionModal } from "@/components/product-option-modal";
 import { useDemoStore } from "@/lib/demo-store";
@@ -11,7 +11,7 @@ import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { selectionsTotal } from "@/lib/product-options";
 import { calculatePromotions } from "@/lib/promotions";
 import { checkStoreAccess } from "@/lib/subscription";
-import type { Customer, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product } from "@/lib/types";
+import type { Customer, MemberCoupon, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, RewardCoupon } from "@/lib/types";
 
 type CartLine = {
   product: Product;
@@ -87,6 +87,9 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
   const [member, setMember] = useState<Customer | null>(null);
   const [memberMessage, setMemberMessage] = useState("");
   const [memberLoading, setMemberLoading] = useState(false);
+  const [rewardCoupons, setRewardCoupons] = useState<RewardCoupon[]>([]);
+  const [memberCoupons, setMemberCoupons] = useState<MemberCoupon[]>([]);
+  const [selectedCouponId, setSelectedCouponId] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined" || !firebaseEnabled || !firestore) return;
@@ -96,6 +99,28 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
       if (snapshot.exists()) setMember({ id: snapshot.id, ...snapshot.data() } as Customer);
     });
   }, [storeId]);
+
+  useEffect(() => {
+    if (!firebaseEnabled || !firestore) return;
+    return onSnapshot(
+      firestoreQuery(collection(firestore, "stores", storeId, "rewardCoupons"), where("enabled", "==", true)),
+      (snapshot) => setRewardCoupons(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as RewardCoupon)),
+      (error) => setMemberMessage(error.message)
+    );
+  }, [storeId]);
+
+  useEffect(() => {
+    if (!firebaseEnabled || !firestore || !member?.id) {
+      setMemberCoupons([]);
+      setSelectedCouponId("");
+      return;
+    }
+    return onSnapshot(
+      firestoreQuery(collection(firestore, "stores", storeId, "memberCoupons"), where("memberId", "==", member.id), where("status", "==", "unused"), limit(20)),
+      (snapshot) => setMemberCoupons(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as MemberCoupon)),
+      (error) => setMemberMessage(error.message)
+    );
+  }, [member?.id, storeId]);
 
   const store = db.stores.find((item) => item.id === storeId);
   const announcement = (store?.temporaryNotice || store?.notice || "").trim();
@@ -116,7 +141,9 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
     () => calculatePromotions(promotionLines, store?.features?.promotionEnabled === false ? [] : (db.promotions ?? []).filter((item) => item.storeId === storeId)),
     [db.promotions, promotionLines, store?.features?.promotionEnabled, storeId]
   );
-  const total = Math.max(0, cartSubtotal - promotionCalculation.discountTotal);
+  const selectedCoupon = memberCoupons.find((item) => item.id === selectedCouponId);
+  const couponDiscount = selectedCoupon?.type === "discount" ? Math.min(selectedCoupon.discountAmount ?? 0, Math.max(0, cartSubtotal - promotionCalculation.discountTotal)) : 0;
+  const total = Math.max(0, cartSubtotal - promotionCalculation.discountTotal - couponDiscount);
 
   useEffect(() => {
     if (!lastOrderId) {
@@ -182,6 +209,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
         memberPhone: member?.phone,
         memberName: member?.name,
         ...(member ? { customer: { customerId: member.id, memberNo: member.memberNo, name: member.name, phone: member.phone } } : {}),
+        ...(selectedCoupon ? { couponId: selectedCoupon.id, couponTitle: selectedCoupon.title, couponDiscountAmount: couponDiscount } : {}),
         promotionDiscounts: promotionCalculation.appliedPromotions,
         ...(promotionCalculation.discountTotal > 0 ? {
           discountSummary: {
@@ -210,6 +238,9 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
           itemNote: line.note
         }))
       });
+      if (selectedCoupon && firebaseEnabled && firestore) {
+        await updateDoc(doc(firestore, "stores", storeId, "memberCoupons", selectedCoupon.id), { status: "used", usedAt: new Date().toISOString() });
+      }
       setLastOrderId(order.id);
       window.localStorage.setItem(`lastOrderId:${storeId}`, order.id);
       console.log("[QR Order Created]", {
@@ -225,6 +256,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
       setLiveOrder(null);
       setOrderListenError("");
       setCart([]);
+      setSelectedCouponId("");
       setCustomerNote("");
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (writeError) {
@@ -245,6 +277,8 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
         const next = { id: found.id, ...found.data() } as Customer;
         setMember(next);
         window.localStorage.setItem(`qr-member-id:${storeId}`, next.id);
+        window.localStorage.setItem(`qr-member-phone:${storeId}`, next.phone);
+        window.localStorage.setItem(`qr-member-store:${storeId}`, storeId);
         setMemberMessage("已帶入會員資料");
       } else {
         setMember(null);
@@ -285,9 +319,59 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
       await setDoc(memberRef, next);
       setMember(next);
       window.localStorage.setItem(`qr-member-id:${storeId}`, next.id);
+      window.localStorage.setItem(`qr-member-phone:${storeId}`, next.phone);
+      window.localStorage.setItem(`qr-member-store:${storeId}`, storeId);
       setMemberMessage("會員建立成功");
     } catch (err) {
       setMemberMessage(err instanceof Error ? err.message : "建立會員失敗");
+    } finally {
+      setMemberLoading(false);
+    }
+  }
+
+  async function redeemCoupon(coupon: RewardCoupon) {
+    if (!member || !firebaseEnabled || !firestore || member.points < coupon.pointsCost) return;
+    setMemberLoading(true);
+    setMemberMessage("");
+    try {
+      const now = new Date().toISOString();
+      const memberCouponRef = doc(collection(firestore, "stores", storeId, "memberCoupons"));
+      const transactionRef = doc(collection(firestore, "stores", storeId, "memberTransactions"));
+      const afterPoints = Math.max(0, member.points - coupon.pointsCost);
+      await Promise.all([
+        updateDoc(doc(firestore, "stores", storeId, "members", member.id), { points: afterPoints, updatedAt: now }),
+        setDoc(transactionRef, {
+          id: transactionRef.id,
+          storeId,
+          customerId: member.id,
+          memberId: member.id,
+          memberName: member.name,
+          type: "points_use",
+          amount: 0,
+          beforeBalance: member.balance ?? member.storedValueBalance ?? 0,
+          afterBalance: member.balance ?? member.storedValueBalance ?? 0,
+          beforePoints: member.points,
+          afterPoints,
+          note: `兌換 ${coupon.title}`,
+          createdAt: now
+        }),
+        setDoc(memberCouponRef, {
+          id: memberCouponRef.id,
+          storeId,
+          memberId: member.id,
+          couponId: coupon.id,
+          title: coupon.title,
+          type: coupon.type,
+          discountAmount: coupon.discountAmount,
+          exchangeItemName: coupon.exchangeItemName,
+          status: "unused",
+          createdAt: now
+        })
+      ]);
+      setMember({ ...member, points: afterPoints });
+      setMemberMessage("兌換成功，可在購物車使用。");
+    } catch (err) {
+      setMemberMessage(err instanceof Error ? err.message : "兌換失敗");
     } finally {
       setMemberLoading(false);
     }
@@ -358,6 +442,26 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
             {member ? (
               <div className="mt-3 rounded-lg bg-blue-50 p-3">
                 <p className="font-black text-ink">{member.name} <span className="text-sm font-bold text-steel">({member.phone})</span></p>
+                <p className="text-sm font-bold text-steel">點數：{member.points} ｜ 儲值金：${member.balance ?? member.storedValueBalance}</p>
+                {rewardCoupons.length > 0 && (
+                  <div className="mt-3 grid gap-2">
+                    <p className="text-xs font-black text-blue-800">點數兌換券</p>
+                    {rewardCoupons.map((coupon) => (
+                      <button key={coupon.id} onClick={() => redeemCoupon(coupon)} disabled={memberLoading || member.points < coupon.pointsCost} className="rounded-lg bg-white px-3 py-2 text-left text-xs font-black text-ink disabled:opacity-50">
+                        {coupon.title} ｜ {coupon.pointsCost} 點{coupon.type === "discount" ? ` ｜ 折 $${coupon.discountAmount}` : ` ｜ ${coupon.exchangeItemName ?? "兌換品"}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {memberCoupons.length > 0 && (
+                  <label className="mt-3 block text-xs font-black text-blue-800">
+                    可用券
+                    <select value={selectedCouponId} onChange={(event) => setSelectedCouponId(event.target.value)} className="mt-1 w-full rounded-lg border border-blue-100 bg-white px-3 py-2 text-sm font-bold">
+                      <option value="">不使用</option>
+                      {memberCoupons.map((coupon) => <option key={coupon.id} value={coupon.id}>{coupon.title}{coupon.type === "discount" ? ` -$${coupon.discountAmount ?? 0}` : `（${coupon.exchangeItemName ?? "兌換券"}）`}</option>)}
+                    </select>
+                  </label>
+                )}
                 <p className="text-sm font-bold text-steel">點數：{member.points} ｜ 儲值金：${member.balance ?? member.storedValueBalance}</p>
               </div>
             ) : (
