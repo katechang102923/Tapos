@@ -1376,6 +1376,20 @@ export function useDemoStore(options: StoreOptions = {}) {
     return db.stores.find((store) => store.id === targetStoreId)?.memberRules ?? defaultMemberRules;
   }
 
+  async function upsertMemberRules(targetStoreId: string, rules: MemberRules) {
+    if (firebaseEnabled && firestore) {
+      await setDoc(doc(firestore, "stores", targetStoreId, "settings", "memberRules"), { ...rules, updatedAt: new Date().toISOString() }, { merge: true });
+      return;
+    }
+    setDb((current) => {
+      const existing = (current.memberRules ?? []).find((r) => (r as MemberRules & { storeId?: string }).storeId === targetStoreId);
+      if (existing) {
+        return { ...current, memberRules: (current.memberRules ?? []).map((r) => (r as MemberRules & { storeId?: string }).storeId === targetStoreId ? { ...rules, storeId: targetStoreId } : r) };
+      }
+      return { ...current, memberRules: [...(current.memberRules ?? []), { ...rules, storeId: targetStoreId }] };
+    });
+  }
+
   /**
    * Mark records older than retentionMonths as archive-eligible.
    * Does NOT delete them. Collections: orders, cashFlows, pointLogs, storedValueLogs.
@@ -1527,6 +1541,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     updateCustomerOrderStats,
     getCalculatePointsEarned,
     loadMemberRules,
+    upsertMemberRules,
     markRecordsForArchive,
     updateDailyReportBackup,
   };

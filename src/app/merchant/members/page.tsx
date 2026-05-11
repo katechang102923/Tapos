@@ -96,9 +96,6 @@ function MembersContent({
   // Tab
   const [activeTab, setActiveTab] = useState<"users" | "rules">("users");
 
-  // Tab
-  const [activeTab, setActiveTab] = useState<"users" | "rules">("users");
-
   const roleMemberRoles: StoreMemberRole[] = ["owner", "manager", "staff"];
 
   function userKey(userId: string) {

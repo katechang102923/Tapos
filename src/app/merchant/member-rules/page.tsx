@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { collection, deleteDoc, doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { LoginGate } from "@/components/auth/login-gate";
 import { firebaseEnabled, firestore } from "@/lib/firebase";
@@ -45,7 +47,7 @@ function MemberRulesContent({ storeId }: { storeId: string }) {
     };
   }, [storeId]);
 
-  const sortedCoupons = useMemo(() => [...coupons].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [coupons]);
+  const sortedCoupons = useMemo(() => [...coupons].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")), [coupons]);
 
   async function saveRules() {
     if (!firestore || !storeId) return;
@@ -87,6 +89,13 @@ function MemberRulesContent({ storeId }: { storeId: string }) {
 
   return (
     <main className="min-h-screen bg-[#fff7e8] p-4 text-ink sm:p-6">
+      <div className="mx-auto max-w-6xl">
+        <div className="mb-4 flex items-center gap-3">
+          <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-white px-3 py-2 text-sm font-black text-steel shadow-sm hover:text-ink">
+            <ArrowLeft className="size-4" />返回後台
+          </Link>
+        </div>
+      </div>
       <div className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-[1fr_420px]">
         <section className="rounded-lg bg-white p-5 shadow-sm">
           <p className="text-sm font-black text-leaf">會員設定</p>

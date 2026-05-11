@@ -1,7 +1,8 @@
 ﻿"use client";
 
 import { useMemo, useState } from "react";
-import { Contact, Plus, Search, X } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, Contact, Plus, Search, X } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { resolvePermissions } from "@/lib/permissions";
@@ -202,6 +203,7 @@ function CustomersContent({ storeId, storeIds, db, profile, permissions, isAdmin
               </select>
             )}
             <button onClick={() => setShowAddForm(true)} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-4 py-3 font-black text-white"><Plus className="size-5" />新增會員</button>
+            <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 font-black text-white hover:bg-white/20"><ArrowLeft className="size-4" />返回後台</Link>
           </div>
         </header>
 

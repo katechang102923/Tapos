@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChefHat, Contact, Cpu, Gift, LayoutDashboard, Menu as MenuIcon, Plus, Power, QrCode, ReceiptText, Settings, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
+import { ArrowLeft, ChefHat, Contact, Cpu, Gift, LayoutDashboard, Menu as MenuIcon, Plus, Power, QrCode, ReceiptText, Settings, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { resolvePermissions, roleLabel, roleBadgeClass } from "@/lib/permissions";
@@ -123,6 +123,7 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
           {canManageStore && <SidebarItem href="/merchant/settings" icon={Settings} label="店家設定" />}
           {permissions.canManageUsers && <SidebarItem href="/merchant/members" icon={Users} label="帳號管理" />}
           {store?.features?.memberEnabled && permissions.canManageMembers && <SidebarItem href="/merchant/customers" icon={Contact} label="會員管理" />}
+          {store?.features?.memberEnabled && permissions.canManageMembers && <SidebarItem href="/merchant/member-rules" icon={Contact} label="會員規則設定" />}
           <Link href="/merchant/pos" className="inline-flex items-center gap-3 rounded-lg bg-leaf px-4 py-3 font-black text-white"><ShoppingCart className="size-5" />前往 POS 前台</Link>
           {store?.features?.kdsEnabled && (
             <Link href={`/kitchen/${selectedStoreId}`} className="inline-flex items-center gap-3 rounded-lg bg-white/10 px-4 py-3 font-black text-white hover:bg-white/20"><ChefHat className="size-5" />廚房 KDS</Link>
@@ -135,7 +136,7 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
           <div>
             <p className="text-sm font-black text-steel">{view === "dashboard" ? "店家後台設定" : "菜單分類管理"}</p>
             <h1 className="text-3xl font-black text-ink">{view === "dashboard" ? "設定中心" : "菜單管理"}</h1>
-            {storeIds.length > 1 && (
+            {profile.role === "admin" && storeIds.length > 1 && (
               <label className="mt-3 block text-sm font-bold text-steel">
                 選擇店家
                 <select value={selectedStoreId} onChange={(event) => setSelectedStoreId(event.target.value)} className="mt-1 block rounded-lg border border-stone-300 px-3 py-2 text-sm">
@@ -151,6 +152,7 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
           <div className="flex flex-wrap gap-2">
             {canManageStore && <StoreStatusButtons store={store} updateStore={updateStore} />}
             <button onClick={onSignOut} className="rounded-lg border border-orange-200 bg-white px-4 py-3 font-black text-steel">登出</button>
+            <Link href="/" className="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-white px-4 py-3 font-black text-steel hover:text-ink"><ArrowLeft className="size-5" />首頁</Link>
           </div>
         </header>
 

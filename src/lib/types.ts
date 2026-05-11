@@ -48,6 +48,9 @@ export type MemberRules = {
   earnAmount: number;
   earnPoints: number;
   pointValue: number;
+  spendAmountPerPoint?: number;
+  pointExpireDays?: number;
+  rewardCoupons?: RewardCoupon[];
   enableCouponExchange: boolean;
   birthdayRewardEnabled: boolean;
   birthdayRewardPoints: number;
@@ -109,15 +112,18 @@ export type StoredValueLog = {
 
 export type RewardCoupon = {
   id: string;
-  storeId: string;
+  storeId?: string;
   title: string;
-  type: "discount" | "exchange";
-  pointsCost: number;
-  discountAmount: number;
+  type: "discount" | "exchange" | "freeItem";
+  pointsRequired?: number;
+  pointsCost?: number;
+  discountAmount?: number;
+  freeItemId?: string;
   exchangeItemName?: string;
-  enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
+  isActive?: boolean;
+  enabled?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type MemberCoupon = {
@@ -619,6 +625,7 @@ export type DemoDatabase = {
   customers?: Customer[];
   pointLogs?: PointLog[];
   storedValueLogs?: StoredValueLog[];
+  memberRules?: MemberRules[];
   rewardCoupons?: RewardCoupon[];
   memberCoupons?: MemberCoupon[];
 };

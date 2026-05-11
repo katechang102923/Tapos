@@ -330,14 +330,15 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
   }
 
   async function redeemCoupon(coupon: RewardCoupon) {
-    if (!member || !firebaseEnabled || !firestore || member.points < coupon.pointsCost) return;
+    const couponCost = coupon.pointsCost ?? coupon.pointsRequired ?? 0;
+    if (!member || !firebaseEnabled || !firestore || member.points < couponCost) return;
     setMemberLoading(true);
     setMemberMessage("");
     try {
       const now = new Date().toISOString();
       const memberCouponRef = doc(collection(firestore, "stores", storeId, "memberCoupons"));
       const transactionRef = doc(collection(firestore, "stores", storeId, "memberTransactions"));
-      const afterPoints = Math.max(0, member.points - coupon.pointsCost);
+      const afterPoints = Math.max(0, member.points - couponCost);
       await Promise.all([
         updateDoc(doc(firestore, "stores", storeId, "members", member.id), { points: afterPoints, updatedAt: now }),
         setDoc(transactionRef, {
@@ -447,8 +448,8 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
                   <div className="mt-3 grid gap-2">
                     <p className="text-xs font-black text-blue-800">點數兌換券</p>
                     {rewardCoupons.map((coupon) => (
-                      <button key={coupon.id} onClick={() => redeemCoupon(coupon)} disabled={memberLoading || member.points < coupon.pointsCost} className="rounded-lg bg-white px-3 py-2 text-left text-xs font-black text-ink disabled:opacity-50">
-                        {coupon.title} ｜ {coupon.pointsCost} 點{coupon.type === "discount" ? ` ｜ 折 $${coupon.discountAmount}` : ` ｜ ${coupon.exchangeItemName ?? "兌換品"}`}
+                      <button key={coupon.id} onClick={() => redeemCoupon(coupon)} disabled={memberLoading || member.points < (coupon.pointsCost ?? coupon.pointsRequired ?? 0)} className="rounded-lg bg-white px-3 py-2 text-left text-xs font-black text-ink disabled:opacity-50">
+                        {coupon.title} ｜ {coupon.pointsCost ?? coupon.pointsRequired ?? 0} 點{coupon.type === "discount" ? ` ｜ 折 $${coupon.discountAmount}` : ` ｜ ${coupon.exchangeItemName ?? "兌換品"}`}
                       </button>
                     ))}
                   </div>
