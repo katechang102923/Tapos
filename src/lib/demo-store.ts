@@ -1083,6 +1083,57 @@ export function useDemoStore(options: StoreOptions = {}) {
     ]);
   }
 
+  async function softDeleteStore(storeId: string) {
+    const now = new Date().toISOString();
+    const deletedBy = auth?.currentUser?.uid ?? null;
+    const patch = {
+      isDeleted: true,
+      status: "deleted" as const,
+      deletedAt: now,
+      deletedBy,
+      // Close the store so QR customers see the closed message immediately
+      isOpen: false,
+      orderStatus: "closed" as const
+    };
+    if (useFirestore && firestore) {
+      try {
+        await updateDoc(doc(firestore, "stores", storeId), patch);
+      } catch (writeError) {
+        setError(writeError instanceof Error ? writeError.message : "softDeleteStore failed");
+        throw writeError;
+      }
+      return;
+    }
+    setDb((current) => ({
+      ...current,
+      stores: current.stores.map((s) => s.id === storeId ? { ...s, ...patch } : s)
+    }));
+  }
+
+  async function restoreStore(storeId: string) {
+    const patch = {
+      isDeleted: false,
+      status: "active" as const,
+      deletedAt: null,
+      deletedBy: null,
+      isOpen: true,
+      orderStatus: "open" as const
+    };
+    if (useFirestore && firestore) {
+      try {
+        await updateDoc(doc(firestore, "stores", storeId), patch);
+      } catch (writeError) {
+        setError(writeError instanceof Error ? writeError.message : "restoreStore failed");
+        throw writeError;
+      }
+      return;
+    }
+    setDb((current) => ({
+      ...current,
+      stores: current.stores.map((s) => s.id === storeId ? { ...s, ...patch } : s)
+    }));
+  }
+
   async function updateStoreSubscription(
     targetStoreId: string,
     patch: {
@@ -1595,6 +1646,8 @@ export function useDemoStore(options: StoreOptions = {}) {
     updateDailyReportBackup,
     upsertSharedOptionGroup,
     deleteSharedOptionGroup,
+    softDeleteStore,
+    restoreStore,
   };
 }
 

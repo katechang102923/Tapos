@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArchiveRestore, ArrowLeft, Bell, Building2, CalendarClock, Contact, Gift, Infinity, Monitor, Search, ShieldCheck, Store, ToggleLeft, ToggleRight, Users, Wallet } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Bell, Building2, CalendarClock, Contact, Eye, EyeOff, Gift, Infinity, Monitor, RotateCcw, Search, ShieldCheck, Store, Trash2, ToggleLeft, ToggleRight, Users, Wallet } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { ROLE_LABELS, roleBadgeClass, roleLabel } from "@/lib/permissions";
@@ -26,8 +26,13 @@ export default function PlatformPage() {
 }
 
 function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
-  const { db, bindStoreUser, unbindStoreUser, upsertStore, updateStoreSubscription, markNotificationRead, markRecordsForArchive } = useDemoStore({ admin: true });
+  const {
+    db, bindStoreUser, unbindStoreUser, upsertStore, updateStoreSubscription,
+    markNotificationRead, markRecordsForArchive, softDeleteStore, restoreStore
+  } = useDemoStore({ admin: true });
+
   const [search, setSearch] = useState("");
+  const [showDeleted, setShowDeleted] = useState(false);
   const [notifSearch, setNotifSearch] = useState("");
   const [bindingEmail, setBindingEmail] = useState<Record<string, string>>({});
   const [bindingRole, setBindingRole] = useState<Record<string, StoreMemberRole>>({});
@@ -39,11 +44,18 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [archiving, setArchiving] = useState<Record<string, boolean>>({});
   const [customRetentionOpen, setCustomRetentionOpen] = useState<Record<string, boolean>>({});
   const [customRetentionDate, setCustomRetentionDate] = useState<Record<string, string>>({});
+  /** Store pending deletion confirmation; null = modal closed */
+  const [deleteConfirm, setDeleteConfirm] = useState<StoreType | null>(null);
+  const [deleteConfirmChecked, setDeleteConfirmChecked] = useState(false);
+
+  const activeStores = useMemo(() => db.stores.filter((s) => !s.isDeleted), [db.stores]);
+  const deletedStores = useMemo(() => db.stores.filter((s) => s.isDeleted), [db.stores]);
 
   const filteredStores = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return db.stores.filter((s) => !q || s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q));
-  }, [db.stores, search]);
+    const pool = showDeleted ? db.stores : activeStores;
+    return pool.filter((s) => !q || s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q));
+  }, [db.stores, activeStores, search, showDeleted]);
 
   const linkedUserCount = useMemo(() => {
     const map = new Map<string, number>();
@@ -130,10 +142,7 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     setSaving(`sub-${store.id}`);
     setError("");
     try {
-      await updateStoreSubscription(store.id, {
-        subscriptionStatus: "active",
-        subscriptionEndsAt: newEndsAt
-      });
+      await updateStoreSubscription(store.id, { subscriptionStatus: "active", subscriptionEndsAt: newEndsAt });
       setMessage(`${store.name} 已延長至 ${newEndsAt}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "延長失敗");
@@ -244,6 +253,42 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     }
   }
 
+  // ─── Soft delete / restore ────────────────────────────────────────────────
+
+  function openDeleteConfirm(store: StoreType) {
+    setDeleteConfirm(store);
+    setDeleteConfirmChecked(false);
+  }
+
+  async function confirmSoftDelete() {
+    if (!deleteConfirm || !deleteConfirmChecked) return;
+    setSaving(`del-${deleteConfirm.id}`);
+    setError("");
+    try {
+      await softDeleteStore(deleteConfirm.id);
+      setMessage(`「${deleteConfirm.name}」已刪除。店家後台、POS、QR、KDS 已停止服務。`);
+      setDeleteConfirm(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "刪除失敗");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function handleRestoreStore(store: StoreType) {
+    if (!confirm(`確定恢復「${store.name}」？恢復後店家將重新開放服務。`)) return;
+    setSaving(`restore-${store.id}`);
+    setError("");
+    try {
+      await restoreStore(store.id);
+      setMessage(`「${store.name}」已恢復，服務重新開放。`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "恢復失敗");
+    } finally {
+      setSaving("");
+    }
+  }
+
   const roleMemberRoles: StoreMemberRole[] = ["owner", "manager", "staff", "viewer"];
 
   return (
@@ -270,15 +315,25 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           </div>
         </header>
 
+        {/* Stat cards */}
         <div className="mb-5 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-lg bg-[#1a1a1a] p-5"><p className="text-sm font-black text-white/50">店家總數</p><p className="mt-2 text-4xl font-black text-white">{db.stores.length}</p></div>
-          <div className="rounded-lg bg-[#1a1a1a] p-5"><p className="text-sm font-black text-white/50">帳號總數</p><p className="mt-2 text-4xl font-black text-white">{db.users.length}</p></div>
+          <div className="rounded-lg bg-[#1a1a1a] p-5">
+            <p className="text-sm font-black text-white/50">店家總數</p>
+            <p className="mt-2 text-4xl font-black text-white">{activeStores.length}</p>
+            {deletedStores.length > 0 && (
+              <p className="mt-1 text-xs font-bold text-white/30">已刪除 {deletedStores.length} 家（隱藏中）</p>
+            )}
+          </div>
+          <div className="rounded-lg bg-[#1a1a1a] p-5">
+            <p className="text-sm font-black text-white/50">帳號總數</p>
+            <p className="mt-2 text-4xl font-black text-white">{db.users.length}</p>
+          </div>
         </div>
 
         {message && <div className="mb-4 rounded-lg border border-leaf/30 bg-leaf/10 p-4 font-black text-leaf">{message}</div>}
         {error && <div className="mb-4 rounded-lg border border-tomato/30 bg-tomato/10 p-4 font-black text-tomato">{error}</div>}
 
-        {/* ── 新註冊通知 ── */}
+        {/* New registration notifications */}
         <section className="mb-6 rounded-lg bg-[#1a1a1a] p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -298,24 +353,18 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               />
             </div>
           </div>
-
           {notifications.length === 0 ? (
-            <p className="text-center text-sm font-bold text-white/30 py-6">
+            <p className="py-6 text-center text-sm font-bold text-white/30">
               {notifSearch ? "找不到符合的通知" : "尚無新的註冊申請"}
             </p>
           ) : (
             <div className="space-y-3">
               {notifications.map((notif) => (
-                <div
-                  key={notif.id}
-                  className={`rounded-lg p-4 ${notif.read ? "bg-white/5" : "border border-amber-500/30 bg-amber-500/10"}`}
-                >
+                <div key={notif.id} className={`rounded-lg p-4 ${notif.read ? "bg-white/5" : "border border-amber-500/30 bg-amber-500/10"}`}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        {!notif.read && (
-                          <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-black text-white">未讀</span>
-                        )}
+                        {!notif.read && <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-black text-white">未讀</span>}
                         <span className="font-black text-white">{notif.storeName}</span>
                         <span className="rounded bg-white/10 px-2 py-0.5 text-xs font-bold text-white/60">
                           {BUSINESS_TYPE_LABELS[notif.businessType] ?? notif.businessType}
@@ -326,26 +375,16 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                         <span className="mr-3">👤 {notif.contactName}</span>
                         <span>📞 {notif.phone}</span>
                       </p>
-                      {notif.address && (
-                        <p className="text-sm font-bold text-white/40">📍 {notif.address}</p>
-                      )}
-                      <p className="text-xs font-bold text-white/30">
-                        {new Date(notif.createdAt).toLocaleString("zh-TW")}
-                      </p>
+                      {notif.address && <p className="text-sm font-bold text-white/40">📍 {notif.address}</p>}
+                      <p className="text-xs font-bold text-white/30">{new Date(notif.createdAt).toLocaleString("zh-TW")}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {!notif.read && (
-                        <button
-                          onClick={() => handleMarkRead(notif.id)}
-                          className="rounded bg-white/10 px-3 py-1.5 text-xs font-black text-white/70 hover:bg-white/20"
-                        >
+                        <button onClick={() => handleMarkRead(notif.id)} className="rounded bg-white/10 px-3 py-1.5 text-xs font-black text-white/70 hover:bg-white/20">
                           標記已讀
                         </button>
                       )}
-                      <Link
-                        href={`/merchant/menu?storeId=${notif.storeId}`}
-                        className="rounded bg-leaf/20 px-3 py-1.5 text-xs font-black text-leaf hover:bg-leaf/30"
-                      >
+                      <Link href={`/merchant/menu?storeId=${notif.storeId}`} className="rounded bg-leaf/20 px-3 py-1.5 text-xs font-black text-leaf hover:bg-leaf/30">
                         前往店家管理
                       </Link>
                     </div>
@@ -356,11 +395,20 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           )}
         </section>
 
+        {/* Search + show-deleted toggle */}
         <div className="mb-5 flex items-center gap-3 rounded-lg bg-[#1a1a1a] px-4 py-3">
           <Search className="size-5 text-white/40" />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜尋店家名稱或 ID..." className="flex-1 bg-transparent font-bold text-white placeholder:text-white/30 focus:outline-none" />
+          <button
+            onClick={() => setShowDeleted((prev) => !prev)}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-black transition ${showDeleted ? "bg-tomato/20 text-tomato" : "bg-white/10 text-white/50 hover:bg-white/20"}`}
+          >
+            {showDeleted ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+            {showDeleted ? `顯示已刪除（${deletedStores.length}）` : "顯示已刪除店家"}
+          </button>
         </div>
 
+        {/* Store cards */}
         <div className="space-y-5">
           {filteredStores.length === 0 ? (
             <div className="rounded-lg bg-[#1a1a1a] p-12 text-center">
@@ -368,6 +416,7 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               <p className="mt-4 font-black text-white/40">找不到符合的店家</p>
             </div>
           ) : filteredStores.map((store) => {
+            const isDeleted = store.isDeleted === true;
             const users = storeUsers(store.id);
             const userCount = linkedUserCount.get(store.id) ?? 0;
             const subStatus = effectiveSubscriptionStatus(store);
@@ -375,8 +424,36 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
             const subOpen = subEditorOpen[store.id] ?? false;
             const subF = subForm[store.id];
             const isSavingSub = saving === `sub-${store.id}`;
+            const isDeleting = saving === `del-${store.id}`;
+            const isRestoring = saving === `restore-${store.id}`;
+
             return (
-              <div key={store.id} className="rounded-lg bg-[#1a1a1a] p-5">
+              <div key={store.id} className={`rounded-lg p-5 ${isDeleted ? "border border-tomato/20 bg-[#1a1a1a] opacity-70" : "bg-[#1a1a1a]"}`}>
+                {/* Deleted banner */}
+                {isDeleted && (
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-tomato/30 bg-tomato/10 px-4 py-3">
+                    <div>
+                      <span className="text-sm font-black text-tomato">已刪除店家</span>
+                      {store.deletedAt && (
+                        <span className="ml-3 text-xs font-bold text-tomato/60">
+                          刪除時間：{new Date(store.deletedAt).toLocaleString("zh-TW")}
+                        </span>
+                      )}
+                      {store.deletedBy && (
+                        <span className="ml-3 text-xs font-bold text-tomato/40">by {store.deletedBy}</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleRestoreStore(store)}
+                      disabled={isRestoring}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-leaf/20 px-3 py-2 text-sm font-black text-leaf hover:bg-leaf/30 disabled:opacity-40"
+                    >
+                      <RotateCcw className="size-4" />
+                      {isRestoring ? "恢復中…" : "恢復店家"}
+                    </button>
+                  </div>
+                )}
+
                 {/* Store header */}
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="flex items-start gap-4">
@@ -403,213 +480,259 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                       </div>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <span className="text-xs font-bold text-white/30 self-center">{retentionLabel(store)}</span>
-                  </div>
-                </div>
-
-                {/* Subscription management */}
-                <div className="mt-4 border-t border-white/10 pt-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="mr-1 text-xs font-black text-white/40">訂閱方案</p>
-                    <button onClick={() => extendSubscription(store, 7)} disabled={isSavingSub} className="rounded bg-white/10 px-2 py-1 text-xs font-black text-white/70 hover:bg-white/20 disabled:opacity-40">+7 天</button>
-                    <button onClick={() => extendSubscription(store, 30)} disabled={isSavingSub} className="rounded bg-white/10 px-2 py-1 text-xs font-black text-white/70 hover:bg-white/20 disabled:opacity-40">+30 天</button>
-                    <button onClick={() => extendSubscription(store, 90)} disabled={isSavingSub} className="rounded bg-white/10 px-2 py-1 text-xs font-black text-white/70 hover:bg-white/20 disabled:opacity-40">+90 天</button>
-                    {subStatus !== "suspended" ? (
-                      <button onClick={() => suspendStore(store)} disabled={isSavingSub} className="rounded bg-tomato/20 px-2 py-1 text-xs font-black text-tomato hover:bg-tomato/30 disabled:opacity-40">暫停店家</button>
-                    ) : (
-                      <button onClick={() => resumeStore(store)} disabled={isSavingSub} className="rounded bg-leaf/20 px-2 py-1 text-xs font-black text-leaf hover:bg-leaf/30 disabled:opacity-40">恢復店家</button>
+                    <span className="text-xs font-bold text-white/30">{retentionLabel(store)}</span>
+                    {!isDeleted && (
+                      <button
+                        onClick={() => openDeleteConfirm(store)}
+                        disabled={isDeleting}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-tomato/20 px-3 py-2 text-xs font-black text-tomato hover:bg-tomato/30 disabled:opacity-40"
+                      >
+                        <Trash2 className="size-3.5" />
+                        刪除店家
+                      </button>
                     )}
-                    <button onClick={() => openSubEditor(store)} className="rounded bg-white/10 px-2 py-1 text-xs font-black text-white/70 hover:bg-white/20">
-                      {subOpen ? "收起" : "自訂日期"}
-                    </button>
                   </div>
-                  {subOpen && subF !== undefined && (
-                    <div className="mt-3 rounded-lg bg-white/5 p-4 space-y-3">
-                      <div className="grid gap-3 sm:grid-cols-3">
-                        <label className="grid gap-1 text-xs font-black text-white/40">
-                          方案狀態
-                          <select
-                            value={subF.status}
-                            onChange={(e) => setSubForm((prev) => ({ ...prev, [store.id]: { ...prev[store.id], status: e.target.value as SubscriptionStatus } }))}
-                            className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white"
-                          >
-                            {(Object.keys(SUBSCRIPTION_STATUS_LABELS) as SubscriptionStatus[]).map((s) => (
-                              <option key={s} value={s}>{SUBSCRIPTION_STATUS_LABELS[s]}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="grid gap-1 text-xs font-black text-white/40">
-                          訂閱到期日
-                          <input
-                            type="date"
-                            value={subF.endsAt}
-                            onChange={(e) => setSubForm((prev) => ({ ...prev, [store.id]: { ...prev[store.id], endsAt: e.target.value } }))}
-                            className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white [color-scheme:dark]"
-                          />
-                        </label>
-                        <label className="grid gap-1 text-xs font-black text-white/40">
-                          試用到期日
-                          <input
-                            type="date"
-                            value={subF.trialEndsAt}
-                            onChange={(e) => setSubForm((prev) => ({ ...prev, [store.id]: { ...prev[store.id], trialEndsAt: e.target.value } }))}
-                            className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white [color-scheme:dark]"
-                          />
-                        </label>
-                      </div>
-                      <button
-                        onClick={() => saveSubscription(store)}
-                        disabled={isSavingSub}
-                        className="rounded-lg bg-leaf px-3 py-2 text-xs font-black text-white disabled:opacity-60"
-                      >
-                        {isSavingSub ? "儲存中..." : "儲存訂閱設定"}
-                      </button>
-                    </div>
-                  )}
                 </div>
 
-                {/* Feature toggles */}
-                <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
-                  <p className="w-full text-xs font-black text-white/40">功能開關</p>
-                  {(
-                    [
-                      { key: "kdsEnabled" as const, label: "廚房 KDS", icon: Monitor },
-                      { key: "promotionEnabled" as const, label: "促銷活動", icon: Gift },
-                      { key: "dailyReportEnabled" as const, label: "日報表", icon: Store },
-                      { key: "cashFlowEnabled" as const, label: "現金流", icon: Store },
-                      { key: "memberEnabled" as const, label: "會員功能", icon: Contact },
-                      { key: "memberStoredValueEnabled" as const, label: "儲值功能", icon: Wallet },
-                    ] as const
-                  ).map(({ key, label, icon: Icon }) => (
-                    <button
-                      key={key}
-                      onClick={() => toggleFeature(store, key)}
-                      className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-black ${store.features?.[key] ? "bg-leaf/20 text-leaf" : "bg-white/10 text-white/50"}`}
-                    >
-                      {store.features?.[key] ? <ToggleRight className="size-4" /> : <ToggleLeft className="size-4" />}
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Data retention settings */}
-                <div className="mt-4 border-t border-white/10 pt-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="w-full text-xs font-black text-white/40">
-                      資料保留策略
-                      <span className="ml-2 text-amber-400">目前：{retentionLabel(store)}</span>
-                    </p>
-                    {[3, 6, 12, 24].map((months) => {
-                      const active = store.dataRetentionMode !== "customDate" && store.dataRetentionMode !== "neverExpire" && (store.dataRetentionMonths ?? 6) === months;
-                      return (
-                        <button
-                          key={months}
-                          onClick={() => handleSetRetentionMonths(store, months)}
-                          className={`rounded px-2 py-1 text-xs font-black ${active ? "bg-amber-500/30 text-amber-400" : "bg-white/10 text-white/50 hover:bg-white/20"}`}
-                        >
-                          {months} 個月
+                {/* Skip management sections for deleted stores */}
+                {!isDeleted && (
+                  <>
+                    {/* Subscription management */}
+                    <div className="mt-4 border-t border-white/10 pt-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="mr-1 text-xs font-black text-white/40">訂閱方案</p>
+                        <button onClick={() => extendSubscription(store, 7)} disabled={isSavingSub} className="rounded bg-white/10 px-2 py-1 text-xs font-black text-white/70 hover:bg-white/20 disabled:opacity-40">+7 天</button>
+                        <button onClick={() => extendSubscription(store, 30)} disabled={isSavingSub} className="rounded bg-white/10 px-2 py-1 text-xs font-black text-white/70 hover:bg-white/20 disabled:opacity-40">+30 天</button>
+                        <button onClick={() => extendSubscription(store, 90)} disabled={isSavingSub} className="rounded bg-white/10 px-2 py-1 text-xs font-black text-white/70 hover:bg-white/20 disabled:opacity-40">+90 天</button>
+                        {subStatus !== "suspended" ? (
+                          <button onClick={() => suspendStore(store)} disabled={isSavingSub} className="rounded bg-tomato/20 px-2 py-1 text-xs font-black text-tomato hover:bg-tomato/30 disabled:opacity-40">暫停店家</button>
+                        ) : (
+                          <button onClick={() => resumeStore(store)} disabled={isSavingSub} className="rounded bg-leaf/20 px-2 py-1 text-xs font-black text-leaf hover:bg-leaf/30 disabled:opacity-40">恢復店家</button>
+                        )}
+                        <button onClick={() => openSubEditor(store)} className="rounded bg-white/10 px-2 py-1 text-xs font-black text-white/70 hover:bg-white/20">
+                          {subOpen ? "收起" : "自訂日期"}
                         </button>
-                      );
-                    })}
-                    <button
-                      onClick={() => setCustomRetentionOpen((prev) => ({ ...prev, [store.id]: !prev[store.id] }))}
-                      className={`rounded px-2 py-1 text-xs font-black ${store.dataRetentionMode === "customDate" ? "bg-amber-500/30 text-amber-400" : "bg-white/10 text-white/50 hover:bg-white/20"}`}
-                    >
-                      自訂日期
-                    </button>
-                    <button
-                      onClick={() => handleSetRetentionNever(store)}
-                      className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-black ${store.dataRetentionMode === "neverExpire" ? "bg-amber-500/30 text-amber-400" : "bg-white/10 text-white/50 hover:bg-white/20"}`}
-                    >
-                      <Infinity className="size-3" />
-                      無使用期限
-                    </button>
-                    <button
-                      onClick={() => handleMarkArchive(store)}
-                      disabled={archiving[store.id] || store.dataRetentionMode === "neverExpire"}
-                      className="inline-flex items-center gap-1.5 rounded bg-tomato/20 px-3 py-1.5 text-xs font-black text-tomato hover:bg-tomato/30 disabled:opacity-40"
-                    >
-                      <ArchiveRestore className="size-3.5" />
-                      {archiving[store.id] ? "封存中…" : "立即封存舊資料"}
-                    </button>
-                  </div>
-                  {customRetentionOpen[store.id] && (
-                    <div className="mt-2 flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
-                      <span className="text-xs font-black text-white/40">保留至</span>
-                      <input
-                        type="date"
-                        value={customRetentionDate[store.id] ?? store.dataRetentionUntil?.slice(0, 10) ?? ""}
-                        onChange={(e) => setCustomRetentionDate((prev) => ({ ...prev, [store.id]: e.target.value }))}
-                        className="rounded bg-white/10 px-2 py-1 text-xs font-bold text-white [color-scheme:dark]"
-                      />
-                      <button
-                        onClick={() => handleSetRetentionCustomDate(store)}
-                        disabled={!customRetentionDate[store.id]}
-                        className="rounded bg-leaf px-3 py-1 text-xs font-black text-white disabled:opacity-40"
-                      >
-                        確認
-                      </button>
-                      <button
-                        onClick={() => setCustomRetentionOpen((prev) => ({ ...prev, [store.id]: false }))}
-                        className="rounded bg-white/10 px-2 py-1 text-xs font-black text-white/50"
-                      >
-                        取消
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Bound users — read-only summary, full management is in merchant members page */}
-                {users.length > 0 && (
-                  <div className="mt-4 border-t border-white/10 pt-4">
-                    <p className="mb-2 text-xs font-black text-white/40">已綁定帳號（詳細權限請由店家後台 → 帳號管理設定）</p>
-                    <div className="flex flex-wrap gap-2">
-                      {users.map((user) => {
-                        const userStoreRole = (user.storeRoles?.[store.id] ?? user.memberships?.[store.id] ?? null) as StoreMemberRole | null;
-                        return (
-                          <div key={user.id} className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-1.5">
-                            <span className="text-sm font-bold text-white">{user.email}</span>
-                            {userStoreRole && (
-                              <span className={`rounded px-1.5 py-0.5 text-xs font-black ${roleBadgeClass(userStoreRole)}`}>{roleLabel(userStoreRole)}</span>
-                            )}
-                            <button onClick={() => handleUnbind(user.id, store.id, user.email)} className="text-xs font-black text-tomato hover:underline">解除</button>
+                      </div>
+                      {subOpen && subF !== undefined && (
+                        <div className="mt-3 space-y-3 rounded-lg bg-white/5 p-4">
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <label className="grid gap-1 text-xs font-black text-white/40">
+                              方案狀態
+                              <select
+                                value={subF.status}
+                                onChange={(e) => setSubForm((prev) => ({ ...prev, [store.id]: { ...prev[store.id], status: e.target.value as SubscriptionStatus } }))}
+                                className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white"
+                              >
+                                {(Object.keys(SUBSCRIPTION_STATUS_LABELS) as SubscriptionStatus[]).map((s) => (
+                                  <option key={s} value={s}>{SUBSCRIPTION_STATUS_LABELS[s]}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="grid gap-1 text-xs font-black text-white/40">
+                              訂閱到期日
+                              <input type="date" value={subF.endsAt} onChange={(e) => setSubForm((prev) => ({ ...prev, [store.id]: { ...prev[store.id], endsAt: e.target.value } }))} className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white [color-scheme:dark]" />
+                            </label>
+                            <label className="grid gap-1 text-xs font-black text-white/40">
+                              試用到期日
+                              <input type="date" value={subF.trialEndsAt} onChange={(e) => setSubForm((prev) => ({ ...prev, [store.id]: { ...prev[store.id], trialEndsAt: e.target.value } }))} className="rounded bg-white/10 px-2 py-1.5 text-sm font-bold text-white [color-scheme:dark]" />
+                            </label>
                           </div>
-                        );
-                      })}
+                          <button onClick={() => saveSubscription(store)} disabled={isSavingSub} className="rounded-lg bg-leaf px-3 py-2 text-xs font-black text-white disabled:opacity-60">
+                            {isSavingSub ? "儲存中..." : "儲存訂閱設定"}
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
 
-                {/* Bind form */}
-                <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
-                  <p className="w-full text-xs font-black text-white/40">綁定帳號</p>
-                  <input
-                    value={bindingEmail[store.id] ?? ""}
-                    onChange={(e) => setBindingEmail((prev) => ({ ...prev, [store.id]: e.target.value }))}
-                    placeholder="輸入帳號 email..."
-                    className="flex-1 min-w-48 rounded-lg bg-white/10 px-3 py-2 text-sm font-bold text-white placeholder:text-white/30 focus:outline-none"
-                  />
-                  <select
-                    value={bindingRole[store.id] ?? "staff"}
-                    onChange={(e) => setBindingRole((prev) => ({ ...prev, [store.id]: e.target.value as StoreMemberRole }))}
-                    className="rounded-lg bg-white/10 px-3 py-2 text-sm font-bold text-white"
-                  >
-                    {roleMemberRoles.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-                  </select>
-                  <button
-                    onClick={() => handleBind(store.id)}
-                    disabled={saving === `bind-${store.id}`}
-                    className="rounded-lg bg-leaf px-4 py-2 text-sm font-black text-white disabled:opacity-60"
-                  >
-                    {saving === `bind-${store.id}` ? "綁定中..." : "綁定"}
-                  </button>
-                </div>
+                    {/* Feature toggles */}
+                    <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
+                      <p className="w-full text-xs font-black text-white/40">功能開關</p>
+                      {(
+                        [
+                          { key: "kdsEnabled" as const, label: "廚房 KDS", icon: Monitor },
+                          { key: "promotionEnabled" as const, label: "促銷活動", icon: Gift },
+                          { key: "dailyReportEnabled" as const, label: "日報表", icon: Store },
+                          { key: "cashFlowEnabled" as const, label: "現金流", icon: Store },
+                          { key: "memberEnabled" as const, label: "會員功能", icon: Contact },
+                          { key: "memberStoredValueEnabled" as const, label: "儲值功能", icon: Wallet },
+                        ] as const
+                      ).map(({ key, label, icon: Icon }) => (
+                        <button
+                          key={key}
+                          onClick={() => toggleFeature(store, key)}
+                          className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-black ${store.features?.[key] ? "bg-leaf/20 text-leaf" : "bg-white/10 text-white/50"}`}
+                        >
+                          {store.features?.[key] ? <ToggleRight className="size-4" /> : <ToggleLeft className="size-4" />}
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Data retention */}
+                    <div className="mt-4 border-t border-white/10 pt-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="w-full text-xs font-black text-white/40">
+                          資料保留策略
+                          <span className="ml-2 text-amber-400">目前：{retentionLabel(store)}</span>
+                        </p>
+                        {[3, 6, 12, 24].map((months) => {
+                          const active = store.dataRetentionMode !== "customDate" && store.dataRetentionMode !== "neverExpire" && (store.dataRetentionMonths ?? 6) === months;
+                          return (
+                            <button key={months} onClick={() => handleSetRetentionMonths(store, months)} className={`rounded px-2 py-1 text-xs font-black ${active ? "bg-amber-500/30 text-amber-400" : "bg-white/10 text-white/50 hover:bg-white/20"}`}>
+                              {months} 個月
+                            </button>
+                          );
+                        })}
+                        <button
+                          onClick={() => setCustomRetentionOpen((prev) => ({ ...prev, [store.id]: !prev[store.id] }))}
+                          className={`rounded px-2 py-1 text-xs font-black ${store.dataRetentionMode === "customDate" ? "bg-amber-500/30 text-amber-400" : "bg-white/10 text-white/50 hover:bg-white/20"}`}
+                        >
+                          自訂日期
+                        </button>
+                        <button
+                          onClick={() => handleSetRetentionNever(store)}
+                          className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-black ${store.dataRetentionMode === "neverExpire" ? "bg-amber-500/30 text-amber-400" : "bg-white/10 text-white/50 hover:bg-white/20"}`}
+                        >
+                          <Infinity className="size-3" />無使用期限
+                        </button>
+                        <button
+                          onClick={() => handleMarkArchive(store)}
+                          disabled={archiving[store.id] || store.dataRetentionMode === "neverExpire"}
+                          className="inline-flex items-center gap-1.5 rounded bg-tomato/20 px-3 py-1.5 text-xs font-black text-tomato hover:bg-tomato/30 disabled:opacity-40"
+                        >
+                          <ArchiveRestore className="size-3.5" />
+                          {archiving[store.id] ? "封存中…" : "立即封存舊資料"}
+                        </button>
+                      </div>
+                      {customRetentionOpen[store.id] && (
+                        <div className="mt-2 flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
+                          <span className="text-xs font-black text-white/40">保留至</span>
+                          <input
+                            type="date"
+                            value={customRetentionDate[store.id] ?? store.dataRetentionUntil?.slice(0, 10) ?? ""}
+                            onChange={(e) => setCustomRetentionDate((prev) => ({ ...prev, [store.id]: e.target.value }))}
+                            className="rounded bg-white/10 px-2 py-1 text-xs font-bold text-white [color-scheme:dark]"
+                          />
+                          <button onClick={() => handleSetRetentionCustomDate(store)} disabled={!customRetentionDate[store.id]} className="rounded bg-leaf px-3 py-1 text-xs font-black text-white disabled:opacity-40">確認</button>
+                          <button onClick={() => setCustomRetentionOpen((prev) => ({ ...prev, [store.id]: false }))} className="rounded bg-white/10 px-2 py-1 text-xs font-black text-white/50">取消</button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Bound users */}
+                    {users.length > 0 && (
+                      <div className="mt-4 border-t border-white/10 pt-4">
+                        <p className="mb-2 text-xs font-black text-white/40">已綁定帳號（詳細權限請由店家後台 → 帳號管理設定）</p>
+                        <div className="flex flex-wrap gap-2">
+                          {users.map((user) => {
+                            const userStoreRole = (user.storeRoles?.[store.id] ?? user.memberships?.[store.id] ?? null) as StoreMemberRole | null;
+                            return (
+                              <div key={user.id} className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-1.5">
+                                <span className="text-sm font-bold text-white">{user.email}</span>
+                                {userStoreRole && (
+                                  <span className={`rounded px-1.5 py-0.5 text-xs font-black ${roleBadgeClass(userStoreRole)}`}>{roleLabel(userStoreRole)}</span>
+                                )}
+                                <button onClick={() => handleUnbind(user.id, store.id, user.email)} className="text-xs font-black text-tomato hover:underline">解除</button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Bind form */}
+                    <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4">
+                      <p className="w-full text-xs font-black text-white/40">綁定帳號</p>
+                      <input
+                        value={bindingEmail[store.id] ?? ""}
+                        onChange={(e) => setBindingEmail((prev) => ({ ...prev, [store.id]: e.target.value }))}
+                        placeholder="輸入帳號 email..."
+                        className="min-w-48 flex-1 rounded-lg bg-white/10 px-3 py-2 text-sm font-bold text-white placeholder:text-white/30 focus:outline-none"
+                      />
+                      <select
+                        value={bindingRole[store.id] ?? "staff"}
+                        onChange={(e) => setBindingRole((prev) => ({ ...prev, [store.id]: e.target.value as StoreMemberRole }))}
+                        className="rounded-lg bg-white/10 px-3 py-2 text-sm font-bold text-white"
+                      >
+                        {roleMemberRoles.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+                      </select>
+                      <button
+                        onClick={() => handleBind(store.id)}
+                        disabled={saving === `bind-${store.id}`}
+                        className="rounded-lg bg-leaf px-4 py-2 text-sm font-black text-white disabled:opacity-60"
+                      >
+                        {saving === `bind-${store.id}` ? "綁定中..." : "綁定"}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             );
           })}
         </div>
       </div>
+
+      {/* Delete confirmation modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-xl bg-[#1a1a1a] p-6 shadow-2xl">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="grid size-12 place-items-center rounded-lg bg-tomato/20">
+                <Trash2 className="size-6 text-tomato" />
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-white">確認刪除店家</h2>
+                <p className="text-sm font-bold text-white/50">此操作可由管理員恢復</p>
+              </div>
+            </div>
+
+            <div className="mb-5 rounded-lg border border-tomato/30 bg-tomato/10 p-4">
+              <p className="text-lg font-black text-white">{deleteConfirm.name}</p>
+              <p className="mt-0.5 text-xs font-bold text-white/40">{deleteConfirm.id}</p>
+            </div>
+
+            <div className="mb-5 space-y-2 text-sm font-bold text-white/60">
+              <p>刪除後將立即：</p>
+              <ul className="ml-4 list-disc space-y-1 text-white/50">
+                <li>店家後台無法登入</li>
+                <li>POS 系統停止服務</li>
+                <li>QR 點餐頁顯示「休息中」</li>
+                <li>KDS 廚房顯示停止服務</li>
+              </ul>
+              <p className="mt-3 text-white/40">資料保留，可由平台管理員隨時恢復。</p>
+            </div>
+
+            <label className="mb-5 flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-white/5 p-3">
+              <input
+                type="checkbox"
+                checked={deleteConfirmChecked}
+                onChange={(e) => setDeleteConfirmChecked(e.target.checked)}
+                className="mt-0.5 size-4 accent-tomato"
+              />
+              <span className="text-sm font-bold text-white/70">
+                我確認要刪除「{deleteConfirm.name}」，並了解店家服務將立即中斷
+              </span>
+            </label>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1 rounded-lg bg-white/10 px-4 py-3 font-black text-white/70 hover:bg-white/20"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmSoftDelete}
+                disabled={!deleteConfirmChecked || saving === `del-${deleteConfirm.id}`}
+                className="flex-1 rounded-lg bg-tomato px-4 py-3 font-black text-white disabled:opacity-40"
+              >
+                {saving === `del-${deleteConfirm.id}` ? "刪除中…" : "確認刪除"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

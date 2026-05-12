@@ -225,6 +225,11 @@ export type Store = {
   memberSettings?: MemberSettings;
   memberRules?: MemberRules;
   createdAt: string;
+  /** Soft-delete fields — set by platform admin only, never by store owners */
+  status?: "active" | "deleted";
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
 };
 
 export type User = {
