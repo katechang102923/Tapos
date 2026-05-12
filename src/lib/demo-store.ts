@@ -89,6 +89,74 @@ function stripUndefined<T>(value: T): T {
   ) as T;
 }
 
+function sanitizeProduct(product: Product): Product {
+  const sanitize = (val: unknown): unknown => {
+    if (val === undefined) return null;
+    if (Array.isArray(val)) return val.map(sanitize);
+    if (val && typeof val === "object") {
+      return Object.fromEntries(
+        Object.entries(val as Record<string, unknown>)
+          .filter(([, v]) => v !== undefined)
+          .map(([k, v]) => [k, sanitize(v)])
+      );
+    }
+    return val;
+  };
+
+  return {
+    ...product,
+    optionGroups: (product.optionGroups ?? []).map((group) => ({
+      id: group.id,
+      name: group.name,
+      required: group.required ?? false,
+      minSelect: group.minSelect ?? 0,
+      maxSelect: group.maxSelect ?? 1,
+      options: (group.options ?? []).map((opt) => ({
+        id: opt.id,
+        name: opt.name,
+        priceDelta: opt.priceDelta ?? 0,
+        isAvailable: opt.isAvailable ?? true,
+        childGroupIds: opt.childGroupIds ?? [],
+        children: opt.children ? (opt.children as ProductOptionGroup[]).map((c) => sanitizeOptionGroup(c)) : undefined
+      }))
+    }))
+  } as Product;
+}
+
+function sanitizeOptionGroup(group: ProductOptionGroup): ProductOptionGroup {
+  return {
+    id: group.id,
+    name: group.name,
+    required: group.required ?? false,
+    minSelect: group.minSelect ?? 0,
+    maxSelect: group.maxSelect ?? 1,
+    options: (group.options ?? []).map((opt) => ({
+      id: opt.id,
+      name: opt.name,
+      priceDelta: opt.priceDelta ?? 0,
+      isAvailable: opt.isAvailable ?? true,
+      childGroupIds: opt.childGroupIds ?? [],
+      children: opt.children ? opt.children.map((c) => sanitizeOptionGroup(c)) : undefined
+    }))
+  };
+}
+
+function sanitizeSharedOptionGroup(group: SharedOptionGroup): SharedOptionGroup {
+  return {
+    ...group,
+    required: group.required ?? false,
+    minSelect: group.minSelect ?? 0,
+    maxSelect: group.maxSelect ?? 1,
+    options: (group.options ?? []).map((opt) => ({
+      id: opt.id,
+      name: opt.name,
+      priceDelta: opt.priceDelta ?? 0,
+      isAvailable: opt.isAvailable ?? true,
+      childGroupIds: opt.childGroupIds ?? []
+    }))
+  };
+}
+
 function isStoreClosed(store?: Store) {
   return !store || !store.isOpen || store.orderStatus === "closed";
 }
