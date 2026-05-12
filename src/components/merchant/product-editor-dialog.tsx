@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Link2, Plus } from "lucide-react";
 import type { Category, Product, ProductOptionChoice, ProductOptionGroup, SharedOptionGroup } from "@/lib/types";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 
@@ -124,7 +124,7 @@ export function ProductEditorDialog({
             <div className="flex flex-col gap-3 border-b border-orange-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-xl font-black">多層菜單選項設定</h3>
-                <p className="mt-1 text-sm font-bold text-steel">可設定調味、升級套餐、套餐飲料、點心與加料。選項底下可以繼續新增子群組。</p>
+                <p className="mt-1 text-sm font-bold text-steel">可設定調味、升級套餐、套餐飲料、點心與加料。選項底下可繼續新增子群組或連結共用群組。</p>
               </div>
               <button onClick={addOptionGroup} className="inline-flex items-center justify-center gap-2 rounded-lg bg-leaf px-4 py-3 font-black text-white">
                 <Plus className="size-4" />
@@ -144,6 +144,7 @@ export function ProductEditorDialog({
                   key={group.id}
                   group={group}
                   depth={0}
+                  isShared={false}
                   sharedGroups={sharedGroups}
                   addChildGroup={addChildGroup}
                   addGroupOption={addGroupOption}
@@ -161,9 +162,10 @@ export function ProductEditorDialog({
   );
 }
 
-function OptionGroupEditor({
+export function OptionGroupEditor({
   group,
   depth,
+  isShared,
   sharedGroups,
   addChildGroup,
   addGroupOption,
@@ -174,6 +176,7 @@ function OptionGroupEditor({
 }: {
   group: ProductOptionGroup;
   depth: number;
+  isShared: boolean;
   sharedGroups: SharedOptionGroup[];
   addChildGroup: (groupId: string, optionId: string) => void;
   addGroupOption: (groupId: string) => void;
@@ -183,6 +186,7 @@ function OptionGroupEditor({
   updateOptionGroup: (groupId: string, patch: Partial<ProductOptionGroup>) => void;
 }) {
   const [expanded, setExpanded] = useState(depth === 0);
+  const linkedGroupCount = group.options.reduce((sum, opt) => sum + (opt.childGroupIds?.length ?? 0), 0);
 
   return (
     <div className={`rounded-lg border ${depth === 0 ? "border-orange-200 bg-orange-50" : "border-orange-100 bg-white"}`}>
@@ -198,6 +202,17 @@ function OptionGroupEditor({
           <span className="text-xs font-bold text-steel">
             {group.required ? "必選" : "選填"} · {group.maxSelect <= 1 ? "單選" : `最多 ${group.maxSelect}`} · {group.options.length} 項
           </span>
+          {isShared && (
+            <span className="rounded bg-leaf/15 px-1.5 py-0.5 text-xs font-black text-leaf">共用群組</span>
+          )}
+          {!isShared && depth === 0 && (
+            <span className="rounded bg-orange-100 px-1.5 py-0.5 text-xs font-black text-steel">商品群組</span>
+          )}
+          {linkedGroupCount > 0 && (
+            <span className="flex items-center gap-0.5 rounded bg-leaf/10 px-1.5 py-0.5 text-xs font-bold text-leaf">
+              <Link2 className="size-3" />{linkedGroupCount} 共用
+            </span>
+          )}
         </button>
         <button
           type="button"
@@ -209,7 +224,7 @@ function OptionGroupEditor({
       </div>
 
       {expanded && (
-        <div className="border-t border-orange-100 p-3 space-y-3">
+        <div className="space-y-3 border-t border-orange-100 p-3">
           {/* Group settings */}
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="sm:col-span-2">
@@ -286,10 +301,11 @@ function OptionRow({
   const [childrenExpanded, setChildrenExpanded] = useState(false);
   const linkedIds = option.childGroupIds ?? [];
   const childGroups = option.children ?? [];
+  const linkedNames = sharedGroups.filter((sg) => linkedIds.includes(sg.id)).map((sg) => sg.name);
 
   return (
     <div className="rounded-lg border border-orange-100 bg-white">
-      {/* Compact option controls row */}
+      {/* Compact controls row */}
       <div className="flex flex-wrap items-center gap-1.5 p-2">
         <input
           type="text"
@@ -317,22 +333,15 @@ function OptionRow({
           可用
         </label>
 
-        {/* Shared group chips */}
-        {sharedGroups.map((sg) => {
-          const linked = linkedIds.includes(sg.id);
-          return (
-            <button
-              key={sg.id}
-              type="button"
-              onClick={() => updateGroupOption(groupId, option.id, {
-                childGroupIds: linked ? linkedIds.filter((id) => id !== sg.id) : [...linkedIds, sg.id]
-              })}
-              className={`rounded px-1.5 py-0.5 text-xs font-black ${linked ? "bg-leaf text-white" : "bg-orange-100 text-steel hover:bg-orange-200"}`}
-            >
-              {linked ? "✓ " : ""}{sg.name}
-            </button>
-          );
-        })}
+        {/* Quick preview of linked shared groups */}
+        {linkedNames.length > 0 && (
+          <div className="flex items-center gap-1">
+            <Link2 className="size-3 text-leaf" />
+            {linkedNames.map((name) => (
+              <span key={name} className="rounded bg-leaf/10 px-1 py-0.5 text-xs font-bold text-leaf">{name}</span>
+            ))}
+          </div>
+        )}
 
         <div className="ml-auto flex items-center gap-1">
           {childGroups.length > 0 && (
@@ -350,6 +359,7 @@ function OptionRow({
               type="button"
               onClick={() => { addChildGroup(groupId, option.id); setChildrenExpanded(true); }}
               className="rounded px-2 py-1 text-xs font-black text-steel hover:bg-orange-50"
+              title="新增商品專屬子群組"
             >
               +子群組
             </button>
@@ -364,14 +374,37 @@ function OptionRow({
         </div>
       </div>
 
-      {/* Child groups (collapsible) */}
+      {/* Shared group linking — dedicated row with clear label */}
+      {sharedGroups.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-orange-50 px-2 py-1.5">
+          <span className="shrink-0 text-xs font-black text-steel">連結共用群組：</span>
+          {sharedGroups.map((sg) => {
+            const linked = linkedIds.includes(sg.id);
+            return (
+              <button
+                key={sg.id}
+                type="button"
+                onClick={() => updateGroupOption(groupId, option.id, {
+                  childGroupIds: linked ? linkedIds.filter((id) => id !== sg.id) : [...linkedIds, sg.id]
+                })}
+                className={`rounded px-2 py-0.5 text-xs font-black transition ${linked ? "bg-leaf text-white" : "bg-orange-50 text-steel hover:bg-orange-100"}`}
+              >
+                {linked ? "✓ " : "+ "}{sg.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Inline child groups (product-specific) */}
       {childrenExpanded && childGroups.length > 0 && (
-        <div className="border-t border-orange-100 pl-4 pr-2 py-2 space-y-2">
+        <div className="space-y-2 border-t border-orange-100 py-2 pl-4 pr-2">
           {childGroups.map((child) => (
             <OptionGroupEditor
               key={child.id}
               group={child}
               depth={depth + 1}
+              isShared={false}
               sharedGroups={sharedGroups}
               addChildGroup={addChildGroup}
               addGroupOption={addGroupOption}

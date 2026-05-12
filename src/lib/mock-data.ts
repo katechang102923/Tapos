@@ -4,7 +4,7 @@ import type { DemoDatabase, SharedOptionGroup } from "./types";
 const sharedOptionGroups: SharedOptionGroup[] = [
   {
     id: "sg-ice",
-    name: "冰塊",
+    name: "冰量",
     required: true,
     minSelect: 1,
     maxSelect: 1,
@@ -19,7 +19,7 @@ const sharedOptionGroups: SharedOptionGroup[] = [
   },
   {
     id: "sg-sugar",
-    name: "甜度",
+    name: "糖度",
     required: true,
     minSelect: 1,
     maxSelect: 1,
@@ -27,7 +27,7 @@ const sharedOptionGroups: SharedOptionGroup[] = [
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     options: [
-      { id: "sg-sugar-normal", name: "正常甜", priceDelta: 0, isAvailable: true },
+      { id: "sg-sugar-normal", name: "正常糖", priceDelta: 0, isAvailable: true },
       { id: "sg-sugar-half", name: "半糖", priceDelta: 0, isAvailable: true },
       { id: "sg-sugar-none", name: "無糖", priceDelta: 0, isAvailable: true }
     ]
