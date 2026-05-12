@@ -22,7 +22,7 @@ import { auth, firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { AccessStatus, CashFlow, CashFlowItem, Category, Customer, DailyReport, DemoDatabase, Device, MemberCoupon, MemberRules, Order, OrderItem, OrderPayload, OrderStatus, PlatformNotification, PointLog, PointLogType, Product, Promotion, RewardCoupon, SharedOptionGroup, Store, StoredValueLog, StoredValueLogType, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
+import type { AccessStatus, CashFlow, CashFlowItem, Category, Customer, DailyReport, DemoDatabase, Device, MemberCoupon, MemberRules, Order, OrderItem, OrderPayload, OrderStatus, PlatformNotification, PointLog, PointLogType, Product, ProductOptionGroup, Promotion, RewardCoupon, SharedOptionGroup, Store, StoredValueLog, StoredValueLogType, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -661,9 +661,10 @@ export function useDemoStore(options: StoreOptions = {}) {
   }
 
   async function upsertProduct(product: Product): Promise<void> {
+    const cleanProduct = sanitizeProduct(product);
     if (useFirestore && firestore) {
-      const id = product.id || doc(collection(firestore, "products")).id;
-      await setDoc(doc(firestore, "products", id), { ...product, id }, { merge: true });
+      const id = cleanProduct.id || doc(collection(firestore, "products")).id;
+      await setDoc(doc(firestore, "products", id), { ...cleanProduct, id }, { merge: true });
       return;
     }
     // Save synchronously inside the updater to prevent the 1200ms sync interval
@@ -694,9 +695,10 @@ export function useDemoStore(options: StoreOptions = {}) {
   }
 
   async function upsertSharedOptionGroup(group: SharedOptionGroup): Promise<void> {
+    const cleanGroup = sanitizeSharedOptionGroup(group);
     const now = new Date().toISOString();
-    const id = group.id || newId("sg");
-    const record: SharedOptionGroup = { ...group, id, updatedAt: now, createdAt: group.createdAt || now };
+    const id = cleanGroup.id || newId("sg");
+    const record: SharedOptionGroup = { ...cleanGroup, id, updatedAt: now, createdAt: cleanGroup.createdAt || now };
     if (useFirestore && firestore && record.storeId) {
       await setDoc(doc(firestore, "stores", record.storeId, "optionGroups", id), record, { merge: true });
       return;

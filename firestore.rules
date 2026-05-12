@@ -362,8 +362,12 @@ service cloud.firestore {
     }
 
     match /stores/{storeId}/optionGroups/{groupId} {
-      allow read: if true;
-      allow create, update, delete: if canManageStore(storeId);
+      allow read: if isAdmin()
+        || canViewStoreData(storeId)
+        || (resource.data.storeId is string && resource.data.options is list && resource.data.options.size() > 0);
+      allow create, update, delete: if isAdmin()
+        || (approved() && userStoreId() == storeId && role() in ["merchant", "owner", "manager", "staff"])
+        || membershipRole(storeId) in ["owner", "manager", "staff"];
     }
 
     match /stores/{storeId}/settings/memberRules {
