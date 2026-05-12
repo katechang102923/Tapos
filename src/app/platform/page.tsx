@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArchiveRestore, ArrowLeft, Bell, Building2, CalendarClock, ChefHat, Contact, Gift, Monitor, Search, ShieldCheck, Store, ToggleLeft, ToggleRight, Users, Wallet } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Bell, Building2, CalendarClock, Contact, Gift, Infinity, Monitor, Search, ShieldCheck, Store, ToggleLeft, ToggleRight, Users, Wallet } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { ROLE_LABELS, roleBadgeClass, roleLabel } from "@/lib/permissions";
@@ -37,6 +37,8 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [subEditorOpen, setSubEditorOpen] = useState<Record<string, boolean>>({});
   const [subForm, setSubForm] = useState<Record<string, { status: SubscriptionStatus; endsAt: string; trialEndsAt: string }>>({});
   const [archiving, setArchiving] = useState<Record<string, boolean>>({});
+  const [customRetentionOpen, setCustomRetentionOpen] = useState<Record<string, boolean>>({});
+  const [customRetentionDate, setCustomRetentionDate] = useState<Record<string, string>>({});
 
   const filteredStores = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -187,16 +189,47 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     }
   }
 
-  async function handleSetRetention(store: StoreType, months: number) {
+  async function handleSetRetentionMonths(store: StoreType, months: number) {
     try {
-      await upsertStore({ ...store, dataRetentionMonths: months });
+      await upsertStore({ ...store, dataRetentionMode: "months", dataRetentionMonths: months, dataRetentionUntil: null });
       setMessage(`${store.name} 資料保留期限已設為 ${months} 個月`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "設定失敗");
     }
   }
 
+  async function handleSetRetentionCustomDate(store: StoreType) {
+    const date = customRetentionDate[store.id]?.trim();
+    if (!date) return;
+    try {
+      await upsertStore({ ...store, dataRetentionMode: "customDate", dataRetentionMonths: null, dataRetentionUntil: date });
+      setCustomRetentionOpen((prev) => ({ ...prev, [store.id]: false }));
+      setMessage(`${store.name} 資料保留至 ${date}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "設定失敗");
+    }
+  }
+
+  async function handleSetRetentionNever(store: StoreType) {
+    try {
+      await upsertStore({ ...store, dataRetentionMode: "neverExpire", dataRetentionMonths: null, dataRetentionUntil: null });
+      setMessage(`${store.name} 已設為無使用期限`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "設定失敗");
+    }
+  }
+
+  function retentionLabel(store: StoreType): string {
+    if (store.dataRetentionMode === "neverExpire") return "無使用期限";
+    if (store.dataRetentionMode === "customDate" && store.dataRetentionUntil) return `保留至 ${formatDate(store.dataRetentionUntil)}`;
+    return `保留 ${store.dataRetentionMonths ?? 6} 個月`;
+  }
+
   async function handleMarkArchive(store: StoreType) {
+    if (store.dataRetentionMode === "neverExpire") {
+      setMessage(`${store.name} 已設為無使用期限，無需封存舊資料`);
+      return;
+    }
     const months = store.dataRetentionMonths ?? 6;
     if (!confirm(`確定標記 ${store.name} 超過 ${months} 個月的資料為封存？此操作不可逆（軟封存，不刪除資料）。`)) return;
     setArchiving((prev) => ({ ...prev, [store.id]: true }));
@@ -237,10 +270,9 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           </div>
         </header>
 
-        <div className="mb-5 grid gap-4 sm:grid-cols-3">
+        <div className="mb-5 grid gap-4 sm:grid-cols-2">
           <div className="rounded-lg bg-[#1a1a1a] p-5"><p className="text-sm font-black text-white/50">店家總數</p><p className="mt-2 text-4xl font-black text-white">{db.stores.length}</p></div>
           <div className="rounded-lg bg-[#1a1a1a] p-5"><p className="text-sm font-black text-white/50">帳號總數</p><p className="mt-2 text-4xl font-black text-white">{db.users.length}</p></div>
-          <div className="rounded-lg bg-[#1a1a1a] p-5"><p className="text-sm font-black text-white/50">訂單總數</p><p className="mt-2 text-4xl font-black text-white">{db.orders.length}</p></div>
         </div>
 
         {message && <div className="mb-4 rounded-lg border border-leaf/30 bg-leaf/10 p-4 font-black text-leaf">{message}</div>}
@@ -372,9 +404,7 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Link href={`/merchant/menu?storeId=${store.id}`} className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-2 text-sm font-black text-white">菜單</Link>
-                    <Link href={`/merchant/promotions?storeId=${store.id}`} className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-2 text-sm font-black text-white"><Gift className="size-4" />促銷</Link>
-                    <Link href={`/kitchen/${store.id}`} className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-2 text-sm font-black text-white"><ChefHat className="size-4" />KDS</Link>
+                    <span className="text-xs font-bold text-white/30 self-center">{retentionLabel(store)}</span>
                   </div>
                 </div>
 
@@ -464,26 +494,70 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 </div>
 
                 {/* Data retention settings */}
-                <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-white/10 pt-4">
-                  <p className="w-full text-xs font-black text-white/40">資料保留策略</p>
-                  <span className="text-xs font-bold text-white/50">保留期限：</span>
-                  {[3, 6, 12, 24].map((months) => (
+                <div className="mt-4 border-t border-white/10 pt-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="w-full text-xs font-black text-white/40">
+                      資料保留策略
+                      <span className="ml-2 text-amber-400">目前：{retentionLabel(store)}</span>
+                    </p>
+                    {[3, 6, 12, 24].map((months) => {
+                      const active = store.dataRetentionMode !== "customDate" && store.dataRetentionMode !== "neverExpire" && (store.dataRetentionMonths ?? 6) === months;
+                      return (
+                        <button
+                          key={months}
+                          onClick={() => handleSetRetentionMonths(store, months)}
+                          className={`rounded px-2 py-1 text-xs font-black ${active ? "bg-amber-500/30 text-amber-400" : "bg-white/10 text-white/50 hover:bg-white/20"}`}
+                        >
+                          {months} 個月
+                        </button>
+                      );
+                    })}
                     <button
-                      key={months}
-                      onClick={() => handleSetRetention(store, months)}
-                      className={`rounded px-2 py-1 text-xs font-black ${(store.dataRetentionMonths ?? 6) === months ? "bg-amber-500/30 text-amber-400" : "bg-white/10 text-white/50 hover:bg-white/20"}`}
+                      onClick={() => setCustomRetentionOpen((prev) => ({ ...prev, [store.id]: !prev[store.id] }))}
+                      className={`rounded px-2 py-1 text-xs font-black ${store.dataRetentionMode === "customDate" ? "bg-amber-500/30 text-amber-400" : "bg-white/10 text-white/50 hover:bg-white/20"}`}
                     >
-                      {months} 個月
+                      自訂日期
                     </button>
-                  ))}
-                  <button
-                    onClick={() => handleMarkArchive(store)}
-                    disabled={archiving[store.id]}
-                    className="inline-flex items-center gap-1.5 rounded bg-tomato/20 px-3 py-1.5 text-xs font-black text-tomato hover:bg-tomato/30 disabled:opacity-40"
-                  >
-                    <ArchiveRestore className="size-3.5" />
-                    {archiving[store.id] ? "封存中…" : "立即封存舊資料"}
-                  </button>
+                    <button
+                      onClick={() => handleSetRetentionNever(store)}
+                      className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-black ${store.dataRetentionMode === "neverExpire" ? "bg-amber-500/30 text-amber-400" : "bg-white/10 text-white/50 hover:bg-white/20"}`}
+                    >
+                      <Infinity className="size-3" />
+                      無使用期限
+                    </button>
+                    <button
+                      onClick={() => handleMarkArchive(store)}
+                      disabled={archiving[store.id] || store.dataRetentionMode === "neverExpire"}
+                      className="inline-flex items-center gap-1.5 rounded bg-tomato/20 px-3 py-1.5 text-xs font-black text-tomato hover:bg-tomato/30 disabled:opacity-40"
+                    >
+                      <ArchiveRestore className="size-3.5" />
+                      {archiving[store.id] ? "封存中…" : "立即封存舊資料"}
+                    </button>
+                  </div>
+                  {customRetentionOpen[store.id] && (
+                    <div className="mt-2 flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
+                      <span className="text-xs font-black text-white/40">保留至</span>
+                      <input
+                        type="date"
+                        value={customRetentionDate[store.id] ?? store.dataRetentionUntil?.slice(0, 10) ?? ""}
+                        onChange={(e) => setCustomRetentionDate((prev) => ({ ...prev, [store.id]: e.target.value }))}
+                        className="rounded bg-white/10 px-2 py-1 text-xs font-bold text-white [color-scheme:dark]"
+                      />
+                      <button
+                        onClick={() => handleSetRetentionCustomDate(store)}
+                        disabled={!customRetentionDate[store.id]}
+                        className="rounded bg-leaf px-3 py-1 text-xs font-black text-white disabled:opacity-40"
+                      >
+                        確認
+                      </button>
+                      <button
+                        onClick={() => setCustomRetentionOpen((prev) => ({ ...prev, [store.id]: false }))}
+                        className="rounded bg-white/10 px-2 py-1 text-xs font-black text-white/50"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Bound users — read-only summary, full management is in merchant members page */}

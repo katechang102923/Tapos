@@ -188,7 +188,9 @@ export type Store = {
   address?: string;
   businessHours?: string;
   description?: string;
-  dataRetentionMonths?: number; // default 6
+  dataRetentionMonths?: number | null; // default 6; null when mode is not "months"
+  dataRetentionMode?: "months" | "customDate" | "neverExpire";
+  dataRetentionUntil?: string | null; // ISO date string, used when mode is "customDate"
   takeoutEnabled?: boolean;
   dineInEnabled?: boolean;
   takeoutOrderingEnabled?: boolean;
