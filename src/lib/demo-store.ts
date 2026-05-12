@@ -321,7 +321,7 @@ export function useDemoStore(options: StoreOptions = {}) {
 
     const unsubSharedOptionGroups = storeId
       ? onSnapshot(
-          query(collection(firestore, "sharedOptionGroups"), where("storeId", "==", storeId)),
+          collection(firestore, "stores", storeId, "optionGroups"),
           (snapshot) => {
             next.sharedOptionGroups = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as SharedOptionGroup);
             commit();
@@ -598,14 +598,19 @@ export function useDemoStore(options: StoreOptions = {}) {
       setDoc(doc(firestore, "products", id), { ...product, id }, { merge: true });
       return;
     }
+    // Save synchronously inside the updater to prevent the 1200ms sync interval
+    // from loading stale localStorage data before the useEffect can persist the new state,
+    // which would cause child option groups to disappear after saving a product.
     setDb((current) => {
       const exists = current.products.some((item) => item.id === product.id);
-      return {
+      const next = {
         ...current,
         products: exists
           ? current.products.map((item) => (item.id === product.id ? product : item))
           : [{ ...product, id: newId("p"), sort: product.sort || current.products.length + 1 }, ...current.products]
       };
+      saveLocalData(next);
+      return next;
     });
   }
 
@@ -624,23 +629,26 @@ export function useDemoStore(options: StoreOptions = {}) {
     const now = new Date().toISOString();
     const id = group.id || newId("sg");
     const record: SharedOptionGroup = { ...group, id, updatedAt: now, createdAt: group.createdAt || now };
-    if (useFirestore && firestore) {
-      setDoc(doc(firestore, "sharedOptionGroups", id), record, { merge: true });
+    if (useFirestore && firestore && record.storeId) {
+      setDoc(doc(firestore, "stores", record.storeId, "optionGroups", id), record, { merge: true });
       return;
     }
     setDb((current) => {
       const list = current.sharedOptionGroups ?? [];
       const exists = list.some((item) => item.id === id);
-      return {
+      const next = {
         ...current,
         sharedOptionGroups: exists ? list.map((item) => (item.id === id ? record : item)) : [...list, record]
       };
+      saveLocalData(next);
+      return next;
     });
   }
 
   function deleteSharedOptionGroup(groupId: string) {
     if (useFirestore && firestore) {
-      deleteDoc(doc(firestore, "sharedOptionGroups", groupId));
+      const targetStoreId = (db.sharedOptionGroups ?? []).find((item) => item.id === groupId)?.storeId ?? storeId;
+      if (targetStoreId) deleteDoc(doc(firestore, "stores", targetStoreId, "optionGroups", groupId));
       return;
     }
     setDb((current) => ({

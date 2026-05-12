@@ -1,6 +1,7 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import type { Category, Product, ProductOptionChoice, ProductOptionGroup, SharedOptionGroup } from "@/lib/types";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 
@@ -131,7 +132,7 @@ export function ProductEditorDialog({
               </button>
             </div>
 
-            <div className="mt-4 grid gap-4">
+            <div className="mt-4 grid gap-3">
               {optionGroups.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-orange-200 bg-orange-50 p-6 text-center">
                   <p className="font-black text-ink">尚未建立選項群組</p>
@@ -181,83 +182,208 @@ function OptionGroupEditor({
   updateGroupOption: (groupId: string, optionId: string, patch: Partial<ProductOptionChoice>) => void;
   updateOptionGroup: (groupId: string, patch: Partial<ProductOptionGroup>) => void;
 }) {
+  const [expanded, setExpanded] = useState(depth === 0);
+
   return (
-    <section className={`rounded-lg p-3 ${depth === 0 ? "bg-orange-50" : "bg-white ring-1 ring-orange-100"}`}>
-      <div className="grid gap-2">
-        <p className="font-mono text-xs font-bold text-steel">群組 ID：{group.id}</p>
-        <LabeledInput label="選項群組名稱" value={group.groupName ?? group.name} onChange={(value) => updateOptionGroup(group.id, { name: value, groupName: value })} />
-        <div className="grid grid-cols-2 gap-2">
-          <label className="flex items-center gap-2 rounded-lg bg-white px-3 py-3 text-sm font-black text-steel">
-            <input type="checkbox" checked={group.required} onChange={(event) => updateOptionGroup(group.id, { required: event.target.checked, minSelect: event.target.checked ? Math.max(1, group.minSelect) : 0 })} />
-            必選
-          </label>
-          <LabeledInput label="最少可選" type="number" value={String(group.minSelect)} onChange={(value) => updateOptionGroup(group.id, { minSelect: Math.max(0, Number(value)) })} />
-          <LabeledInput label="最多可選" type="number" value={String(group.maxSelect)} onChange={(value) => updateOptionGroup(group.id, { maxSelect: Math.max(1, Number(value)) })} />
-        </div>
-        <button onClick={() => addGroupOption(group.id)} className="rounded-lg border border-orange-200 bg-white px-3 py-2 font-black text-steel">新增選項</button>
+    <div className={`rounded-lg border ${depth === 0 ? "border-orange-200 bg-orange-50" : "border-orange-100 bg-white"}`}>
+      {/* Collapsible header */}
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          className="flex flex-1 items-center gap-2 text-left"
+        >
+          {expanded ? <ChevronDown className="size-4 shrink-0 text-steel" /> : <ChevronRight className="size-4 shrink-0 text-steel" />}
+          <span className="font-black text-ink">{(group.groupName ?? group.name) || "（未命名群組）"}</span>
+          <span className="text-xs font-bold text-steel">
+            {group.required ? "必選" : "選填"} · {group.maxSelect <= 1 ? "單選" : `最多 ${group.maxSelect}`} · {group.options.length} 項
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => removeOptionGroup(group.id)}
+          className="shrink-0 rounded px-2 py-1 text-xs font-black text-tomato hover:bg-red-50"
+        >
+          刪除群組
+        </button>
       </div>
-      <div className="mt-3 grid gap-2">
-        {group.options.map((option) => (
-          <div key={option.id} className="rounded-lg bg-white p-3 ring-1 ring-orange-100">
-            <div className="grid gap-2">
-              <LabeledInput label="選項名稱" value={option.optionName ?? option.name} onChange={(value) => updateGroupOption(group.id, option.id, { name: value, optionName: value })} />
-              <LabeledInput label="加價金額" type="number" value={String(option.priceDelta)} onChange={(value) => updateGroupOption(group.id, option.id, { priceDelta: Number(value) })} />
-              <label className="flex items-center gap-2 text-sm font-black text-steel">
-                <input type="checkbox" checked={option.isAvailable} onChange={(event) => updateGroupOption(group.id, option.id, { isAvailable: event.target.checked })} />
-                選項可用
-              </label>
-              {sharedGroups.length > 0 && (
-                <div className="grid gap-1">
-                  <p className="text-xs font-black text-steel">連結共用群組（選擇此項目後顯示）</p>
-                  <div className="flex flex-wrap gap-1">
-                    {sharedGroups.map((sg) => {
-                      const linked = (option.childGroupIds ?? []).includes(sg.id);
-                      return (
-                        <button
-                          key={sg.id}
-                          onClick={() => {
-                            const ids = option.childGroupIds ?? [];
-                            updateGroupOption(group.id, option.id, {
-                              childGroupIds: linked ? ids.filter((id) => id !== sg.id) : [...ids, sg.id]
-                            });
-                          }}
-                          className={`rounded px-2 py-1 text-xs font-black ${linked ? "bg-leaf text-white" : "bg-orange-100 text-steel"}`}
-                        >
-                          {linked ? "✓ " : ""}{sg.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                {depth < 3 && <button onClick={() => addChildGroup(group.id, option.id)} className="rounded-lg border border-orange-200 bg-white px-3 py-2 font-black text-steel">新增子選項群組</button>}
-                <button onClick={() => removeGroupOption(group.id, option.id)} className="rounded-lg bg-tomato px-3 py-2 font-black text-white">刪除選項</button>
-              </div>
+
+      {expanded && (
+        <div className="border-t border-orange-100 p-3 space-y-3">
+          {/* Group settings */}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <LabeledInput label="選項群組名稱" value={group.groupName ?? group.name} onChange={(value) => updateOptionGroup(group.id, { name: value, groupName: value })} />
             </div>
-            {(option.children ?? []).length > 0 && depth < 3 && (
-              <div className="mt-3 grid gap-3 border-l-4 border-leaf pl-3">
-                {(option.children ?? []).map((child) => (
-                  <OptionGroupEditor
-                    key={child.id}
-                    group={child}
-                    depth={depth + 1}
-                    sharedGroups={sharedGroups}
-                    addChildGroup={addChildGroup}
-                    addGroupOption={addGroupOption}
-                    removeGroupOption={removeGroupOption}
-                    removeOptionGroup={removeOptionGroup}
-                    updateGroupOption={updateGroupOption}
-                    updateOptionGroup={updateOptionGroup}
-                  />
-                ))}
-              </div>
-            )}
+            <label className="flex items-center gap-2 rounded-lg border border-orange-100 bg-white px-3 py-2.5 text-sm font-black text-steel">
+              <input
+                type="checkbox"
+                checked={group.required}
+                onChange={(event) => updateOptionGroup(group.id, { required: event.target.checked, minSelect: event.target.checked ? Math.max(1, group.minSelect) : 0 })}
+              />
+              必選
+            </label>
+            <LabeledInput label="最少可選" type="number" value={String(group.minSelect)} onChange={(value) => updateOptionGroup(group.id, { minSelect: Math.max(0, Number(value)) })} />
+            <LabeledInput label="最多可選" type="number" value={String(group.maxSelect)} onChange={(value) => updateOptionGroup(group.id, { maxSelect: Math.max(1, Number(value)) })} />
           </div>
-        ))}
+
+          {/* Option rows */}
+          <div className="grid gap-2">
+            {group.options.map((option) => (
+              <OptionRow
+                key={option.id}
+                option={option}
+                groupId={group.id}
+                depth={depth}
+                sharedGroups={sharedGroups}
+                addChildGroup={addChildGroup}
+                addGroupOption={addGroupOption}
+                removeGroupOption={removeGroupOption}
+                removeOptionGroup={removeOptionGroup}
+                updateGroupOption={updateGroupOption}
+                updateOptionGroup={updateOptionGroup}
+              />
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => addGroupOption(group.id)}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-orange-200 bg-white py-2 text-sm font-black text-steel hover:border-leaf hover:text-leaf"
+          >
+            <Plus className="size-3.5" />
+            新增選項
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OptionRow({
+  option,
+  groupId,
+  depth,
+  sharedGroups,
+  addChildGroup,
+  addGroupOption,
+  removeGroupOption,
+  removeOptionGroup,
+  updateGroupOption,
+  updateOptionGroup
+}: {
+  option: ProductOptionChoice;
+  groupId: string;
+  depth: number;
+  sharedGroups: SharedOptionGroup[];
+  addChildGroup: (groupId: string, optionId: string) => void;
+  addGroupOption: (groupId: string) => void;
+  removeGroupOption: (groupId: string, optionId: string) => void;
+  removeOptionGroup: (groupId: string) => void;
+  updateGroupOption: (groupId: string, optionId: string, patch: Partial<ProductOptionChoice>) => void;
+  updateOptionGroup: (groupId: string, patch: Partial<ProductOptionGroup>) => void;
+}) {
+  const [childrenExpanded, setChildrenExpanded] = useState(false);
+  const linkedIds = option.childGroupIds ?? [];
+  const childGroups = option.children ?? [];
+
+  return (
+    <div className="rounded-lg border border-orange-100 bg-white">
+      {/* Compact option controls row */}
+      <div className="flex flex-wrap items-center gap-1.5 p-2">
+        <input
+          type="text"
+          value={option.optionName ?? option.name}
+          onChange={(event) => updateGroupOption(groupId, option.id, { name: event.target.value, optionName: event.target.value })}
+          placeholder="選項名稱"
+          className="min-w-[100px] flex-1 rounded border border-orange-100 px-2 py-1.5 text-sm font-bold text-ink"
+        />
+        <div className="flex items-center gap-1">
+          <span className="text-xs font-black text-steel">+$</span>
+          <input
+            type="number"
+            value={option.priceDelta}
+            onChange={(event) => updateGroupOption(groupId, option.id, { priceDelta: Number(event.target.value) })}
+            className="w-16 rounded border border-orange-100 px-2 py-1.5 text-sm font-bold text-ink"
+          />
+        </div>
+        <label className="flex items-center gap-1 text-xs font-black text-steel">
+          <input
+            type="checkbox"
+            checked={option.isAvailable}
+            onChange={(event) => updateGroupOption(groupId, option.id, { isAvailable: event.target.checked })}
+            className="size-3.5"
+          />
+          可用
+        </label>
+
+        {/* Shared group chips */}
+        {sharedGroups.map((sg) => {
+          const linked = linkedIds.includes(sg.id);
+          return (
+            <button
+              key={sg.id}
+              type="button"
+              onClick={() => updateGroupOption(groupId, option.id, {
+                childGroupIds: linked ? linkedIds.filter((id) => id !== sg.id) : [...linkedIds, sg.id]
+              })}
+              className={`rounded px-1.5 py-0.5 text-xs font-black ${linked ? "bg-leaf text-white" : "bg-orange-100 text-steel hover:bg-orange-200"}`}
+            >
+              {linked ? "✓ " : ""}{sg.name}
+            </button>
+          );
+        })}
+
+        <div className="ml-auto flex items-center gap-1">
+          {childGroups.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setChildrenExpanded((prev) => !prev)}
+              className="flex items-center gap-0.5 rounded px-2 py-1 text-xs font-black text-steel hover:bg-orange-50"
+            >
+              {childGroups.length} 子群組
+              {childrenExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+            </button>
+          )}
+          {depth < 3 && (
+            <button
+              type="button"
+              onClick={() => { addChildGroup(groupId, option.id); setChildrenExpanded(true); }}
+              className="rounded px-2 py-1 text-xs font-black text-steel hover:bg-orange-50"
+            >
+              +子群組
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => removeGroupOption(groupId, option.id)}
+            className="rounded px-2 py-1 text-xs font-black text-tomato hover:bg-red-50"
+          >
+            刪
+          </button>
+        </div>
       </div>
-      <button onClick={() => removeOptionGroup(group.id)} className="mt-3 rounded-lg bg-tomato px-3 py-2 font-black text-white">刪除群組</button>
-    </section>
+
+      {/* Child groups (collapsible) */}
+      {childrenExpanded && childGroups.length > 0 && (
+        <div className="border-t border-orange-100 pl-4 pr-2 py-2 space-y-2">
+          {childGroups.map((child) => (
+            <OptionGroupEditor
+              key={child.id}
+              group={child}
+              depth={depth + 1}
+              sharedGroups={sharedGroups}
+              addChildGroup={addChildGroup}
+              addGroupOption={addGroupOption}
+              removeGroupOption={removeGroupOption}
+              removeOptionGroup={removeOptionGroup}
+              updateGroupOption={updateGroupOption}
+              updateOptionGroup={updateOptionGroup}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
