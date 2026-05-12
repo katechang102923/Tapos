@@ -459,7 +459,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
         {activePanel === "cash" && <CashFlowPanel addCashFlowItem={addCashFlowItem} canAddCashFlow={canAddCashFlow} canManageCashItems={canManageCashItems} cashError={cashError} cashFlows={todayCashFlows} cashForm={cashForm} cashItemForm={cashItemForm} cashItems={cashFlowItems} cashMessage={cashMessage} cashNet={cashNet} chooseCashItem={chooseCashItem} selectedCashItem={selectedCashItem} setCashForm={setCashForm} setCashItemForm={setCashItemForm} submitCashFlow={submitCashFlow} />}
         {activePanel === "daily" && (canViewReport ? <DailyReportPanel storeId={storeId} storeName={store.name} todayOrders={todayOrders} todayCashFlows={todayCashFlows} userEmail={profile?.email} userRole={effectiveRole ?? undefined} storeFeatures={store.features} customers={db.customers} pointLogs={db.pointLogs} storedValueLogs={db.storedValueLogs} dataRetentionMonths={store.dataRetentionMonths} /> : <PermissionNotice text="日結功能僅限 owner、manager 以上角色。" />)}
       </div>
-      {choosingProduct && <ProductOptionModal product={choosingProduct} onClose={() => setChoosingProduct(null)} onConfirm={confirmProductOptions} />}
+      {choosingProduct && <ProductOptionModal product={choosingProduct} sharedGroups={db.sharedOptionGroups} onClose={() => setChoosingProduct(null)} onConfirm={confirmProductOptions} />}
       {memberModalOpen && <MemberModal onClose={() => setMemberModalOpen(false)} onSubmit={createMember} />}
       {topupModalOpen && boundMember && <TopupModal member={boundMember} onClose={() => setTopupModalOpen(false)} onSubmit={topupMember} />}
     </main>

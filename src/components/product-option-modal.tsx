@@ -1,23 +1,25 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { OrderItemOption, Product } from "@/lib/types";
+import type { OrderItemOption, Product, SharedOptionGroup } from "@/lib/types";
 import { productFinalPrice } from "@/lib/pricing";
 import { optionGroupLevels, productOptionGroups, visibleOptionGroups } from "@/lib/product-options";
 
 export function ProductOptionModal({
   product,
+  sharedGroups = [],
   onClose,
   onConfirm
 }: {
   product: Product;
+  sharedGroups?: SharedOptionGroup[];
   onClose: () => void;
   onConfirm: (selectedOptions: OrderItemOption[]) => void;
 }) {
   const groups = useMemo(() => productOptionGroups(product), [product]);
   const [selected, setSelected] = useState<OrderItemOption[]>([]);
-  const visibleGroups = visibleOptionGroups(product, selected);
-  const levels = optionGroupLevels(product, selected);
+  const visibleGroups = visibleOptionGroups(product, selected, sharedGroups);
+  const levels = optionGroupLevels(product, selected, sharedGroups);
   const totalDelta = selected.reduce((sum, item) => sum + item.priceDelta, 0);
 
   function toggle(groupId: string, groupName: string, choiceId: string, choiceName: string, priceDelta: number, maxSelect: number) {
@@ -25,19 +27,19 @@ export function ProductOptionModal({
       const exists = current.some((item) => item.groupId === groupId && item.choiceId === choiceId);
       if (exists) {
         const candidate = current.filter((item) => !(item.groupId === groupId && item.choiceId === choiceId));
-        const visibleIds = new Set(visibleOptionGroups(product, candidate).map((group) => group.id));
+        const visibleIds = new Set(visibleOptionGroups(product, candidate, sharedGroups).map((group) => group.id));
         return candidate.filter((item) => visibleIds.has(item.groupId));
       }
       const nextItem = { groupId, groupName, choiceId, choiceName, priceDelta, level: levels.get(groupId) ?? 0 };
       if (maxSelect <= 1) {
         const candidate = [...current.filter((item) => item.groupId !== groupId), nextItem];
-        const visibleIds = new Set(visibleOptionGroups(product, candidate).map((group) => group.id));
+        const visibleIds = new Set(visibleOptionGroups(product, candidate, sharedGroups).map((group) => group.id));
         return candidate.filter((item) => visibleIds.has(item.groupId));
       }
       const sameGroup = current.filter((item) => item.groupId === groupId);
       if (sameGroup.length >= maxSelect) return current;
       const candidate = [...current, nextItem];
-      const visibleIds = new Set(visibleOptionGroups(product, candidate).map((group) => group.id));
+      const visibleIds = new Set(visibleOptionGroups(product, candidate, sharedGroups).map((group) => group.id));
       return candidate.filter((item) => visibleIds.has(item.groupId));
     });
   }

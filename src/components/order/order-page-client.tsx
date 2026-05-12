@@ -576,7 +576,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
           </div>
         </details>
       </div>
-      {choosingProduct && <ProductOptionModal product={choosingProduct} onClose={() => setChoosingProduct(null)} onConfirm={confirmProductOptions} />}
+      {choosingProduct && <ProductOptionModal product={choosingProduct} sharedGroups={db.sharedOptionGroups} onClose={() => setChoosingProduct(null)} onConfirm={confirmProductOptions} />}
     </main>
   );
 }

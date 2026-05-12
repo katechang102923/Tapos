@@ -2,13 +2,13 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { ArrowLeft, Eye, EyeOff, Plus } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { ProductEditorDialog } from "@/components/merchant/product-editor-dialog";
 import { useDemoStore } from "@/lib/demo-store";
 import { productFinalPrice } from "@/lib/pricing";
 import { defaultStoreId } from "@/lib/store-access";
-import type { Product, ProductOptionChoice, ProductOptionGroup } from "@/lib/types";
+import type { Product, ProductOptionChoice, ProductOptionGroup, SharedOptionGroup } from "@/lib/types";
 
 const blankProduct: Product = {
   id: "new-product",
@@ -44,11 +44,17 @@ export default function MerchantOptionsPage() {
 }
 
 function MerchantOptionsContent({ storeId }: { storeId: string }) {
-  const { db, deleteProduct, upsertProduct } = useDemoStore({ storeId, skipOrderList: true });
+  const { db, deleteProduct, upsertProduct, upsertSharedOptionGroup, deleteSharedOptionGroup } = useDemoStore({ storeId, skipOrderList: true });
   const [editingProduct, setEditingProduct] = useState<Product>(blankProduct);
   const [productEditorOpen, setProductEditorOpen] = useState(false);
+  const [editingSharedGroup, setEditingSharedGroup] = useState<SharedOptionGroup | null>(null);
+  const [sharedGroupPanelOpen, setSharedGroupPanelOpen] = useState(false);
 
   const store = db.stores.find((item) => item.id === storeId);
+  const sharedGroups = useMemo(
+    () => (db.sharedOptionGroups ?? []).filter((item) => item.storeId === storeId),
+    [db.sharedOptionGroups, storeId]
+  );
   const categories = useMemo(
     () => db.categories.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort),
     [db.categories, storeId]
@@ -164,6 +170,28 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
     }));
   }
 
+  function makeSharedGroup(): SharedOptionGroup {
+    const now = new Date().toISOString();
+    return {
+      id: `sg-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      name: "新共用群組",
+      required: false,
+      minSelect: 0,
+      maxSelect: 1,
+      options: [],
+      storeId,
+      createdAt: now,
+      updatedAt: now
+    };
+  }
+
+  function saveSharedGroup() {
+    if (!editingSharedGroup) return;
+    upsertSharedOptionGroup({ ...editingSharedGroup, storeId });
+    setEditingSharedGroup(null);
+    setSharedGroupPanelOpen(false);
+  }
+
   function addChildGroup(groupId: string, optionId: string) {
     setOptionGroups((groups) => mapGroups(groups, (group) => {
       if (group.id !== groupId) return group;
@@ -223,6 +251,88 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
         </div>
       </section>
 
+      {/* Shared Option Groups Panel */}
+      <section className="mx-auto max-w-7xl p-4 pt-0">
+        <div className="rounded-lg bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3 border-b border-orange-100 pb-4 mb-4">
+            <div>
+              <h2 className="text-2xl font-black">共用選項群組</h2>
+              <p className="mt-1 text-sm font-bold text-steel">可跨商品共用的選項群組，例如冰塊、甜度。透過「連結共用群組」掛載到選項項目上。</p>
+            </div>
+            <button onClick={() => { setEditingSharedGroup(makeSharedGroup()); setSharedGroupPanelOpen(true); }} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-4 py-3 font-black text-white">
+              <Plus className="size-4" />
+              新增共用群組
+            </button>
+          </div>
+          {sharedGroups.length === 0 ? (
+            <p className="text-sm font-bold text-steel py-4 text-center">尚無共用群組。點擊「新增共用群組」建立可跨商品共享的選項（如冰塊、甜度）。</p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {sharedGroups.map((sg) => (
+                <div key={sg.id} className="rounded-lg border border-orange-100 bg-orange-50 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="font-black">{sg.name}</p>
+                      <p className="text-xs font-bold text-steel">ID: {sg.id} · {sg.options.length} 個選項 · {sg.required ? "必選" : "非必選"}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => { setEditingSharedGroup({ ...sg }); setSharedGroupPanelOpen(true); }} className="rounded-lg border border-orange-200 bg-white px-3 py-2 text-sm font-black text-steel">編輯</button>
+                      <button onClick={() => { if (window.confirm(`確定刪除共用群組「${sg.name}」？`)) deleteSharedOptionGroup(sg.id); }} className="rounded-lg bg-tomato px-2 py-2 font-black text-white"><Trash2 className="size-4" /></button>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {sg.options.map((opt) => <span key={opt.id} className="rounded bg-white px-2 py-1 text-xs font-bold text-ink">{opt.name}</span>)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {sharedGroupPanelOpen && editingSharedGroup && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-black text-ink mb-4">{editingSharedGroup.id && sharedGroups.some((sg) => sg.id === editingSharedGroup.id) ? "編輯共用群組" : "新增共用群組"}</h2>
+            <div className="grid gap-3">
+              <label className="grid gap-1 text-sm font-black text-steel">
+                群組名稱
+                <input value={editingSharedGroup.name} onChange={(e) => setEditingSharedGroup((g) => g ? { ...g, name: e.target.value } : g)} className="rounded-lg border border-orange-100 px-3 py-3 font-bold text-ink" />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex items-center gap-2 rounded-lg border border-orange-100 px-3 py-3 text-sm font-black text-steel">
+                  <input type="checkbox" checked={editingSharedGroup.required} onChange={(e) => setEditingSharedGroup((g) => g ? { ...g, required: e.target.checked, minSelect: e.target.checked ? Math.max(1, g.minSelect) : 0 } : g)} />
+                  必選
+                </label>
+                <label className="grid gap-1 text-sm font-black text-steel">
+                  最多可選
+                  <input type="number" value={editingSharedGroup.maxSelect} onChange={(e) => setEditingSharedGroup((g) => g ? { ...g, maxSelect: Math.max(1, Number(e.target.value)) } : g)} className="rounded-lg border border-orange-100 px-3 py-2 font-bold text-ink" />
+                </label>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-black text-steel">選項</p>
+                  <button onClick={() => setEditingSharedGroup((g) => g ? { ...g, options: [...g.options, { id: `sgo-${Date.now()}`, name: "新選項", priceDelta: 0, isAvailable: true }] } : g)} className="rounded border border-orange-200 px-3 py-1 text-sm font-black text-steel">新增選項</button>
+                </div>
+                <div className="grid gap-2">
+                  {editingSharedGroup.options.map((opt) => (
+                    <div key={opt.id} className="flex items-center gap-2 rounded-lg bg-orange-50 px-3 py-2">
+                      <input value={opt.name} onChange={(e) => setEditingSharedGroup((g) => g ? { ...g, options: g.options.map((o) => o.id === opt.id ? { ...o, name: e.target.value } : o) } : g)} className="flex-1 rounded border border-orange-100 px-2 py-1 text-sm font-bold" placeholder="選項名稱" />
+                      <input type="number" value={opt.priceDelta} onChange={(e) => setEditingSharedGroup((g) => g ? { ...g, options: g.options.map((o) => o.id === opt.id ? { ...o, priceDelta: Number(e.target.value) } : o) } : g)} className="w-20 rounded border border-orange-100 px-2 py-1 text-sm font-bold" placeholder="加價" />
+                      <button onClick={() => setEditingSharedGroup((g) => g ? { ...g, options: g.options.filter((o) => o.id !== opt.id) } : g)} className="rounded bg-tomato px-2 py-1 text-xs font-black text-white">刪</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => { setEditingSharedGroup(null); setSharedGroupPanelOpen(false); }} className="rounded-lg border border-orange-200 px-4 py-3 font-black text-steel">取消</button>
+              <button onClick={saveSharedGroup} disabled={!editingSharedGroup.name.trim()} className="rounded-lg bg-leaf px-5 py-3 font-black text-white disabled:bg-stone-300">儲存</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {productEditorOpen && (
         <ProductEditorDialog
           addChildGroup={addChildGroup}
@@ -237,6 +347,7 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
           saveProduct={saveProduct}
           setEditingProduct={setEditingProduct}
           setProductEditorOpen={setProductEditorOpen}
+          sharedGroups={sharedGroups}
           updateGroupOption={updateGroupOption}
           updateOptionGroup={updateOptionGroup}
         />

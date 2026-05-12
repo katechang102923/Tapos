@@ -267,6 +267,8 @@ export type ProductOptionChoice = {
   isAvailable: boolean;
   children?: ProductOptionGroup[];
   nextGroupIds?: string[];
+  /** IDs of shared option groups (from the sharedOptionGroups collection) shown when this choice is selected. */
+  childGroupIds?: string[];
 };
 
 export type ProductOptionGroup = {
@@ -277,6 +279,13 @@ export type ProductOptionGroup = {
   minSelect: number;
   maxSelect: number;
   options: ProductOptionChoice[];
+};
+
+/** A reusable option group stored independently and linked via ProductOptionChoice.childGroupIds. */
+export type SharedOptionGroup = ProductOptionGroup & {
+  storeId: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ProductOptionRecord = {
@@ -344,6 +353,8 @@ export type OrderItemOption = {
   choiceName: string;
   priceDelta: number;
   level?: number;
+  /** ID of the parent choice that unlocked this option group (used for multi-level rendering). */
+  parentChoiceId?: string;
 };
 
 export type ItemDiscount = {
@@ -613,6 +624,7 @@ export type DemoDatabase = {
   cashFlows?: CashFlow[];
   cashFlowItems?: CashFlowItem[];
   optionGroups?: ProductOptionGroup[];
+  sharedOptionGroups?: SharedOptionGroup[];
   optionItems?: OptionItem[];
   bundleGroups?: BundleGroup[];
   bundleItems?: BundleItem[];

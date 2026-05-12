@@ -1,8 +1,44 @@
-import type { DemoDatabase } from "./types";
+import type { DemoDatabase, SharedOptionGroup } from "./types";
+
+/** Shared option groups reused across products via ProductOptionChoice.childGroupIds. */
+const sharedOptionGroups: SharedOptionGroup[] = [
+  {
+    id: "sg-ice",
+    name: "冰塊",
+    required: true,
+    minSelect: 1,
+    maxSelect: 1,
+    storeId: "demo-store",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    options: [
+      { id: "sg-ice-normal", name: "正常冰", priceDelta: 0, isAvailable: true },
+      { id: "sg-ice-less", name: "少冰", priceDelta: 0, isAvailable: true },
+      { id: "sg-ice-none", name: "去冰", priceDelta: 0, isAvailable: true }
+    ]
+  },
+  {
+    id: "sg-sugar",
+    name: "甜度",
+    required: true,
+    minSelect: 1,
+    maxSelect: 1,
+    storeId: "demo-store",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    options: [
+      { id: "sg-sugar-normal", name: "正常甜", priceDelta: 0, isAvailable: true },
+      { id: "sg-sugar-half", name: "半糖", priceDelta: 0, isAvailable: true },
+      { id: "sg-sugar-none", name: "無糖", priceDelta: 0, isAvailable: true }
+    ]
+  }
+];
 
 const now = new Date();
 
 export const demoStoreId = "demo-store";
+
+export { sharedOptionGroups as defaultSharedOptionGroups };
 
 export const initialData: DemoDatabase = {
   stores: [
@@ -95,9 +131,9 @@ export const initialData: DemoDatabase = {
                   minSelect: 1,
                   maxSelect: 1,
                   options: [
-                    { id: "a-black-tea", name: "紅茶", priceDelta: 0, isAvailable: true },
-                    { id: "a-milk-tea", name: "奶茶", priceDelta: 10, isAvailable: true },
-                    { id: "a-coffee", name: "咖啡", priceDelta: 20, isAvailable: true }
+                    { id: "a-black-tea", name: "紅茶", priceDelta: 0, isAvailable: true, childGroupIds: ["sg-ice", "sg-sugar"] },
+                    { id: "a-milk-tea", name: "奶茶", priceDelta: 10, isAvailable: true, childGroupIds: ["sg-ice", "sg-sugar"] },
+                    { id: "a-coffee", name: "咖啡", priceDelta: 20, isAvailable: true, childGroupIds: ["sg-ice", "sg-sugar"] }
                   ]
                 }
               ]
@@ -115,8 +151,8 @@ export const initialData: DemoDatabase = {
                   minSelect: 1,
                   maxSelect: 1,
                   options: [
-                    { id: "b-black-tea", name: "紅茶", priceDelta: 0, isAvailable: true },
-                    { id: "b-milk-tea", name: "奶茶", priceDelta: 10, isAvailable: true }
+                    { id: "b-black-tea", name: "紅茶", priceDelta: 0, isAvailable: true, childGroupIds: ["sg-ice", "sg-sugar"] },
+                    { id: "b-milk-tea", name: "奶茶", priceDelta: 10, isAvailable: true, childGroupIds: ["sg-ice", "sg-sugar"] }
                   ]
                 },
                 {
@@ -263,6 +299,7 @@ export const initialData: DemoDatabase = {
       ]
     }
   ],
+  sharedOptionGroups,
   cashFlows: [],
   cashFlowItems: [
     { id: "cash-opening", storeId: demoStoreId, name: "開店備用金", type: "income", amountMode: "open", enabled: true, createdAt: now.toISOString(), updatedAt: now.toISOString() },

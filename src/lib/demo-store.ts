@@ -22,7 +22,7 @@ import { auth, firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { AccessStatus, CashFlow, CashFlowItem, Category, Customer, DailyReport, DemoDatabase, Device, MemberCoupon, MemberRules, Order, OrderItem, OrderPayload, OrderStatus, PlatformNotification, PointLog, PointLogType, Product, Promotion, RewardCoupon, Store, StoredValueLog, StoredValueLogType, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
+import type { AccessStatus, CashFlow, CashFlowItem, Category, Customer, DailyReport, DemoDatabase, Device, MemberCoupon, MemberRules, Order, OrderItem, OrderPayload, OrderStatus, PlatformNotification, PointLog, PointLogType, Product, Promotion, RewardCoupon, SharedOptionGroup, Store, StoredValueLog, StoredValueLogType, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -193,7 +193,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
 
     setReady(false);
-    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [], promotions: [], platformNotifications: [], customers: [], pointLogs: [], storedValueLogs: [], rewardCoupons: [], memberCoupons: [] };
+    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [], promotions: [], platformNotifications: [], customers: [], pointLogs: [], storedValueLogs: [], rewardCoupons: [], memberCoupons: [], sharedOptionGroups: [] };
     const commit = () => {
       setDb({ ...next });
       setReady(true);
@@ -319,6 +319,17 @@ export function useDemoStore(options: StoreOptions = {}) {
         )
       : () => undefined;
 
+    const unsubSharedOptionGroups = storeId
+      ? onSnapshot(
+          query(collection(firestore, "sharedOptionGroups"), where("storeId", "==", storeId)),
+          (snapshot) => {
+            next.sharedOptionGroups = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as SharedOptionGroup);
+            commit();
+          },
+          () => undefined // silently ignore — feature is optional
+        )
+      : () => undefined;
+
     return () => {
       unsubStores();
       unsubscribers.forEach((unsubscribe) => unsubscribe());
@@ -327,6 +338,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       unsubCustomers();
       unsubPointLogs();
       unsubStoredValueLogs();
+      unsubSharedOptionGroups();
     };
   }, [admin, customerSessionId, loadCustomers, skipOrderList, storeId, todayOrdersOnly, useFirestore]);
 
@@ -605,6 +617,35 @@ export function useDemoStore(options: StoreOptions = {}) {
     setDb((current) => ({
       ...current,
       products: current.products.filter((product) => product.id !== productId)
+    }));
+  }
+
+  function upsertSharedOptionGroup(group: SharedOptionGroup) {
+    const now = new Date().toISOString();
+    const id = group.id || newId("sg");
+    const record: SharedOptionGroup = { ...group, id, updatedAt: now, createdAt: group.createdAt || now };
+    if (useFirestore && firestore) {
+      setDoc(doc(firestore, "sharedOptionGroups", id), record, { merge: true });
+      return;
+    }
+    setDb((current) => {
+      const list = current.sharedOptionGroups ?? [];
+      const exists = list.some((item) => item.id === id);
+      return {
+        ...current,
+        sharedOptionGroups: exists ? list.map((item) => (item.id === id ? record : item)) : [...list, record]
+      };
+    });
+  }
+
+  function deleteSharedOptionGroup(groupId: string) {
+    if (useFirestore && firestore) {
+      deleteDoc(doc(firestore, "sharedOptionGroups", groupId));
+      return;
+    }
+    setDb((current) => ({
+      ...current,
+      sharedOptionGroups: (current.sharedOptionGroups ?? []).filter((item) => item.id !== groupId)
     }));
   }
 
@@ -1544,6 +1585,8 @@ export function useDemoStore(options: StoreOptions = {}) {
     upsertMemberRules,
     markRecordsForArchive,
     updateDailyReportBackup,
+    upsertSharedOptionGroup,
+    deleteSharedOptionGroup,
   };
 }
 

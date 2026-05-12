@@ -1,7 +1,7 @@
 "use client";
 
 import { Plus } from "lucide-react";
-import type { Category, Product, ProductOptionChoice, ProductOptionGroup } from "@/lib/types";
+import type { Category, Product, ProductOptionChoice, ProductOptionGroup, SharedOptionGroup } from "@/lib/types";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 
 export function ProductEditorDialog({
@@ -17,6 +17,7 @@ export function ProductEditorDialog({
   saveProduct,
   setEditingProduct,
   setProductEditorOpen,
+  sharedGroups = [],
   updateGroupOption,
   updateOptionGroup
 }: {
@@ -32,6 +33,7 @@ export function ProductEditorDialog({
   saveProduct: () => void;
   setEditingProduct: React.Dispatch<React.SetStateAction<Product>>;
   setProductEditorOpen: (open: boolean) => void;
+  sharedGroups?: SharedOptionGroup[];
   updateGroupOption: (groupId: string, optionId: string, patch: Partial<ProductOptionChoice>) => void;
   updateOptionGroup: (groupId: string, patch: Partial<ProductOptionGroup>) => void;
 }) {
@@ -141,6 +143,7 @@ export function ProductEditorDialog({
                   key={group.id}
                   group={group}
                   depth={0}
+                  sharedGroups={sharedGroups}
                   addChildGroup={addChildGroup}
                   addGroupOption={addGroupOption}
                   removeGroupOption={removeGroupOption}
@@ -160,6 +163,7 @@ export function ProductEditorDialog({
 function OptionGroupEditor({
   group,
   depth,
+  sharedGroups,
   addChildGroup,
   addGroupOption,
   removeGroupOption,
@@ -169,6 +173,7 @@ function OptionGroupEditor({
 }: {
   group: ProductOptionGroup;
   depth: number;
+  sharedGroups: SharedOptionGroup[];
   addChildGroup: (groupId: string, optionId: string) => void;
   addGroupOption: (groupId: string) => void;
   removeGroupOption: (groupId: string, optionId: string) => void;
@@ -201,18 +206,43 @@ function OptionGroupEditor({
                 <input type="checkbox" checked={option.isAvailable} onChange={(event) => updateGroupOption(group.id, option.id, { isAvailable: event.target.checked })} />
                 選項可用
               </label>
+              {sharedGroups.length > 0 && (
+                <div className="grid gap-1">
+                  <p className="text-xs font-black text-steel">連結共用群組（選擇此項目後顯示）</p>
+                  <div className="flex flex-wrap gap-1">
+                    {sharedGroups.map((sg) => {
+                      const linked = (option.childGroupIds ?? []).includes(sg.id);
+                      return (
+                        <button
+                          key={sg.id}
+                          onClick={() => {
+                            const ids = option.childGroupIds ?? [];
+                            updateGroupOption(group.id, option.id, {
+                              childGroupIds: linked ? ids.filter((id) => id !== sg.id) : [...ids, sg.id]
+                            });
+                          }}
+                          className={`rounded px-2 py-1 text-xs font-black ${linked ? "bg-leaf text-white" : "bg-orange-100 text-steel"}`}
+                        >
+                          {linked ? "✓ " : ""}{sg.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
-                <button onClick={() => addChildGroup(group.id, option.id)} className="rounded-lg border border-orange-200 bg-white px-3 py-2 font-black text-steel">新增子選項群組</button>
+                {depth < 3 && <button onClick={() => addChildGroup(group.id, option.id)} className="rounded-lg border border-orange-200 bg-white px-3 py-2 font-black text-steel">新增子選項群組</button>}
                 <button onClick={() => removeGroupOption(group.id, option.id)} className="rounded-lg bg-tomato px-3 py-2 font-black text-white">刪除選項</button>
               </div>
             </div>
-            {(option.children ?? []).length > 0 && (
+            {(option.children ?? []).length > 0 && depth < 3 && (
               <div className="mt-3 grid gap-3 border-l-4 border-leaf pl-3">
                 {(option.children ?? []).map((child) => (
                   <OptionGroupEditor
                     key={child.id}
                     group={child}
                     depth={depth + 1}
+                    sharedGroups={sharedGroups}
                     addChildGroup={addChildGroup}
                     addGroupOption={addGroupOption}
                     removeGroupOption={removeGroupOption}

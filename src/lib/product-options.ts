@@ -1,4 +1,7 @@
-import type { OrderItemOption, Product, ProductOptionGroup } from "./types";
+import type { OrderItemOption, Product, ProductOptionGroup, SharedOptionGroup } from "./types";
+
+/** Maximum nesting depth (0-indexed). 3 means levels 0–3, giving 4 visible group rows. */
+const MAX_DEPTH = 3;
 
 function legacyPriceDelta(value: string) {
   return Number(value.match(/\+(\d+)/)?.[1] ?? 0);
@@ -35,41 +38,60 @@ export function productOptionGroups(product: Product): ProductOptionGroup[] {
   }));
 }
 
-export function visibleOptionGroups(product: Product, selected: OrderItemOption[]) {
+export function visibleOptionGroups(product: Product, selected: OrderItemOption[], sharedGroups: (ProductOptionGroup | SharedOptionGroup)[] = []) {
   const groups = productOptionGroups(product);
   const childIds = new Set(groups.flatMap((group) => group.options.flatMap((option) => option.nextGroupIds ?? [])));
   const selectedChoiceIds = new Set(selected.map((item) => item.choiceId));
 
-  function collect(nextGroups: ProductOptionGroup[]): ProductOptionGroup[] {
+  function resolveChildGroups(option: ProductOptionGroup["options"][number]): ProductOptionGroup[] {
+    return [
+      ...(option.children ?? []),
+      ...(option.nextGroupIds ?? []).flatMap((id) => groups.filter((g) => g.id === id)),
+      ...(option.childGroupIds ?? []).flatMap((id) => sharedGroups.filter((g) => g.id === id))
+    ];
+  }
+
+  function collect(nextGroups: ProductOptionGroup[], depth: number, ancestors: ReadonlySet<string>): ProductOptionGroup[] {
+    if (depth > MAX_DEPTH) return [];
     return nextGroups.flatMap((group) => {
-      const selectedOptions = group.options.filter((option) => selectedChoiceIds.has(option.id));
-      const children = selectedOptions.flatMap((option) => [
-        ...(option.children ?? []),
-        ...(option.nextGroupIds ?? []).flatMap((id) => groups.filter((candidate) => candidate.id === id))
-      ]);
-      return [group, ...collect(children)];
+      if (ancestors.has(group.id)) return [];
+      const nextAncestors = new Set([...ancestors, group.id]);
+      const childGroups = group.options
+        .filter((option) => selectedChoiceIds.has(option.id))
+        .flatMap(resolveChildGroups);
+      return [group, ...collect(childGroups, depth + 1, nextAncestors)];
     });
   }
 
   const rootGroups = groups.filter((group) => !childIds.has(group.id));
-  return collect(rootGroups);
+  return collect(rootGroups, 0, new Set());
 }
 
-export function optionGroupLevels(product: Product, selected: OrderItemOption[]) {
+export function optionGroupLevels(product: Product, selected: OrderItemOption[], sharedGroups: (ProductOptionGroup | SharedOptionGroup)[] = []) {
   const groups = productOptionGroups(product);
   const selectedChoiceIds = new Set(selected.map((item) => item.choiceId));
   const levels = new Map<string, number>();
 
-  function walk(nextGroups: ProductOptionGroup[], level: number) {
+  function walk(nextGroups: ProductOptionGroup[], level: number, ancestors: ReadonlySet<string>) {
+    if (level > MAX_DEPTH) return;
     nextGroups.forEach((group) => {
+      if (ancestors.has(group.id)) return;
       levels.set(group.id, level);
+      const nextAncestors = new Set([...ancestors, group.id]);
       group.options
         .filter((option) => selectedChoiceIds.has(option.id))
-        .forEach((option) => walk(option.children ?? [], level + 1));
+        .forEach((option) => {
+          const childGroups = [
+            ...(option.children ?? []),
+            ...(option.nextGroupIds ?? []).flatMap((id) => groups.filter((g) => g.id === id)),
+            ...(option.childGroupIds ?? []).flatMap((id) => sharedGroups.filter((g) => g.id === id))
+          ];
+          walk(childGroups, level + 1, nextAncestors);
+        });
     });
   }
 
-  walk(groups, 0);
+  walk(groups, 0, new Set());
   return levels;
 }
 
