@@ -592,10 +592,10 @@ export function useDemoStore(options: StoreOptions = {}) {
     }));
   }
 
-  function upsertProduct(product: Product) {
+  async function upsertProduct(product: Product): Promise<void> {
     if (useFirestore && firestore) {
       const id = product.id || doc(collection(firestore, "products")).id;
-      setDoc(doc(firestore, "products", id), { ...product, id }, { merge: true });
+      await setDoc(doc(firestore, "products", id), { ...product, id }, { merge: true });
       return;
     }
     // Save synchronously inside the updater to prevent the 1200ms sync interval
@@ -625,12 +625,12 @@ export function useDemoStore(options: StoreOptions = {}) {
     }));
   }
 
-  function upsertSharedOptionGroup(group: SharedOptionGroup) {
+  async function upsertSharedOptionGroup(group: SharedOptionGroup): Promise<void> {
     const now = new Date().toISOString();
     const id = group.id || newId("sg");
     const record: SharedOptionGroup = { ...group, id, updatedAt: now, createdAt: group.createdAt || now };
     if (useFirestore && firestore && record.storeId) {
-      setDoc(doc(firestore, "stores", record.storeId, "optionGroups", id), record, { merge: true });
+      await setDoc(doc(firestore, "stores", record.storeId, "optionGroups", id), record, { merge: true });
       return;
     }
     setDb((current) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import { ChevronDown, ChevronRight, Link2, Plus } from "lucide-react";
 import type { Category, Product, ProductOptionChoice, ProductOptionGroup, SharedOptionGroup } from "@/lib/types";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
@@ -20,7 +20,9 @@ export function ProductEditorDialog({
   setProductEditorOpen,
   sharedGroups = [],
   updateGroupOption,
-  updateOptionGroup
+  updateOptionGroup,
+  saveState,
+  saveMessage
 }: {
   addChildGroup: (groupId: string, optionId: string) => void;
   addGroupOption: (groupId: string) => void;
@@ -32,11 +34,13 @@ export function ProductEditorDialog({
   removeGroupOption: (groupId: string, optionId: string) => void;
   removeOptionGroup: (groupId: string) => void;
   saveProduct: () => void;
-  setEditingProduct: React.Dispatch<React.SetStateAction<Product>>;
+  setEditingProduct: Dispatch<SetStateAction<Product>>;
   setProductEditorOpen: (open: boolean) => void;
   sharedGroups?: SharedOptionGroup[];
   updateGroupOption: (groupId: string, optionId: string, patch: Partial<ProductOptionChoice>) => void;
   updateOptionGroup: (groupId: string, patch: Partial<ProductOptionGroup>) => void;
+  saveState?: "idle" | "unsaved" | "saving" | "saved" | "error";
+  saveMessage?: string;
 }) {
   const optionGroups = editingProduct.optionGroups ?? [];
   const isNewProduct = editingProduct.id === "new-product";
@@ -49,6 +53,9 @@ export function ProductEditorDialog({
             <p className="text-sm font-black text-leaf">商品編輯</p>
             <h2 className="text-2xl font-black text-ink sm:text-3xl">{isNewProduct ? "新增商品" : editingProduct.name || "編輯商品"}</h2>
             <p className="mt-1 text-sm font-bold text-steel">設定基本資料、價格、上架狀態與多層套餐選項。</p>
+            {saveMessage ? (
+              <p className={`mt-2 text-sm font-black ${saveState === "error" ? "text-tomato" : saveState === "saving" ? "text-ink" : "text-leaf"}`}>{saveMessage}</p>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <button onClick={() => setProductEditorOpen(false)} className="rounded-lg border border-orange-200 bg-white px-4 py-3 font-black text-steel">關閉</button>
@@ -250,6 +257,7 @@ export function OptionGroupEditor({
                 option={option}
                 groupId={group.id}
                 depth={depth}
+                isShared={isShared}
                 sharedGroups={sharedGroups}
                 addChildGroup={addChildGroup}
                 addGroupOption={addGroupOption}
@@ -279,6 +287,7 @@ function OptionRow({
   option,
   groupId,
   depth,
+  isShared,
   sharedGroups,
   addChildGroup,
   addGroupOption,
@@ -290,6 +299,7 @@ function OptionRow({
   option: ProductOptionChoice;
   groupId: string;
   depth: number;
+  isShared: boolean;
   sharedGroups: SharedOptionGroup[];
   addChildGroup: (groupId: string, optionId: string) => void;
   addGroupOption: (groupId: string) => void;
@@ -354,7 +364,7 @@ function OptionRow({
               {childrenExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
             </button>
           )}
-          {depth < 3 && (
+          {!isShared && depth < 3 && (
             <button
               type="button"
               onClick={() => { addChildGroup(groupId, option.id); setChildrenExpanded(true); }}
@@ -363,6 +373,9 @@ function OptionRow({
             >
               +子群組
             </button>
+          )}
+          {depth >= 3 && !isShared && (
+            <span className="rounded bg-orange-50 px-2 py-1 text-xs font-black text-amber-700">已達 4 層上限</span>
           )}
           <button
             type="button"
