@@ -22,6 +22,7 @@ export default function MerchantMenuPage() {
 function MerchantMenuShell({ profile }: { profile: User | null }) {
   const searchParams = useSearchParams();
   const requestedStoreId = searchParams.get("storeId") ?? "";
+  const adminMode = searchParams.get("adminMode") === "1";
   const platformAdmin = isPlatformAdmin(profile);
   const { db } = useDemoStore({ admin: platformAdmin, skipOrderList: true });
   const switchableStoreIds = useMemo(
@@ -39,16 +40,17 @@ function MerchantMenuShell({ profile }: { profile: User | null }) {
   const storeId = platformAdmin
     ? (selectedStoreId && switchableStoreIds.includes(selectedStoreId) ? selectedStoreId : fallbackStoreId)
     : defaultStoreId(profile);
-  return <MerchantMenuContent canSwitch={canSwitchStore(profile)} storeId={storeId} storeIds={switchableStoreIds} stores={db.stores} onStoreChange={setSelectedStoreId} />;
+  return <MerchantMenuContent adminMode={platformAdmin && adminMode} canSwitch={canSwitchStore(profile)} storeId={storeId} storeIds={switchableStoreIds} stores={db.stores} onStoreChange={setSelectedStoreId} />;
 }
 
-function MerchantMenuContent({ storeId, canSwitch = false, storeIds = [], stores = [], onStoreChange }: { storeId: string; canSwitch?: boolean; storeIds?: string[]; stores?: Array<{ id: string; name: string }>; onStoreChange?: (storeId: string) => void }) {
+function MerchantMenuContent({ storeId, adminMode = false, canSwitch = false, storeIds = [], stores = [], onStoreChange }: { storeId: string; adminMode?: boolean; canSwitch?: boolean; storeIds?: string[]; stores?: Array<{ id: string; name: string }>; onStoreChange?: (storeId: string) => void }) {
   const { db, upsertCategory, upsertProduct } = useDemoStore({ storeId, skipOrderList: true });
   const [categoryName, setCategoryName] = useState("");
   const [templateType, setTemplateType] = useState<MenuTemplateType>("breakfast");
   const [templateMessage, setTemplateMessage] = useState("");
   const [templateError, setTemplateError] = useState("");
   const store = db.stores.find((item) => item.id === storeId);
+  const storeDisplayName = store?.name || stores.find((item) => item.id === storeId)?.name || "未命名店家";
   const categories = db.categories.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
   const products = db.products.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
 
@@ -103,14 +105,14 @@ function MerchantMenuContent({ storeId, canSwitch = false, storeIds = [], stores
       <header className="border-b border-orange-100 bg-white p-4 shadow-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-black text-leaf">店家後台設定</p>
-            <h1 className="text-3xl font-black text-ink">{store?.name ?? "店家"} · 菜單管理概覽</h1>
+            <p className="text-sm font-black text-leaf">{adminMode ? "平台代管菜單" : "店家後台設定"}</p>
+            <h1 className="text-3xl font-black text-ink">目前{adminMode ? "代管" : "管理"}店家：{storeDisplayName}</h1>
             <p className="mt-1 text-sm font-bold text-steel">管理分類、商品排序、上下架與菜單預覽。套餐、加購與商品選項請到商品選項管理。</p>
             {canSwitch && storeIds.length > 0 && (
               <label className="mt-3 block text-sm font-black text-steel">
                 切換店家
                 <select value={storeId} onChange={(event) => onStoreChange?.(event.target.value)} className="mt-1 rounded-lg border border-orange-100 px-3 py-2 font-bold text-ink">
-                  {storeIds.map((id) => <option key={id} value={id}>{stores.find((item) => item.id === id)?.name ?? id}</option>)}
+                  {storeIds.map((id) => <option key={id} value={id}>{stores.find((item) => item.id === id)?.name ?? "未命名店家"}</option>)}
                 </select>
               </label>
             )}

@@ -34,6 +34,15 @@ function platformRoleFromStoreRoles(rolesByStore: Record<string, StoreMemberRole
   return "viewer";
 }
 
+function legacyRolesFromProfile(profile: User): Record<string, StoreMemberRole> {
+  const role = normalizeStoreMemberRole(profile.role);
+  if (!role) return {};
+  const ids = new Set<string>();
+  if (profile.storeId) ids.add(profile.storeId);
+  for (const storeId of profile.storeIds ?? []) ids.add(storeId);
+  return Object.fromEntries(Array.from(ids).map((storeId) => [storeId, role]));
+}
+
 function profileFromSnapshot(snapshot: DocumentSnapshot): User | null {
   if (!snapshot.exists()) return null;
 
@@ -89,12 +98,19 @@ async function storeRolesFromBindings(email: string): Promise<Record<string, Sto
   if (!firestore) return {};
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return {};
-  const bindingSnapshots = await Promise.all([
-    getDocs(query(collection(firestore, "storeUserBindings"), where("email", "==", normalizedEmail))),
-    getDocs(query(collection(firestore, "storeUsers"), where("email", "==", normalizedEmail)))
-  ]);
+  const bindingCollections = ["storeUserBindings", "storeUsers", "storeMembers"];
+  const bindingSnapshots = (await Promise.all(
+    bindingCollections.map(async (collectionName) => {
+      try {
+        return await getDocs(query(collection(firestore!, collectionName), where("email", "==", normalizedEmail)));
+      } catch (error) {
+        console.warn(`load ${collectionName} bindings failed; continuing with other binding sources`, error);
+        return null;
+      }
+    })
+  )).filter(Boolean) as Awaited<ReturnType<typeof getDocs>>[];
   return bindingSnapshots.flatMap((result) => result.docs).reduce<Record<string, StoreMemberRole>>((roles, item) => {
-    const data = item.data();
+    const data = item.data() as Record<string, unknown>;
     const storeId = typeof data.storeId === "string" ? data.storeId : "";
     const memberRole = normalizeStoreMemberRole(typeof data.storeRole === "string" ? data.storeRole : data.role);
     if (storeId && memberRole) {
@@ -109,7 +125,7 @@ async function profileWithFreshStoreBindings(rawProfile: User | null): Promise<U
   const bindingRoles = await storeRolesFromBindings(rawProfile.email);
   const authoritativeRoles = Object.keys(bindingRoles).length > 0
     ? bindingRoles
-    : { ...normalizeMemberships(rawProfile.memberships), ...normalizeMemberships(rawProfile.storeRoles) };
+    : { ...legacyRolesFromProfile(rawProfile), ...normalizeMemberships(rawProfile.memberships), ...normalizeMemberships(rawProfile.storeRoles) };
   const storeIds = Object.keys(authoritativeRoles);
   const role = rawProfile.role === "systemAdmin"
     ? "systemAdmin"
@@ -132,6 +148,8 @@ function clearStoreRuntimeCache() {
     "currentStoreId",
     "merchantStore",
     "menuCache",
+    "posStore",
+    "storeRole",
     "auth:allowedStoreIds"
   ]);
   for (const storage of [window.localStorage, window.sessionStorage]) {

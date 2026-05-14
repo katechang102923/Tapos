@@ -27,26 +27,27 @@ service cloud.firestore {
     }
 
     function isSystemAdminRole(value) {
-      return value in ["systemAdmin", "admin", "softwareAdmin", "系統管理員", "軟體管理員"];
+      return value in ["systemAdmin", "admin", "softwareAdmin"];
     }
 
     function normalizeStoreRole(value) {
-      return value in ["owner", "merchant", "商家", "老闆"]
+      return value in ["owner", "merchant"]
         ? "owner"
         : (
-          value in ["manager", "管理員", "店長"]
+          value in ["manager"]
           ? "manager"
           : (
-            value in ["staff", "kitchen", "員工"]
+            value in ["staff", "kitchen"]
             ? "staff"
             : (
-              value in ["viewer", "檢視者", "只讀", "只讀/報表"]
+              value in ["viewer"]
               ? "viewer"
               : null
             )
           )
         );
     }
+
 
     function approved() {
       return hasUserDoc() && userDoc().data.approved == true && userDoc().data.status == "active";
@@ -56,6 +57,19 @@ service cloud.firestore {
       return hasUserDoc() ? userDoc().data.storeId : null;
     }
 
+
+    function legacyStoreRole(storeId) {
+      return hasUserDoc()
+        && (
+          userDoc().data.storeId == storeId
+          || (
+            userDoc().data.storeIds is list
+            && storeId in userDoc().data.storeIds
+          )
+        )
+        ? userDoc().data.role
+        : null;
+    }
     function rawMembershipRole(storeId) {
       return hasUserDoc()
         && userDoc().data.memberships is map
@@ -66,7 +80,7 @@ service cloud.firestore {
           && userDoc().data.storeRoles is map
           && storeId in userDoc().data.storeRoles
           ? userDoc().data.storeRoles[storeId]
-            : null
+            : legacyStoreRole(storeId)
         );
     }
 
@@ -388,6 +402,26 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /stores/{storeId}/categories/{categoryId} {
+      allow read: if isAdmin() || canViewStoreData(storeId);
+      allow create, update, delete: if isAdmin() || membershipRole(storeId) in ["owner", "manager"];
+    }
+
+    match /stores/{storeId}/products/{productId} {
+      allow read: if isAdmin() || canViewStoreData(storeId);
+      allow create, update, delete: if isAdmin() || membershipRole(storeId) in ["owner", "manager"];
+    }
+
+    match /stores/{storeId}/devices/{deviceId} {
+      allow read: if isAdmin() || canViewStoreData(storeId);
+      allow create, update, delete: if isAdmin() || membershipRole(storeId) in ["owner", "manager"];
+    }
+
+    match /stores/{storeId}/tables/{tableId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() || membershipRole(storeId) in ["owner", "manager"];
+    }
+
     match /stores/{storeId}/optionGroups/{groupId} {
       allow read: if isAdmin()
         || canViewStoreData(storeId)
@@ -539,6 +573,18 @@ service cloud.firestore {
 
     match /storeUsers/{bindingId} {
       allow read: if isAdmin() || (signedIn() && resource.data.email == request.auth.token.email);
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /storeMembers/{bindingId} {
+      allow read: if isAdmin()
+        || (
+          signedIn()
+          && (
+            resource.data.userId == request.auth.uid
+            || resource.data.email == request.auth.token.email
+          )
+        );
       allow create, update, delete: if isAdmin();
     }
 

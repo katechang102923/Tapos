@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArchiveRestore, ArrowLeft, Bell, Building2, CalendarClock, Contact, Eye, EyeOff, Gift, Infinity, Monitor, Plus, RotateCcw, Search, ShieldCheck, Store, Trash2, ToggleLeft, ToggleRight, Users, Wallet } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Bell, Building2, CalendarClock, Contact, Eye, EyeOff, Gift, Infinity, Menu as MenuIcon, Monitor, Plus, RotateCcw, Search, ShieldCheck, Store, Trash2, ToggleLeft, ToggleRight, Users, Wallet } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
-import { ROLE_LABELS, roleBadgeClass, roleLabel } from "@/lib/permissions";
+import { normalizeStoreMemberRole } from "@/lib/roles";
 import { SUBSCRIPTION_STATUS_COLORS, SUBSCRIPTION_STATUS_LABELS, addDays, daysUntil, effectiveSubscriptionStatus, formatDate } from "@/lib/subscription";
 import type { BusinessType, PlatformNotification, Store as StoreType, StoreApplication, StoreMemberRole, SubscriptionStatus } from "@/lib/types";
 
@@ -652,6 +652,15 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-bold text-white/30">{retentionLabel(store)}</span>
                     {!isDeleted && (
+                      <Link
+                        href={`/merchant/menu?storeId=${store.id}&adminMode=1`}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-leaf/20 px-3 py-2 text-xs font-black text-leaf hover:bg-leaf/30"
+                      >
+                        <MenuIcon className="size-3.5" />
+                        代管菜單
+                      </Link>
+                    )}
+                    {!isDeleted && (
                       <button
                         onClick={() => openDeleteConfirm(store)}
                         disabled={isDeleting}
@@ -795,12 +804,12 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                         <p className="mb-2 text-xs font-black text-white/40">已綁定帳號（詳細權限請由店家後台 → 帳號管理設定）</p>
                         <div className="flex flex-wrap gap-2">
                           {users.map((user) => {
-                            const userStoreRole = (user.storeRoles?.[store.id] ?? user.memberships?.[store.id] ?? null) as StoreMemberRole | null;
+                            const userStoreRole = normalizeStoreMemberRole(user.storeRoles?.[store.id] ?? user.memberships?.[store.id]);
                             return (
                               <div key={user.id} className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-1.5">
                                 <span className="text-sm font-bold text-white">{user.email}</span>
                                 {userStoreRole && (
-                                  <span className={`rounded px-1.5 py-0.5 text-xs font-black ${roleBadgeClass(userStoreRole)}`}>{roleLabel(userStoreRole)}</span>
+                                  <span className="rounded border border-[#2f7a54] bg-[#123a2a] px-2 py-0.5 text-xs font-black text-[#b9f6d3] shadow-sm">{STORE_ROLE_LABELS[userStoreRole]}</span>
                                 )}
                                 <button onClick={() => handleUnbind(user.id, store.id, user.email)} className="text-xs font-black text-tomato hover:underline">解除</button>
                               </div>
@@ -817,19 +826,19 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                         value={bindingEmail[store.id] ?? ""}
                         onChange={(e) => setBindingEmail((prev) => ({ ...prev, [store.id]: e.target.value }))}
                         placeholder="輸入帳號 email..."
-                        className="min-w-48 flex-1 rounded-lg border border-white/20 bg-[#111] px-3 py-2 text-sm font-bold text-white placeholder:text-white/40 focus:border-leaf focus:outline-none"
+                        className="min-w-48 flex-1 rounded-lg border border-white/25 bg-[#111] px-3 py-2 text-sm font-bold text-white shadow-sm placeholder:text-white/45 focus:border-leaf focus:bg-[#161616] focus:outline-none"
                       />
                       <select
                         value={bindingRole[store.id] ?? "staff"}
                         onChange={(e) => setBindingRole((prev) => ({ ...prev, [store.id]: e.target.value as StoreMemberRole }))}
-                        className="rounded-lg border border-white/20 bg-[#111] px-3 py-2 text-sm font-bold text-white focus:border-leaf focus:outline-none"
+                        className="rounded-lg border border-white/25 bg-[#111] px-3 py-2 text-sm font-bold text-white shadow-sm focus:border-leaf focus:bg-[#161616] focus:outline-none"
                       >
                         {roleMemberRoles.map((r) => <option key={r} value={r} className="bg-[#111] text-white">{STORE_ROLE_LABELS[r]}</option>)}
                       </select>
                       <button
                         onClick={() => handleBind(store.id)}
                         disabled={saving === `bind-${store.id}`}
-                        className="rounded-lg border border-leaf/70 bg-leaf px-4 py-2 text-sm font-black text-white shadow-sm disabled:opacity-60"
+                        className="rounded-lg border border-leaf bg-leaf px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-leaf/90 disabled:opacity-60"
                       >
                         {saving === `bind-${store.id}` ? "綁定中..." : "綁定"}
                       </button>

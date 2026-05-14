@@ -1,4 +1,5 @@
 import type { StoreMemberRole, User, UserPermissions } from "./types";
+import { normalizeStoreMemberRole } from "./roles";
 import { isPlatformAdmin } from "./store-access";
 
 export const ALL_PERMISSIONS: UserPermissions = {
@@ -112,38 +113,27 @@ export const ROLE_LABELS: Record<StoreMemberRole, string> = {
 export const ROLE_BADGE_CLASSES: Record<StoreMemberRole, string> = {
   owner: "bg-amber-100 text-amber-700 border border-amber-200",
   manager: "bg-blue-100 text-blue-700 border border-blue-200",
-  staff: "bg-stone-100 text-stone-600 border border-stone-200",
-  viewer: "bg-slate-100 text-slate-500 border border-slate-200",
+  staff: "bg-stone-100 text-stone-700 border border-stone-200",
+  viewer: "bg-slate-100 text-slate-600 border border-slate-200",
 };
 
 export const PERMISSION_LABELS: Record<keyof UserPermissions, string> = {
-  canViewDailyReport: "查看日報 / 日結",
+  canViewDailyReport: "查看日報 / 報表",
   canManageMenu: "菜單管理",
-  canManagePromotions: "活動管理",
+  canManagePromotions: "促銷管理",
   canUseCashflow: "現金流",
   canUseKDS: "廚房 KDS",
-  canManageUsers: "管理帳號",
+  canManageUsers: "員工管理",
   canViewOrders: "查看訂單",
   canCancelOrders: "取消訂單",
-  canApplyDiscounts: "使用折扣",
-  canViewPlatformTools: "平台管理工具", // internal — never shown in store UI
+  canApplyDiscounts: "套用折扣",
+  canViewPlatformTools: "平台管理工具",
   canManageMembers: "會員管理",
   canUseMemberLookup: "會員查詢",
-  canAdjustMemberPoints: "調整點數",
-  canUseStoredValue: "儲值功能",
+  canAdjustMemberPoints: "調整會員點數",
+  canUseStoredValue: "儲值金",
 };
 
-/**
- * Permission keys that store owners are allowed to configure for their staff.
- * canViewPlatformTools is intentionally excluded — it is system-determined only.
- */
-/**
- * Permission keys that store owners are allowed to configure for their staff.
- * canUseKDS is excluded — KDS access is controlled solely by the platform
- *   switch (store.features.kdsEnabled). Individual KDS staff permissions
- *   will be added in a future iteration.
- * canViewPlatformTools is excluded — system-determined only.
- */
 export const STORE_PERMISSION_KEYS: Array<keyof UserPermissions> = [
   "canViewDailyReport",
   "canManageMenu",
@@ -160,44 +150,32 @@ export const STORE_PERMISSION_KEYS: Array<keyof UserPermissions> = [
 ];
 
 export function roleLabel(role: string | null | undefined): string {
-  if (!role) return "員工";
-  return ROLE_LABELS[role as StoreMemberRole] ?? role;
+  const normalized = normalizeStoreMemberRole(role);
+  if (!normalized) return role ?? "員工";
+  return ROLE_LABELS[normalized];
 }
 
 export function roleBadgeClass(role: string | null | undefined): string {
-  if (!role) return "bg-stone-100 text-stone-600 border border-stone-200";
-  return ROLE_BADGE_CLASSES[role as StoreMemberRole] ?? "bg-stone-100 text-stone-600 border border-stone-200";
+  const normalized = normalizeStoreMemberRole(role);
+  if (!normalized) return "bg-stone-100 text-stone-700 border border-stone-200";
+  return ROLE_BADGE_CLASSES[normalized];
 }
 
 export function defaultPermissionsForRole(role: StoreMemberRole): UserPermissions {
   return ROLE_DEFAULT_PERMISSIONS[role] ?? NO_PERMISSIONS;
 }
 
-/** Resolve effective permissions for a user in a specific store.
- *  - platform admin (role === "admin") → ALL_PERMISSIONS
- *  - user has a store role → start from role defaults, merge custom overrides
- *  - no store membership → NO_PERMISSIONS
- */
-export function resolvePermissions(
-  profile: User | null | undefined,
-  storeId: string
-): UserPermissions {
+export function resolvePermissions(profile: User | null | undefined, storeId: string): UserPermissions {
   if (!profile) return NO_PERMISSIONS;
   if (isPlatformAdmin(profile)) return ALL_PERMISSIONS;
 
-  // Resolve store-level role
-  const storeRole =
-    profile.storeRoles?.[storeId] ??
-    profile.memberships?.[storeId] ??
-    null;
-
-  let effectiveRole: StoreMemberRole | null = storeRole;
+  const effectiveRole = normalizeStoreMemberRole(
+    profile.storeRoles?.[storeId] ?? profile.memberships?.[storeId] ?? null
+  );
   if (!effectiveRole) return NO_PERMISSIONS;
 
   const defaults = ROLE_DEFAULT_PERMISSIONS[effectiveRole];
   const custom = profile.storePermissions?.[storeId];
-  // Merge custom overrides, then always force canViewPlatformTools off —
-  // only the platform admin (role === "admin") may have that true.
   const merged = custom ? { ...defaults, ...custom } : defaults;
   return { ...merged, canViewPlatformTools: false };
 }

@@ -197,6 +197,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const enablePickupDisplay = store?.enablePickupDisplay ?? true;
   const dailyReportFeature = store?.features?.dailyReportEnabled ?? true;
   const cashFlowFeature = store?.features?.cashFlowEnabled ?? true;
+  const storeDisplayName = store?.name || storeNames[storeId] || "未命名店家";
 
   const [activePanel, setActivePanel] = useState<PosPanel>("orders");
   const [activeOrderTab, setActiveOrderTab] = useState<(typeof orderTabs)[number]["key"]>("new");
@@ -428,14 +429,14 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
         <header className="mb-5 flex flex-col gap-3 rounded-lg bg-[#171717] p-5 text-white shadow-sm xl:flex-row xl:items-center xl:justify-between">
           <div>
             <p className="text-sm font-black text-white/55">POS 前台工作台</p>
-            <h1 className="mt-2 text-3xl font-black">{store.name} 接單中心</h1>
+            <h1 className="mt-2 text-3xl font-black">{storeDisplayName} 接單中心</h1>
             <p className="mt-2 text-sm font-bold text-white/65">接單、建立現場訂單、查看今日銷售與現金流。</p>
             {effectiveRole && <p className="mt-2 text-xs font-black text-white/45">目前角色：{effectiveRole}</p>}
           </div>
           <div className="flex flex-wrap gap-2">
-            {storeIds.length > 1 && (
+            {!isAdmin && storeIds.length > 1 && (
               <select value={activeStoreId} onChange={(event) => onStoreChange(event.target.value)} className="rounded-lg border border-white/20 bg-white px-4 py-3 font-black text-ink">
-                {storeIds.map((id) => <option key={id} value={id}>{storeNames[id] ?? db.stores.find((item) => item.id === id)?.name ?? id}</option>)}
+                {storeIds.map((id) => <option key={id} value={id}>{storeNames[id] ?? db.stores.find((item) => item.id === id)?.name ?? "未命名店家"}</option>)}
               </select>
             )}
             {store.features?.kdsEnabled && (
