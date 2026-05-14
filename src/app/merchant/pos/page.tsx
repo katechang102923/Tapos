@@ -52,11 +52,11 @@ const orderTabs: Array<{ key: "new" | "processing" | "completed" | "cancelled"; 
   { key: "cancelled", label: "已取消", statuses: ["cancelled"] }
 ];
 
-const posAccessRoles: StoreMemberRole[] = ["owner", "manager", "staff", "viewer"];
+const posAccessRoles: StoreMemberRole[] = ["owner", "manager", "staff"];
 
 export default function MerchantPosPage() {
   return (
-    <LoginGate allowedRoles={["merchant", "kitchen", "admin", "systemAdmin", "softwareAdmin", "owner", "manager", "staff", "viewer"]} title="POS 前台工作台">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager", "staff"]} title="POS 前台工作台">
       {({ profile }) => <MerchantPosShell profile={profile} />}
     </LoginGate>
   );
@@ -78,7 +78,7 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
   const { db: adminDb } = useDemoStore({ admin: isAdmin, skipOrderList: true });
 
   // Role-mapped store IDs with demo entries already stripped
-  const allStoreIds = isAdmin ? adminDb.stores.map((store) => store.id) : selectorStoreIds(profile);
+  const allStoreIds = isAdmin ? adminDb.stores.filter((store) => store.id !== "demo-store" && !store.isDeleted).map((store) => store.id) : selectorStoreIds(profile);
 
   // Validated store IDs: trimmed to only stores that actually exist in Firestore
   // so stale profile entries (deleted stores, seed data) never reach the selector.
@@ -170,7 +170,7 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
   }, [userId, profile?.role, selectedStoreId, storeIds, storeRole]);
 
   if (selectedStoreId && !hasStoreAccess && !isAdmin) {
-    return <CenteredNotice title="此帳號無法使用 POS 前台" text="請確認此帳號已被綁定為 owner、manager、staff 或 viewer。" />;
+    return <CenteredNotice title="此帳號無法使用 POS 前台" text="請確認此帳號已被綁定為 owner、manager 或 staff。" />;
   }
 
   return <MerchantPosContent profile={profile} storeId={selectedStoreId} storeIds={storeIds} storeNames={storeNames} activeStoreId={selectedStoreId} activeStoreRole={storeRole} onStoreChange={handleStoreChange} />;
@@ -183,7 +183,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const products = useMemo(() => db.products.filter((item) => item.storeId === storeId && item.isAvailable && !item.isSoldOut).sort((a, b) => a.sort - b.sort), [db.products, storeId]);
   const cashFlowItems = useMemo(() => (db.cashFlowItems ?? []).filter((item) => item.storeId === storeId && item.enabled).sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")), [db.cashFlowItems, storeId]);
   const permissions = resolvePermissions(profile, storeId);
-  const effectiveRole = isPlatformAdmin(profile) ? "admin" : activeStoreRole;
+  const effectiveRole = isPlatformAdmin(profile) ? "systemAdmin" : activeStoreRole;
   const canViewReport = permissions.canViewDailyReport;
   const canAddCashFlow = permissions.canUseCashflow;
   const canManageCashItems = permissions.canUseCashflow && permissions.canManageMenu;

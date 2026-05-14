@@ -1,4 +1,5 @@
 import type { StoreMemberRole, User } from "./types";
+import { ACTIVE_STORE_MEMBER_ROLES, normalizeStoreMemberRole, normalizeUserRole } from "./roles";
 
 export const platformAdminEmail = "ciut0000@gmail.com";
 
@@ -9,18 +10,19 @@ export const platformAdminEmail = "ciut0000@gmail.com";
  */
 const DEMO_STORE_IDS = new Set(["demo-store"]);
 
-const storeStaffRoles: StoreMemberRole[] = ["owner", "manager", "staff", "viewer"];
-const posRoles: StoreMemberRole[] = ["owner", "manager", "staff"];
+const posRoles = ACTIVE_STORE_MEMBER_ROLES;
 const managerRoles: StoreMemberRole[] = ["owner", "manager"];
 
 function validStoreRole(value: unknown): value is StoreMemberRole {
-  return typeof value === "string" && storeStaffRoles.includes(value as StoreMemberRole);
+  return Boolean(normalizeStoreMemberRole(value));
 }
 
 function roleMap(value: unknown): Record<string, StoreMemberRole> {
   if (!value || typeof value !== "object") return {};
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, StoreMemberRole] => validStoreRole(entry[1]))
+    Object.entries(value as Record<string, unknown>)
+      .map(([storeId, role]) => [storeId, normalizeStoreMemberRole(role)] as const)
+      .filter((entry): entry is [string, StoreMemberRole] => Boolean(entry[1]))
   );
 }
 
@@ -80,7 +82,7 @@ export function isPlatformAdmin(profile: Partial<Pick<User, "email" | "role" | "
   if (!profile) return false;
   return isPlatformAdminEmail(profile.email)
     || (
-      (profile.role === "admin" || profile.role === "systemAdmin" || profile.role === "softwareAdmin")
+      normalizeUserRole(profile.role) === "systemAdmin"
       && profile.approved === true
       && profile.status === "active"
     );

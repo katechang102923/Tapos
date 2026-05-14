@@ -37,7 +37,7 @@ const imagePresets = [
 
 export default function MerchantOptionsPage() {
   return (
-    <LoginGate allowedRoles={["merchant", "admin"]} title="商品選項管理登入">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager"]} title="商品選項管理登入">
       {({ profile }) => <MerchantOptionsContent storeId={defaultStoreId(profile)} />}
     </LoginGate>
   );

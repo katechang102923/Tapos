@@ -9,7 +9,7 @@ import { defaultStoreId } from "@/lib/store-access";
 
 export default function MerchantTablesPage() {
   return (
-    <LoginGate allowedRoles={["merchant", "admin"]} title="桌號設定登入">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager"]} title="桌號設定登入">
       {({ profile }) => <MerchantTablesContent storeId={defaultStoreId(profile)} />}
     </LoginGate>
   );

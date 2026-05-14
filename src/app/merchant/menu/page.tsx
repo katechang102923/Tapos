@@ -13,7 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 
 export default function MerchantMenuPage() {
   return (
-    <LoginGate allowedRoles={["merchant", "admin", "systemAdmin", "softwareAdmin", "owner", "manager"]} title="菜單管理">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager"]} title="菜單管理">
       {({ profile }) => <MerchantMenuShell profile={profile} />}
     </LoginGate>
   );

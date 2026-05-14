@@ -2,12 +2,12 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArchiveRestore, ArrowLeft, Bell, Building2, CalendarClock, Contact, Eye, EyeOff, Gift, Infinity, Monitor, RotateCcw, Search, ShieldCheck, Store, Trash2, ToggleLeft, ToggleRight, Users, Wallet } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, Bell, Building2, CalendarClock, Contact, Eye, EyeOff, Gift, Infinity, Monitor, Plus, RotateCcw, Search, ShieldCheck, Store, Trash2, ToggleLeft, ToggleRight, Users, Wallet } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { ROLE_LABELS, roleBadgeClass, roleLabel } from "@/lib/permissions";
 import { SUBSCRIPTION_STATUS_COLORS, SUBSCRIPTION_STATUS_LABELS, addDays, daysUntil, effectiveSubscriptionStatus, formatDate } from "@/lib/subscription";
-import type { BusinessType, Store as StoreType, StoreMemberRole, SubscriptionStatus } from "@/lib/types";
+import type { BusinessType, PlatformNotification, Store as StoreType, StoreApplication, StoreMemberRole, SubscriptionStatus } from "@/lib/types";
 
 const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
   breakfast:  "早餐店",
@@ -17,9 +17,16 @@ const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
   other:      "其他",
 };
 
+const STORE_ROLE_LABELS: Record<StoreMemberRole, string> = {
+  owner: "老闆",
+  manager: "店長",
+  staff: "員工",
+  viewer: "檢視者"
+};
+
 export default function PlatformPage() {
   return (
-    <LoginGate allowedRoles={["admin"]} title="平台管理中心登入">
+    <LoginGate allowedRoles={["systemAdmin"]} title="平台管理中心登入">
       {({ signOutUser }) => <PlatformContent onSignOut={signOutUser} />}
     </LoginGate>
   );
@@ -28,7 +35,7 @@ export default function PlatformPage() {
 function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const {
     db, bindStoreUser, unbindStoreUser, upsertStore, updateStoreSubscription,
-    markNotificationRead, markRecordsForArchive, softDeleteStore, restoreStore
+    markNotificationRead, updateStoreApplicationStatus, markRecordsForArchive, softDeleteStore, restoreStore, upsertMemberRules
   } = useDemoStore({ admin: true });
 
   const [search, setSearch] = useState("");
@@ -47,6 +54,14 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   /** Store pending deletion confirmation; null = modal closed */
   const [deleteConfirm, setDeleteConfirm] = useState<StoreType | null>(null);
   const [deleteConfirmChecked, setDeleteConfirmChecked] = useState(false);
+  const [storeCreatorOpen, setStoreCreatorOpen] = useState(false);
+  const [newStoreForm, setNewStoreForm] = useState({
+    name: "",
+    businessType: "breakfast" as BusinessType,
+    isOpen: true,
+    subscriptionEndsAt: "",
+    dataRetentionMonths: "6"
+  });
 
   const activeStores = useMemo(() => db.stores.filter((s) => !s.isDeleted), [db.stores]);
   const deletedStores = useMemo(() => db.stores.filter((s) => s.isDeleted), [db.stores]);
@@ -70,16 +85,28 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     return db.users.filter((u) => u.storeIds?.includes(storeId) || u.storeId === storeId);
   }
 
-  const notifications = useMemo(() => {
+  type RegistrationItem = (PlatformNotification & { source: "notification" }) | (StoreApplication & { source: "application"; read: boolean; applicationId: string });
+
+  const notifications = useMemo<RegistrationItem[]>(() => {
     const q = notifSearch.trim().toLowerCase();
-    return (db.platformNotifications ?? [])
+    const applications = (db.storeApplications ?? []).map((app) => ({
+      ...app,
+      applicationId: app.id,
+      read: !(app.status === "pending" || app.status === "new"),
+      source: "application" as const,
+    }));
+    const applicationStoreIds = new Set(applications.map((app) => app.storeId));
+    const legacyNotifications = (db.platformNotifications ?? [])
+      .filter((notif) => !notif.applicationId && !applicationStoreIds.has(notif.storeId))
+      .map((notif) => ({ ...notif, source: "notification" as const }));
+    return [...applications, ...legacyNotifications]
       .filter((n) => !q || n.email.toLowerCase().includes(q) || n.storeName.toLowerCase().includes(q))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [db.platformNotifications, notifSearch]);
+  }, [db.platformNotifications, db.storeApplications, notifSearch]);
 
   const unreadCount = useMemo(
-    () => (db.platformNotifications ?? []).filter((n) => !n.read).length,
-    [db.platformNotifications]
+    () => notifications.filter((n) => !n.read).length,
+    [notifications]
   );
 
   async function handleMarkRead(notifId: string) {
@@ -87,6 +114,79 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       await markNotificationRead(notifId);
     } catch {
       setError("標記已讀失敗");
+    }
+  }
+
+  async function handleApplicationStatus(applicationId: string, status: StoreApplication["status"]) {
+    try {
+      await updateStoreApplicationStatus(applicationId, status);
+      setMessage(status === "rejected" ? "註冊申請已拒絕" : "註冊申請狀態已更新");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "更新註冊申請失敗");
+    }
+  }
+
+  async function createPlatformStore() {
+    const name = newStoreForm.name.trim();
+    if (!name) {
+      setError("請輸入店家名稱");
+      return;
+    }
+    const now = new Date().toISOString();
+    const storeId = `store-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+    const retention = newStoreForm.dataRetentionMonths === "never" ? null : Number(newStoreForm.dataRetentionMonths);
+    const storeType = newStoreForm.businessType === "drink" ? "drink" : newStoreForm.businessType === "snack" ? "snack" : "breakfast";
+    setSaving("create-store");
+    setError("");
+    setMessage("");
+    try {
+      await upsertStore({
+        id: storeId,
+        name,
+        logoUrl: "",
+        bannerUrl: "",
+        ownerId: "",
+        storeType,
+        businessType: newStoreForm.businessType,
+        isOpen: newStoreForm.isOpen,
+        orderStatus: newStoreForm.isOpen ? "open" : "closed",
+        takeoutEnabled: true,
+        dineInEnabled: true,
+        takeoutOrderingEnabled: true,
+        dineInOrderingEnabled: true,
+        posOrderingEnabled: true,
+        dataRetentionMode: newStoreForm.dataRetentionMonths === "never" ? "neverExpire" : "months",
+        dataRetentionMonths: retention,
+        dataRetentionUntil: null,
+        subscriptionStatus: "active",
+        subscriptionEndsAt: newStoreForm.subscriptionEndsAt || undefined,
+        features: {
+          kdsEnabled: true,
+          dailyReportEnabled: true,
+          cashFlowEnabled: true,
+          memberEnabled: true,
+          memberStoredValueEnabled: true,
+          promotionEnabled: true
+        },
+        createdAt: now
+      });
+      await upsertMemberRules(storeId, {
+        enablePoints: true,
+        earnAmount: 100,
+        earnPoints: 1,
+        pointValue: 1,
+        enableCouponExchange: true,
+        birthdayRewardEnabled: false,
+        birthdayRewardPoints: 0,
+        updatedAt: now
+      });
+      setMessage(`已建立店家：${name}`);
+      setStoreCreatorOpen(false);
+      setNewStoreForm({ name: "", businessType: "breakfast", isOpen: true, subscriptionEndsAt: "", dataRetentionMonths: "6" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "建立店家失敗");
+    } finally {
+      setSaving("");
     }
   }
 
@@ -311,9 +411,63 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href="/" className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 font-black text-white"><ArrowLeft className="size-4" />首頁</Link>
+            <button onClick={() => setStoreCreatorOpen((prev) => !prev)} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-4 py-3 font-black text-white"><Plus className="size-4" />新增店家</button>
             <button onClick={onSignOut} className="rounded-lg bg-white/10 px-4 py-3 font-black text-white">登出</button>
           </div>
         </header>
+
+        {storeCreatorOpen && (
+          <section className="mb-6 rounded-lg bg-[#1a1a1a] p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-black text-leaf">新增店家</p>
+                <h2 className="text-2xl font-black text-white">建立新的店家資料</h2>
+              </div>
+              <button onClick={() => setStoreCreatorOpen(false)} className="rounded-lg bg-white/10 px-3 py-2 text-sm font-black text-white">關閉</button>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <label className="grid gap-1 text-sm font-black text-white/70">
+                店家名稱 *
+                <input value={newStoreForm.name} onChange={(event) => setNewStoreForm((prev) => ({ ...prev, name: event.target.value }))} className="rounded-lg border border-white/10 bg-white/10 px-4 py-3 font-bold text-white outline-none" />
+              </label>
+              <label className="grid gap-1 text-sm font-black text-white/70">
+                店家類型
+                <select value={newStoreForm.businessType} onChange={(event) => setNewStoreForm((prev) => ({ ...prev, businessType: event.target.value as BusinessType }))} className="rounded-lg border border-white/10 bg-[#111] px-4 py-3 font-bold text-white outline-none">
+                  <option value="breakfast">早餐店</option>
+                  <option value="drink">飲料店</option>
+                  <option value="snack">鍋燒麵店</option>
+                  <option value="other">其他</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-black text-white/70">
+                狀態
+                <select value={newStoreForm.isOpen ? "open" : "closed"} onChange={(event) => setNewStoreForm((prev) => ({ ...prev, isOpen: event.target.value === "open" }))} className="rounded-lg border border-white/10 bg-[#111] px-4 py-3 font-bold text-white outline-none">
+                  <option value="open">營業中</option>
+                  <option value="closed">休息中</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-black text-white/70">
+                訂閱到期日
+                <input type="date" value={newStoreForm.subscriptionEndsAt} onChange={(event) => setNewStoreForm((prev) => ({ ...prev, subscriptionEndsAt: event.target.value }))} className="rounded-lg border border-white/10 bg-white/10 px-4 py-3 font-bold text-white outline-none" />
+              </label>
+              <label className="grid gap-1 text-sm font-black text-white/70">
+                資料保留策略
+                <select value={newStoreForm.dataRetentionMonths} onChange={(event) => setNewStoreForm((prev) => ({ ...prev, dataRetentionMonths: event.target.value }))} className="rounded-lg border border-white/10 bg-[#111] px-4 py-3 font-bold text-white outline-none">
+                  <option value="3">3 個月</option>
+                  <option value="6">6 個月</option>
+                  <option value="12">12 個月</option>
+                  <option value="24">24 個月</option>
+                  <option value="never">無期限</option>
+                </select>
+              </label>
+              <div className="flex items-end">
+                <button onClick={createPlatformStore} disabled={saving === "create-store"} className="w-full rounded-lg bg-leaf px-5 py-3 font-black text-white disabled:opacity-50">
+                  {saving === "create-store" ? "建立中..." : "建立店家"}
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Stat cards */}
         <div className="mb-5 grid gap-4 sm:grid-cols-2">
@@ -360,7 +514,7 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           ) : (
             <div className="space-y-3">
               {notifications.map((notif) => (
-                <div key={notif.id} className={`rounded-lg p-4 ${notif.read ? "bg-white/5" : "border border-amber-500/30 bg-amber-500/10"}`}>
+                <div key={`${notif.source}-${notif.id}`} className={`rounded-lg p-4 ${notif.read ? "bg-white/5" : "border border-amber-500/30 bg-amber-500/10"}`}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
@@ -379,7 +533,22 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                       <p className="text-xs font-bold text-white/30">{new Date(notif.createdAt).toLocaleString("zh-TW")}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {!notif.read && (
+                      {notif.source === "application" && (
+                        <span className="rounded bg-white/10 px-3 py-1.5 text-xs font-black text-white/60">
+                          {notif.status}
+                        </span>
+                      )}
+                      {notif.source === "application" && (notif.status === "pending" || notif.status === "new") && (
+                        <>
+                          <button onClick={() => handleApplicationStatus(notif.applicationId, "approved")} className="rounded bg-leaf/20 px-3 py-1.5 text-xs font-black text-leaf hover:bg-leaf/30">
+                            審核通過
+                          </button>
+                          <button onClick={() => handleApplicationStatus(notif.applicationId, "rejected")} className="rounded bg-tomato/20 px-3 py-1.5 text-xs font-black text-tomato hover:bg-tomato/30">
+                            拒絕
+                          </button>
+                        </>
+                      )}
+                      {notif.source === "notification" && !notif.read && (
                         <button onClick={() => handleMarkRead(notif.id)} className="rounded bg-white/10 px-3 py-1.5 text-xs font-black text-white/70 hover:bg-white/20">
                           標記已讀
                         </button>
@@ -648,19 +817,19 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                         value={bindingEmail[store.id] ?? ""}
                         onChange={(e) => setBindingEmail((prev) => ({ ...prev, [store.id]: e.target.value }))}
                         placeholder="輸入帳號 email..."
-                        className="min-w-48 flex-1 rounded-lg bg-white/10 px-3 py-2 text-sm font-bold text-white placeholder:text-white/30 focus:outline-none"
+                        className="min-w-48 flex-1 rounded-lg border border-white/20 bg-[#111] px-3 py-2 text-sm font-bold text-white placeholder:text-white/40 focus:border-leaf focus:outline-none"
                       />
                       <select
                         value={bindingRole[store.id] ?? "staff"}
                         onChange={(e) => setBindingRole((prev) => ({ ...prev, [store.id]: e.target.value as StoreMemberRole }))}
-                        className="rounded-lg bg-white/10 px-3 py-2 text-sm font-bold text-white"
+                        className="rounded-lg border border-white/20 bg-[#111] px-3 py-2 text-sm font-bold text-white focus:border-leaf focus:outline-none"
                       >
-                        {roleMemberRoles.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+                        {roleMemberRoles.map((r) => <option key={r} value={r} className="bg-[#111] text-white">{STORE_ROLE_LABELS[r]}</option>)}
                       </select>
                       <button
                         onClick={() => handleBind(store.id)}
                         disabled={saving === `bind-${store.id}`}
-                        className="rounded-lg bg-leaf px-4 py-2 text-sm font-black text-white disabled:opacity-60"
+                        className="rounded-lg border border-leaf/70 bg-leaf px-4 py-2 text-sm font-black text-white shadow-sm disabled:opacity-60"
                       >
                         {saving === `bind-${store.id}` ? "綁定中..." : "綁定"}
                       </button>

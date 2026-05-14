@@ -63,7 +63,7 @@ function emptyForm(): PromotionForm {
 
 export default function MerchantPromotionsPage() {
   return (
-    <LoginGate allowedRoles={["merchant", "admin", "owner", "manager"]} title="促銷活動管理">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager"]} title="促銷活動管理">
       {({ profile }) => <PromotionsShell profile={profile} />}
     </LoginGate>
   );
@@ -76,7 +76,7 @@ function PromotionsShell({ profile }: { profile: User | null }) {
   useEffect(() => {
     if (storeIds.length > 0 && activeStoreId !== selectedStoreId) setActiveStoreId(selectedStoreId);
   }, [activeStoreId, selectedStoreId, storeIds]);
-  const isAdmin = profile?.role === "admin";
+  const isAdmin = profile?.role === "systemAdmin";
   const permissions = resolvePermissions(profile, selectedStoreId);
   const canManage = permissions.canManagePromotions;
 

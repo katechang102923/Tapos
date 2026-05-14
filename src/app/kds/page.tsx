@@ -7,7 +7,7 @@ import { defaultStoreId } from "@/lib/store-access";
 
 export default function KdsPage() {
   return (
-    <LoginGate allowedRoles={["merchant", "kitchen", "admin"]} title="廚房 KDS 登入">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager", "staff"]} title="廚房 KDS 登入">
       {({ profile }) => {
         const storeId = defaultStoreId(profile);
         if (!storeId) {

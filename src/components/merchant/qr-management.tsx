@@ -15,7 +15,7 @@ type QrManagementContentProps = {
 
 export function QrManagement() {
   return (
-    <LoginGate allowedRoles={["merchant", "admin", "owner", "manager"]} title="線上點餐 QR Code">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager"]} title="線上點餐 QR Code">
       {({ profile }) => <QrManagementContent profile={profile} />}
     </LoginGate>
   );
@@ -24,7 +24,7 @@ export function QrManagement() {
 function QrManagementContent({ profile }: QrManagementContentProps) {
   const storeId = defaultStoreId(profile);
   const role = storeRoleFor(profile, storeId);
-  const canManage = profile?.role === "admin" || role === "owner" || role === "manager";
+  const canManage = profile?.role === "systemAdmin" || role === "owner" || role === "manager";
   const { db, deleteTable, upsertTable } = useDemoStore({ storeId, skipOrderList: true });
   const store = db.stores.find((item) => item.id === storeId);
   const tables = useMemo(

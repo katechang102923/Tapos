@@ -123,7 +123,7 @@ function blankDevice(storeId: string): Device {
 
 export default function MerchantDevicesPage() {
   return (
-    <LoginGate allowedRoles={["merchant", "admin", "owner", "manager", "staff", "viewer"]} title="設備與列印設定登入">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager", "staff"]} title="設備與列印設定登入">
       {({ profile }) => <MerchantDevicesContent profile={profile} />}
     </LoginGate>
   );
@@ -145,7 +145,7 @@ function MerchantDevicesContent({ profile }: { profile: User | null }) {
   const products = db.products.filter((item) => item.storeId === activeStoreId).sort((a, b) => a.sort - b.sort);
   const devices = useMemo(() => (db.devices ?? []).filter((device) => device.storeId === activeStoreId), [db.devices, activeStoreId]);
   const storeRole = storeRoleFor(profile, activeStoreId);
-  const canManage = profile?.role === "admin" || storeRole === "owner" || storeRole === "manager";
+  const canManage = profile?.role === "systemAdmin" || storeRole === "owner" || storeRole === "manager";
 
   function startCreate() {
     setEditingDevice(blankDevice(activeStoreId));

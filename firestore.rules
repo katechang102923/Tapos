@@ -26,6 +26,28 @@ service cloud.firestore {
       return hasUserDoc() ? userDoc().data.role : null;
     }
 
+    function isSystemAdminRole(value) {
+      return value in ["systemAdmin", "admin", "softwareAdmin", "系統管理員", "軟體管理員"];
+    }
+
+    function normalizeStoreRole(value) {
+      return value in ["owner", "merchant", "商家", "老闆"]
+        ? "owner"
+        : (
+          value in ["manager", "管理員", "店長"]
+          ? "manager"
+          : (
+            value in ["staff", "kitchen", "員工"]
+            ? "staff"
+            : (
+              value in ["viewer", "檢視者", "只讀", "只讀/報表"]
+              ? "viewer"
+              : null
+            )
+          )
+        );
+    }
+
     function approved() {
       return hasUserDoc() && userDoc().data.approved == true && userDoc().data.status == "active";
     }
@@ -34,7 +56,7 @@ service cloud.firestore {
       return hasUserDoc() ? userDoc().data.storeId : null;
     }
 
-    function membershipRole(storeId) {
+    function rawMembershipRole(storeId) {
       return hasUserDoc()
         && userDoc().data.memberships is map
         && storeId in userDoc().data.memberships
@@ -44,8 +66,12 @@ service cloud.firestore {
           && userDoc().data.storeRoles is map
           && storeId in userDoc().data.storeRoles
           ? userDoc().data.storeRoles[storeId]
-          : null
+            : null
         );
+    }
+
+    function membershipRole(storeId) {
+      return normalizeStoreRole(rawMembershipRole(storeId));
     }
 
     function isAdmin() {
@@ -54,7 +80,7 @@ service cloud.firestore {
           request.auth.token.email == "ciut0000@gmail.com"
           || (
             hasUserDoc()
-            && userDoc().data.role in ["admin", "systemAdmin", "softwareAdmin"]
+            && isSystemAdminRole(userDoc().data.role)
             && userDoc().data.approved == true
             && userDoc().data.status == "active"
           )
@@ -113,12 +139,12 @@ service cloud.firestore {
         && (
           (
             request.resource.data.email == "ciut0000@gmail.com"
-            && request.resource.data.role == "admin"
+            && isSystemAdminRole(request.resource.data.role)
             && request.resource.data.approved == true
             && request.resource.data.status == "active"
           )
           || (
-            request.resource.data.role == "user"
+            normalizeStoreRole(request.resource.data.role) in ["owner", "manager", "staff", "viewer"]
             && request.resource.data.approved == false
             && request.resource.data.status == "pending"
           )
@@ -139,7 +165,7 @@ service cloud.firestore {
             resource.data.storeId == null
             && resource.data.role == "user"
             && request.resource.data.storeId is string
-            && request.resource.data.role in ["merchant", "owner", "manager", "staff", "viewer"]
+            && normalizeStoreRole(request.resource.data.role) in ["owner", "manager", "staff", "viewer"]
             && ownsStoreDoc(request.resource.data.storeId)
           )
         );

@@ -11,7 +11,7 @@ import type { Customer, PointLog, StoredValueLog, User } from "@/lib/types";
 
 export default function MerchantCustomersPage() {
   return (
-    <LoginGate allowedRoles={["merchant", "admin", "owner", "manager", "staff", "viewer"]} title="會員管理">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager", "staff"]} title="會員管理">
       {({ profile }) => <CustomersShell profile={profile} />}
     </LoginGate>
   );
@@ -28,7 +28,7 @@ function CustomersShell({ profile }: { profile: User | null }) {
 
   const store = db.stores.find((s) => s.id === activeStoreId);
   const permissions = resolvePermissions(profile, activeStoreId);
-  const isAdmin = profile?.role === "admin";
+  const isAdmin = profile?.role === "systemAdmin";
 
   // Always call hooks before any early returns
   const customers = useMemo(() => (db.customers ?? []).filter((c) => c.storeId === activeStoreId).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [db.customers, activeStoreId]);

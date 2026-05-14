@@ -14,7 +14,7 @@ import type { AccessStatus, MemberRules, RewardCoupon, StoreMemberRole, User, Us
 
 export default function MerchantMembersPage() {
   return (
-    <LoginGate allowedRoles={["merchant", "admin", "owner", "manager"]} title="帳號與權限管理">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager"]} title="帳號與權限管理">
       {({ profile }) => <MembersShell profile={profile} />}
     </LoginGate>
   );
@@ -28,7 +28,7 @@ function MembersShell({ profile }: { profile: User | null }) {
     if (storeIds.length > 0 && selectedStoreId !== storeId) setSelectedStoreId(storeId);
   }, [selectedStoreId, storeId, storeIds]);
 
-  const isAdmin = profile?.role === "admin";
+  const isAdmin = profile?.role === "systemAdmin";
   const permissions = resolvePermissions(profile, storeId);
 
   if (!isAdmin && !permissions.canManageUsers) {

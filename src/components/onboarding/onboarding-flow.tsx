@@ -24,7 +24,7 @@ const defaultBanner = "https://images.unsplash.com/photo-1514933651103-005eec06c
 
 export function OnboardingFlow() {
   return (
-    <LoginGate allowedRoles={["user", "merchant", "admin"]} title="開始建立店家">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager", "staff"]} title="開始建立店家">
       {({ profile, firebaseUser }) => <OnboardingContent uid={firebaseUser?.uid ?? ""} profile={profile} />}
     </LoginGate>
   );
@@ -64,7 +64,7 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
   }
 
   // 已有店家且不是 admin，跳轉後台
-  if (profile?.storeId && profile.role !== "admin") {
+  if (profile?.storeId && profile.role !== "systemAdmin") {
     router.replace("/merchant");
   }
 
@@ -109,10 +109,27 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
     const menu = createDefaultMenu(storeId, storeType);
 
     // 寫入平台通知（無 undefined，選填欄位用空字串）
+    const applicationRef = doc(collection(db, "storeApplications"));
+    const application = {
+      id: applicationRef.id,
+      type: "store_registration" as const,
+      status: "pending" as const,
+      email: profile?.email ?? "",
+      uid,
+      storeId,
+      storeName: storeName.trim(),
+      contactName: contactName.trim(),
+      phone: phone.trim(),
+      address: address.trim() || "",
+      businessType,
+      createdAt: now,
+      updatedAt: now,
+    };
     const notifRef = doc(collection(db, "platformNotifications"));
     const notification = {
       id: notifRef.id,
       type: "store_registration" as const,
+      applicationId: applicationRef.id,
       email: profile?.email ?? "",
       storeId,
       storeName: storeName.trim(),
@@ -121,7 +138,9 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
       address: address.trim() || "",
       businessType,
       createdAt: now,
+      updatedAt: now,
       read: false,
+      status: "new" as const,
     };
 
     try {
@@ -130,9 +149,10 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
         storeId,
         storeIds: [storeId],
         memberships: { [storeId]: "owner" },
-        role: "merchant",
+        role: "owner",
       });
       await setDoc(notifRef, notification);
+      await setDoc(applicationRef, application);
       await Promise.all([
         ...menu.categories.map((cat) => setDoc(doc(db, "categories", cat.id), cat)),
         ...menu.products.map((prod) => setDoc(doc(db, "products", prod.id), prod)),

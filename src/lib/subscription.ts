@@ -1,5 +1,5 @@
 import type { AccessStatus, Store, SubscriptionStatus, User } from "./types";
-import { platformAdminEmail } from "./store-access";
+import { isPlatformAdmin, platformAdminEmail } from "./store-access";
 
 /** Parse "YYYY-MM-DD" as local midnight (avoids UTC off-by-one in +8 timezones). */
 function parseLocalDate(dateStr: string): Date | null {
@@ -81,7 +81,7 @@ export function checkUserAccess(
   if (!user) return { ok: false, reason: "尚未登入" };
   // Platform admin is always exempt
   if (user.email?.trim().toLowerCase() === platformAdminEmail) return { ok: true, reason: "" };
-  if (user.role === "admin") return { ok: true, reason: "" };
+  if (isPlatformAdmin(user)) return { ok: true, reason: "" };
 
   // Global account status
   if (user.accessStatus === "suspended") {

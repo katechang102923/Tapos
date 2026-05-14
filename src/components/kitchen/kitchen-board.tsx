@@ -40,13 +40,13 @@ function elapsedLabel(createdAt: string, now: number) {
 
 export function KitchenBoard({ storeId }: { storeId: string }) {
   return (
-    <LoginGate allowedRoles={["merchant", "kitchen", "admin", "owner", "manager", "staff"]} title="廚房 KDS 登入">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager", "staff"]} title="廚房 KDS 登入">
       {({ profile }) => {
-        const isAdmin = profile?.role === "admin";
+        const isAdmin = profile?.role === "systemAdmin";
         // KDS access = platform kdsEnabled switch only (no individual canUseKDS permission).
         // Any store member (or kitchen-role device) may enter — if the store has KDS enabled.
         // The kdsEnabled gate is enforced below in KitchenBoardContent.
-        const isKitchenDevice = profile?.role === "kitchen";
+        const isKitchenDevice = profile?.role === "staff";
         const isStoreMember = accessibleStoreIds(profile as User | null).includes(storeId);
         const hasKitchenAccess = isAdmin || isKitchenDevice || isStoreMember;
         if (!hasKitchenAccess) {

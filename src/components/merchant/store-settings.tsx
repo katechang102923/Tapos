@@ -9,7 +9,7 @@ import { defaultStoreId } from "@/lib/store-access";
 
 export function StoreSettings() {
   return (
-    <LoginGate allowedRoles={["merchant", "admin"]} title="店家設定">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager"]} title="店家設定">
       {({ profile }) => <StoreSettingsContent storeId={defaultStoreId(profile)} />}
     </LoginGate>
   );

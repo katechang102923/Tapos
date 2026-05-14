@@ -22,7 +22,8 @@ import { auth, firebaseEnabled, firestore } from "./firebase";
 import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
-import type { AccessStatus, CashFlow, CashFlowItem, Category, Customer, DailyReport, DemoDatabase, Device, MemberCoupon, MemberRules, Order, OrderItem, OrderPayload, OrderStatus, PlatformNotification, PointLog, PointLogType, Product, ProductOptionGroup, Promotion, RewardCoupon, SharedOptionGroup, Store, StoredValueLog, StoredValueLogType, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
+import { normalizeUserRole } from "./roles";
+import type { AccessStatus, CashFlow, CashFlowItem, Category, Customer, DailyReport, DemoDatabase, Device, MemberCoupon, MemberRules, Order, OrderItem, OrderPayload, OrderStatus, PlatformNotification, PointLog, PointLogType, Product, ProductOptionGroup, Promotion, RewardCoupon, SharedOptionGroup, Store, StoreApplication, StoredValueLog, StoredValueLogType, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
 const syncEventName = "light-qr-ordering-db-updated";
@@ -63,9 +64,10 @@ function pendingUserId(email: string) {
 
 function platformRoleFromMemberships(memberships: Record<string, StoreMemberRole>) {
   const roles = Object.values(memberships);
-  if (roles.includes("owner") || roles.includes("manager")) return "merchant";
-  if (roles.includes("staff")) return "kitchen";
-  return "user";
+  if (roles.includes("owner")) return "owner";
+  if (roles.includes("manager")) return "manager";
+  if (roles.includes("staff")) return "staff";
+  return "viewer";
 }
 
 function orderDayKey(value = new Date()) {
@@ -79,82 +81,104 @@ function formatOrderNumber(source: "qr" | "pos" | "kiosk", sequence: number) {
   return `${source === "pos" ? "P" : source === "kiosk" ? "K" : "Q"}${String(sequence).padStart(3, "0")}`;
 }
 
-function stripUndefined<T>(value: T): T {
-  if (Array.isArray(value)) return value.map((item) => stripUndefined(item)) as T;
+export function sanitizeForFirestore<T>(value: T): T {
+  if (value === undefined) return undefined as T;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeForFirestore(item))
+      .filter((item) => item !== undefined) as T;
+  }
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
+      .map(([key, entryValue]) => [key, sanitizeForFirestore(entryValue)] as const)
       .filter(([, entryValue]) => entryValue !== undefined)
-      .map(([key, entryValue]) => [key, stripUndefined(entryValue)])
   ) as T;
 }
 
-function sanitizeProduct(product: Product): Product {
-  const sanitize = (val: unknown): unknown => {
-    if (val === undefined) return null;
-    if (Array.isArray(val)) return val.map(sanitize);
-    if (val && typeof val === "object") {
-      return Object.fromEntries(
-        Object.entries(val as Record<string, unknown>)
-          .filter(([, v]) => v !== undefined)
-          .map(([k, v]) => [k, sanitize(v)])
-      );
-    }
-    return val;
-  };
+function stripUndefined<T>(value: T): T {
+  return sanitizeForFirestore(value);
+}
 
-  return {
+function sanitizeProduct(product: Product): Product {
+  return sanitizeForFirestore({
     ...product,
+    name: product.name ?? "",
+    description: product.description ?? "",
+    imageUrl: product.imageUrl ?? "",
+    price: Number(product.price ?? 0),
+    originalPrice: Number(product.originalPrice ?? product.price ?? 0),
+    cost: Number(product.cost ?? 0),
+    discountType: product.discountType ?? "none",
+    discountValue: Number(product.discountValue ?? 0),
+    isAvailable: product.isAvailable ?? false,
+    isSoldOut: product.isSoldOut ?? false,
+    sort: Number(product.sort ?? 0),
+    sortOrder: Number(product.sortOrder ?? product.sort ?? 0),
+    options: product.options ?? [],
     optionGroups: (product.optionGroups ?? []).map((group) => ({
-      id: group.id,
-      name: group.name,
-      required: group.required ?? false,
-      minSelect: group.minSelect ?? 0,
-      maxSelect: group.maxSelect ?? 1,
-      options: (group.options ?? []).map((opt) => ({
-        id: opt.id,
-        name: opt.name,
-        priceDelta: opt.priceDelta ?? 0,
-        isAvailable: opt.isAvailable ?? true,
-        childGroupIds: opt.childGroupIds ?? [],
-        children: opt.children ? (opt.children as ProductOptionGroup[]).map((c) => sanitizeOptionGroup(c)) : undefined
-      }))
+      ...sanitizeOptionGroup(group),
     }))
-  } as Product;
+  } as Product);
 }
 
 function sanitizeOptionGroup(group: ProductOptionGroup): ProductOptionGroup {
-  return {
-    id: group.id,
-    name: group.name,
-    required: group.required ?? false,
-    minSelect: group.minSelect ?? 0,
-    maxSelect: group.maxSelect ?? 1,
-    options: (group.options ?? []).map((opt) => ({
-      id: opt.id,
-      name: opt.name,
-      priceDelta: opt.priceDelta ?? 0,
-      isAvailable: opt.isAvailable ?? true,
-      childGroupIds: opt.childGroupIds ?? [],
-      children: opt.children ? opt.children.map((c) => sanitizeOptionGroup(c)) : undefined
-    }))
-  };
+  return sanitizeForFirestore({
+      id: group.id ?? newId("group"),
+      name: group.name ?? group.groupName ?? "",
+      groupName: group.groupName ?? group.name ?? "",
+      required: group.required ?? false,
+      minSelect: group.minSelect ?? 0,
+      maxSelect: group.maxSelect ?? 1,
+      type: group.type ?? ((group.maxSelect ?? 1) > 1 ? "multiple" : "single"),
+      sortOrder: group.sortOrder ?? 0,
+      linkedGroupId: group.linkedGroupId ?? null,
+      sharedGroupId: group.sharedGroupId ?? null,
+      children: (group.children ?? []).map((child) => sanitizeOptionGroup(child)),
+      options: (group.options ?? []).map((opt) => ({
+        id: opt.id ?? newId("option"),
+        name: opt.name ?? opt.optionName ?? "",
+        optionName: opt.optionName ?? opt.name ?? "",
+        priceDelta: opt.priceDelta ?? 0,
+        sortOrder: opt.sortOrder ?? 0,
+        isAvailable: opt.isAvailable ?? false,
+        linkedGroupId: opt.linkedGroupId ?? null,
+        sharedGroupId: opt.sharedGroupId ?? null,
+        childGroupIds: opt.childGroupIds ?? [],
+        nextGroupIds: opt.nextGroupIds ?? [],
+        children: (opt.children ?? []).map((c) => sanitizeOptionGroup(c))
+      }))
+  } as ProductOptionGroup);
 }
 
 function sanitizeSharedOptionGroup(group: SharedOptionGroup): SharedOptionGroup {
-  return {
+  return sanitizeForFirestore({
     ...group,
+    id: group.id ?? newId("sg"),
+    name: group.name ?? group.groupName ?? "",
+    groupName: group.groupName ?? group.name ?? "",
     required: group.required ?? false,
     minSelect: group.minSelect ?? 0,
     maxSelect: group.maxSelect ?? 1,
+    type: group.type ?? ((group.maxSelect ?? 1) > 1 ? "multiple" : "single"),
+    sortOrder: group.sortOrder ?? 0,
+    linkedGroupId: group.linkedGroupId ?? null,
+    sharedGroupId: group.sharedGroupId ?? null,
+    children: (group.children ?? []).map((child) => sanitizeOptionGroup(child)),
     options: (group.options ?? []).map((opt) => ({
-      id: opt.id,
-      name: opt.name,
+      id: opt.id ?? newId("sgo"),
+      name: opt.name ?? opt.optionName ?? "",
+      optionName: opt.optionName ?? opt.name ?? "",
       priceDelta: opt.priceDelta ?? 0,
-      isAvailable: opt.isAvailable ?? true,
-      childGroupIds: opt.childGroupIds ?? []
+      sortOrder: opt.sortOrder ?? 0,
+      isAvailable: opt.isAvailable ?? false,
+      linkedGroupId: opt.linkedGroupId ?? null,
+      sharedGroupId: opt.sharedGroupId ?? null,
+      childGroupIds: opt.childGroupIds ?? [],
+      nextGroupIds: opt.nextGroupIds ?? [],
+      children: (opt.children ?? []).map((child) => sanitizeOptionGroup(child))
     }))
-  };
+  } as SharedOptionGroup);
 }
 
 function isStoreClosed(store?: Store) {
@@ -261,7 +285,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     }
 
     setReady(false);
-    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [], promotions: [], platformNotifications: [], customers: [], pointLogs: [], storedValueLogs: [], rewardCoupons: [], memberCoupons: [], sharedOptionGroups: [] };
+    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [], promotions: [], platformNotifications: [], storeApplications: [], customers: [], pointLogs: [], storedValueLogs: [], rewardCoupons: [], memberCoupons: [], sharedOptionGroups: [] };
     const commit = () => {
       setDb({ ...next });
       setReady(true);
@@ -354,6 +378,17 @@ export function useDemoStore(options: StoreOptions = {}) {
         )
       : () => undefined;
 
+    const unsubStoreApplications = admin
+      ? onSnapshot(
+          collection(firestore, "storeApplications"),
+          (snapshot) => {
+            next.storeApplications = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as StoreApplication);
+            commit();
+          },
+          handleError
+        )
+      : () => undefined;
+
     const unsubCustomers = (loadCustomers && storeId)
       ? onSnapshot(
           collection(firestore, "stores", storeId, "members"),
@@ -403,6 +438,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       unsubscribers.forEach((unsubscribe) => unsubscribe());
       unsubUsers();
       unsubNotifications();
+      unsubStoreApplications();
       unsubCustomers();
       unsubPointLogs();
       unsubStoredValueLogs();
@@ -664,7 +700,8 @@ export function useDemoStore(options: StoreOptions = {}) {
     const cleanProduct = sanitizeProduct(product);
     if (useFirestore && firestore) {
       const id = cleanProduct.id || doc(collection(firestore, "products")).id;
-      await setDoc(doc(firestore, "products", id), { ...cleanProduct, id }, { merge: true });
+      const cleanPayload = sanitizeForFirestore({ ...cleanProduct, id });
+      await setDoc(doc(firestore, "products", id), cleanPayload, { merge: true });
       return;
     }
     // Save synchronously inside the updater to prevent the 1200ms sync interval
@@ -698,9 +735,10 @@ export function useDemoStore(options: StoreOptions = {}) {
     const cleanGroup = sanitizeSharedOptionGroup(group);
     const now = new Date().toISOString();
     const id = cleanGroup.id || newId("sg");
-    const record: SharedOptionGroup = { ...cleanGroup, id, updatedAt: now, createdAt: cleanGroup.createdAt || now };
+    const record: SharedOptionGroup = sanitizeForFirestore({ ...cleanGroup, id, updatedAt: now, createdAt: cleanGroup.createdAt || now });
     if (useFirestore && firestore && record.storeId) {
-      await setDoc(doc(firestore, "stores", record.storeId, "optionGroups", id), record, { merge: true });
+      const cleanPayload = sanitizeForFirestore(record);
+      await setDoc(doc(firestore, "stores", record.storeId, "optionGroups", id), cleanPayload, { merge: true });
       return;
     }
     setDb((current) => {
@@ -744,10 +782,10 @@ export function useDemoStore(options: StoreOptions = {}) {
     });
   }
 
-  function upsertStore(store: Store) {
+  async function upsertStore(store: Store) {
     if (useFirestore && firestore) {
       const id = store.id || doc(collection(firestore, "stores")).id;
-      setDoc(doc(firestore, "stores", id), { ...store, id }, { merge: true });
+      await setDoc(doc(firestore, "stores", id), sanitizeForFirestore({ ...store, id }), { merge: true });
       return;
     }
     setDb((current) => {
@@ -855,7 +893,7 @@ export function useDemoStore(options: StoreOptions = {}) {
         storeIds,
         memberships,
         storeRoles,
-        role: normalizedEmail === "ciut0000@gmail.com" && user.role === "admin" ? "admin" : platformRoleFromMemberships(memberships),
+        role: normalizedEmail === "ciut0000@gmail.com" || normalizeUserRole(user.role) === "systemAdmin" ? "systemAdmin" : platformRoleFromMemberships(memberships),
         pending: false,
         approved: true,
         status: "active",
@@ -899,7 +937,7 @@ export function useDemoStore(options: StoreOptions = {}) {
             id,
             email: normalizedEmail,
             name: normalizedEmail,
-            role: "user",
+            role: memberRole,
             storeId: targetStoreId,
             storeIds: [targetStoreId],
             memberships: { [targetStoreId]: memberRole },
@@ -948,7 +986,7 @@ export function useDemoStore(options: StoreOptions = {}) {
           id,
           email: normalizedEmail,
           name: normalizedEmail,
-          role: "user",
+          role: memberRole,
           storeId: targetStoreId,
           storeIds: [targetStoreId],
           memberships: { [targetStoreId]: memberRole },
@@ -976,7 +1014,7 @@ export function useDemoStore(options: StoreOptions = {}) {
         storeIds,
         memberships,
         storeRoles,
-        role: user.email.toLowerCase() === "ciut0000@gmail.com" && user.role === "admin" ? "admin" : platformRoleFromMemberships(memberships),
+        role: user.email.toLowerCase() === "ciut0000@gmail.com" || normalizeUserRole(user.role) === "systemAdmin" ? "systemAdmin" : platformRoleFromMemberships(memberships),
         updatedAt: new Date().toISOString()
       };
     }
@@ -1657,6 +1695,25 @@ export function useDemoStore(options: StoreOptions = {}) {
     }));
   }
 
+  async function updateStoreApplicationStatus(applicationId: string, status: StoreApplication["status"]) {
+    const updatedAt = new Date().toISOString();
+    if (useFirestore && firestore) {
+      try {
+        await updateDoc(doc(firestore, "storeApplications", applicationId), { status, updatedAt });
+      } catch (writeError) {
+        setError(writeError instanceof Error ? writeError.message : "updateStoreApplicationStatus failed");
+        throw writeError;
+      }
+      return;
+    }
+    setDb((current) => ({
+      ...current,
+      storeApplications: (current.storeApplications ?? []).map((item) =>
+        item.id === applicationId ? { ...item, status, updatedAt } : item
+      ),
+    }));
+  }
+
   async function loadDailyReport(reportStoreId: string, date: string): Promise<DailyReport | null> {
     const reportId = `${reportStoreId}-${date}`;
     if (firebaseEnabled && firestore) {
@@ -1702,6 +1759,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     updateUserStoreAccess,
     updateUserGlobalAccess,
     markNotificationRead,
+    updateStoreApplicationStatus,
     createCustomer,
     updateCustomer,
     lookupCustomerByPhone,

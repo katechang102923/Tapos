@@ -78,7 +78,7 @@ export function LoginGate({
 
   const fixedAdminEmail = authState.firebaseUser?.email?.toLowerCase() === "ciut0000@gmail.com";
 
-  if (allowedRoles.length === 1 && allowedRoles[0] === "admin" && !fixedAdminEmail) {
+  if (allowedRoles.length === 1 && allowedRoles[0] === "systemAdmin" && !fixedAdminEmail) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4">
         <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-soft">
@@ -94,7 +94,7 @@ export function LoginGate({
     );
   }
 
-  if (authState.profile && !fixedAdminEmail && authState.profile.role !== "admin" && (authState.profile.status !== "active" || !authState.profile.approved)) {
+  if (authState.profile && !fixedAdminEmail && authState.profile.role !== "systemAdmin" && (authState.profile.status !== "active" || !authState.profile.approved)) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4">
         <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-soft">
@@ -110,9 +110,7 @@ export function LoginGate({
     );
   }
 
-  const effectiveAllowedRoles = allowedRoles.includes("merchant")
-    ? [...allowedRoles, "owner", "manager", "staff", "viewer"]
-    : allowedRoles;
+  const effectiveAllowedRoles = allowedRoles;
 
   if (!authState.profile || !effectiveAllowedRoles.includes(authState.profile.role)) {
     return (

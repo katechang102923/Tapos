@@ -14,7 +14,7 @@ type MerchantView = "dashboard" | "menu";
 
 export function MerchantDashboard({ view = "dashboard" }: { view?: MerchantView }) {
   return (
-    <LoginGate allowedRoles={["merchant", "admin", "systemAdmin", "softwareAdmin", "owner", "manager", "staff", "viewer"]} title="店家後台管理">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager"]} title="店家後台管理">
       {({ profile, signOutUser }) => {
         if (!profile) return null;
         if (profile.status === "pending" || profile.status === "rejected") {
@@ -66,7 +66,7 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
   const store = db.stores.find((item) => item.id === activeStoreId);
   const categories = db.categories.filter((item) => item.storeId === activeStoreId).sort((a, b) => a.sort - b.sort);
   const storeRole = storeRoleFor(profile, activeStoreId);
-  const role = isAdmin ? "admin" : storeRole;
+  const role = isAdmin ? "systemAdmin" : storeRole;
   const permissions = resolvePermissions(profile, activeStoreId);
   const canManageStore = permissions.canManageMenu || isAdmin;
   const storeAccessCheck = !isAdmin ? checkStoreAccess(store) : { ok: true, reason: "" };

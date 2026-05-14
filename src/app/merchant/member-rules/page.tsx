@@ -21,7 +21,7 @@ const defaultRules: MemberRules = {
 
 export default function MemberRulesPage() {
   return (
-    <LoginGate allowedRoles={["merchant", "admin", "owner", "manager"]} title="會員點數規則">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager"]} title="會員點數規則">
       {({ profile }) => <MemberRulesContent storeId={defaultStoreId(profile)} />}
     </LoginGate>
   );

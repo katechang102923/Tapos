@@ -36,7 +36,7 @@ const imagePresets = [
 
 export function AdminStoreMenu({ storeId }: { storeId: string }) {
   return (
-    <LoginGate allowedRoles={["admin"]} title="平台管理中心登入">
+    <LoginGate allowedRoles={["systemAdmin"]} title="平台管理中心登入">
       {() => <AdminStoreMenuContent storeId={storeId} />}
     </LoginGate>
   );

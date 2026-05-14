@@ -25,14 +25,14 @@ const blankProduct: Product = {
 
 export function AdminDashboard() {
   return (
-    <LoginGate allowedRoles={["admin"]} title="管理員後台登入">
+    <LoginGate allowedRoles={["systemAdmin"]} title="管理員後台登入">
       {({ signOutUser }) => <AdminDashboardContent onSignOut={signOutUser} />}
     </LoginGate>
   );
 }
 
 function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
-  const { db, bindStoreUser, deleteProduct, deleteStoreCascade, seedDemoData, unbindStoreUser, upsertProduct, upsertStore } = useDemoStore({ admin: true });
+  const { db, bindStoreUser, deleteProduct, deleteStoreCascade, seedDemoData, unbindStoreUser, updateStoreApplicationStatus, upsertProduct, upsertStore } = useDemoStore({ admin: true });
   const [editingStore, setEditingStore] = useState<Store | null>(null);
   const [menuStoreId, setMenuStoreId] = useState("");
   const [editingProduct, setEditingProduct] = useState<Product>(blankProduct);
@@ -55,6 +55,10 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
     });
     return map;
   }, [db.users]);
+  const registrationRequests = useMemo(
+    () => (db.storeApplications ?? []).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [db.storeApplications]
+  );
 
   function storeUsers(storeId: string) {
     return db.users.filter((user) => user.storeIds?.includes(storeId) || user.storeId === storeId);
@@ -142,6 +146,16 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
     }
   }
 
+  async function updateApplicationStatus(applicationId: string, status: "approved" | "rejected" | "bound") {
+    setActionError("");
+    try {
+      await updateStoreApplicationStatus(applicationId, status);
+      setActionMessage(status === "rejected" ? "註冊申請已拒絕" : "註冊申請狀態已更新");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "更新註冊申請失敗");
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f4f2]">
       <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
@@ -182,6 +196,41 @@ function AdminDashboardContent({ onSignOut }: { onSignOut: () => Promise<void> }
             {actionError || actionMessage}
           </div>
         )}
+
+        <section className="mt-5 rounded-lg bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-black text-leaf">新註冊店家通知</p>
+              <h2 className="text-2xl font-black text-ink">店家註冊申請</h2>
+            </div>
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-black text-amber-700">
+              待處理 {registrationRequests.filter((item) => item.status === "pending" || item.status === "new").length}
+            </span>
+          </div>
+          <div className="mt-4 grid gap-3">
+            {registrationRequests.length === 0 ? (
+              <p className="rounded-lg bg-stone-50 p-4 text-sm font-bold text-steel">目前沒有新的店家註冊申請。</p>
+            ) : registrationRequests.slice(0, 8).map((item) => (
+              <div key={item.id} className="flex flex-col gap-3 rounded-lg border border-stone-200 p-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-lg font-black text-ink">{item.storeName}</p>
+                  <p className="text-sm font-bold text-steel">{item.email} · {new Date(item.createdAt).toLocaleString("zh-TW")}</p>
+                  <p className="text-xs font-bold text-steel/70">狀態：{item.status}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Link href={`/admin/stores/${item.storeId}/edit`} className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-black text-steel">查看</Link>
+                  {(item.status === "pending" || item.status === "new") && (
+                    <>
+                      <button onClick={() => updateApplicationStatus(item.id, "approved")} className="rounded-lg bg-leaf px-3 py-2 text-sm font-black text-white">審核</button>
+                      <button onClick={() => updateApplicationStatus(item.id, "rejected")} className="rounded-lg bg-tomato px-3 py-2 text-sm font-black text-white">拒絕</button>
+                    </>
+                  )}
+                  <button onClick={() => updateApplicationStatus(item.id, "bound")} className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-black text-steel">標記已綁定</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
 
         <section className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {db.stores.map((store) => (

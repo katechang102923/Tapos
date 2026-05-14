@@ -12,31 +12,33 @@ import { collection, deleteDoc, doc, getDocFromServer, getDocs, onSnapshot, quer
 import { useEffect, useState } from "react";
 import { auth, firebaseEnabled, firestore } from "./firebase";
 import { accessibleStoreIds, isPlatformAdminEmail, platformAdminEmail } from "./store-access";
+import { normalizeStoreMemberRole, normalizeUserRole, STORE_MEMBER_ROLES } from "./roles";
 import type { StoreMemberRole, User, UserRole } from "./types";
 
-const supportedRoles: UserRole[] = ["user", "merchant", "kitchen", "admin", "systemAdmin", "softwareAdmin", "owner", "manager", "staff", "viewer"];
-const storeRoles: StoreMemberRole[] = ["owner", "manager", "staff", "viewer"];
+const storeRoles = STORE_MEMBER_ROLES;
 
 function normalizeMemberships(value: unknown): Record<string, StoreMemberRole> {
   if (!value || typeof value !== "object") return {};
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, StoreMemberRole] => storeRoles.includes(entry[1] as StoreMemberRole))
+    Object.entries(value as Record<string, unknown>)
+      .map(([storeId, role]) => [storeId, normalizeStoreMemberRole(role)] as const)
+      .filter((entry): entry is [string, StoreMemberRole] => Boolean(entry[1]))
   );
 }
 
 function platformRoleFromStoreRoles(rolesByStore: Record<string, StoreMemberRole>): UserRole {
   const roles = Object.values(rolesByStore);
-  if (roles.includes("owner") || roles.includes("manager")) return "merchant";
-  if (roles.includes("staff")) return "kitchen";
-  return "user";
+  if (roles.includes("owner")) return "owner";
+  if (roles.includes("manager")) return "manager";
+  if (roles.includes("staff")) return "staff";
+  return "viewer";
 }
 
 function profileFromSnapshot(snapshot: DocumentSnapshot): User | null {
   if (!snapshot.exists()) return null;
 
   const data = snapshot.data();
-  const rawRole = typeof data.role === "string" ? data.role.trim() : "user";
-  const role = supportedRoles.includes(rawRole as UserRole) ? (rawRole as UserRole) : "user";
+  const role = normalizeUserRole(data.role);
 
   return {
     id: snapshot.id,
@@ -70,7 +72,7 @@ function adminProfile(uid: string, email = platformAdminEmail, data?: Record<str
     id: uid,
     email,
     name: typeof data?.name === "string" && data.name ? data.name : "Platform Admin",
-    role: "admin",
+    role: "systemAdmin",
     storeId: legacyStoreId ?? mergedStoreIds[0] ?? null,
     storeIds: mergedStoreIds,
     memberships,
@@ -94,9 +96,9 @@ async function storeRolesFromBindings(email: string): Promise<Record<string, Sto
   return bindingSnapshots.flatMap((result) => result.docs).reduce<Record<string, StoreMemberRole>>((roles, item) => {
     const data = item.data();
     const storeId = typeof data.storeId === "string" ? data.storeId : "";
-    const memberRole = typeof data.storeRole === "string" ? data.storeRole : typeof data.role === "string" ? data.role : "";
-    if (storeId && storeRoles.includes(memberRole as StoreMemberRole)) {
-      roles[storeId] = memberRole as StoreMemberRole;
+    const memberRole = normalizeStoreMemberRole(typeof data.storeRole === "string" ? data.storeRole : data.role);
+    if (storeId && memberRole) {
+      roles[storeId] = memberRole;
     }
     return roles;
   }, {});
@@ -109,8 +111,8 @@ async function profileWithFreshStoreBindings(rawProfile: User | null): Promise<U
     ? bindingRoles
     : { ...normalizeMemberships(rawProfile.memberships), ...normalizeMemberships(rawProfile.storeRoles) };
   const storeIds = Object.keys(authoritativeRoles);
-  const role = rawProfile.role === "admin" || rawProfile.role === "systemAdmin" || rawProfile.role === "softwareAdmin"
-    ? rawProfile.role
+  const role = rawProfile.role === "systemAdmin"
+    ? "systemAdmin"
     : (storeIds.length ? platformRoleFromStoreRoles(authoritativeRoles) : rawProfile.role);
   return {
     ...rawProfile,
@@ -211,9 +213,9 @@ async function ensureFixedAdminUser(uid: string, email: string) {
   const bindingRoles = bindingSnapshots.flatMap((result) => result.docs).reduce<Record<string, StoreMemberRole>>((roles, item) => {
     const data = item.data();
     const storeId = typeof data.storeId === "string" ? data.storeId : "";
-    const memberRole = typeof data.storeRole === "string" ? data.storeRole : typeof data.role === "string" ? data.role : "";
-    if (storeId && storeRoles.includes(memberRole as StoreMemberRole)) {
-      roles[storeId] = memberRole as StoreMemberRole;
+    const memberRole = normalizeStoreMemberRole(typeof data.storeRole === "string" ? data.storeRole : data.role);
+    if (storeId && memberRole) {
+      roles[storeId] = memberRole;
     }
     return roles;
   }, {});
@@ -233,7 +235,7 @@ async function ensureFixedAdminUser(uid: string, email: string) {
     id: uid,
     email,
     name: profile.name,
-    role: "admin",
+    role: "systemAdmin",
     storeId: profile.storeId,
     storeIds: profile.storeIds,
     memberships: profile.memberships,
@@ -394,7 +396,7 @@ export function useAuthState(): AuthState {
     const mergedStoreRoles = { ...memberships, ...storeRoles };
     const storeIds = Array.isArray(pendingData?.storeIds) ? pendingData.storeIds.filter((item): item is string => typeof item === "string") : Object.keys(mergedStoreRoles);
     const defaultStoreId = typeof pendingData?.storeId === "string" ? pendingData.storeId : storeIds[0] ?? null;
-    const pendingRole = typeof pendingData?.role === "string" && supportedRoles.includes(pendingData.role as UserRole) ? pendingData.role as UserRole : "user";
+    const pendingRole = normalizeUserRole(pendingData?.role);
     const now = new Date().toISOString();
     const isFixedAdmin = isPlatformAdminEmail(email);
     await setDoc(doc(firestore, "users", credential.user.uid), {
@@ -405,7 +407,7 @@ export function useAuthState(): AuthState {
       storeRoles: mergedStoreRoles,
       name,
       email,
-      role: isFixedAdmin ? "admin" : (Object.keys(mergedStoreRoles).length ? platformRoleFromStoreRoles(mergedStoreRoles) : pendingRole),
+      role: isFixedAdmin ? "systemAdmin" : (Object.keys(mergedStoreRoles).length ? platformRoleFromStoreRoles(mergedStoreRoles) : pendingRole),
       pending: false,
       approved: isFixedAdmin,
       status: isFixedAdmin ? "active" : "pending",

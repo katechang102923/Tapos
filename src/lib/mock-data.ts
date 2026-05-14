@@ -66,7 +66,7 @@ export const initialData: DemoDatabase = {
       storeId: null,
       name: "平台管理員",
       email: "admin@example.com",
-      role: "admin"
+      role: "systemAdmin"
     },
     {
       id: "u-owner",
@@ -76,7 +76,7 @@ export const initialData: DemoDatabase = {
       memberships: { [demoStoreId]: "owner" },
       name: "店長 Sandy",
       email: "owner@example.com",
-      role: "merchant"
+      role: "owner"
     }
   ],
   categories: [

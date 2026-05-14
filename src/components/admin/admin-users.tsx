@@ -8,15 +8,15 @@ import { LoginGate } from "@/components/auth/login-gate";
 import { firestore } from "@/lib/firebase";
 import type { User, UserRole } from "@/lib/types";
 
-const roleOptions: UserRole[] = ["user", "merchant", "kitchen", "admin", "owner", "manager", "staff", "viewer"];
+const roleOptions: UserRole[] = ["systemAdmin", "owner", "manager", "staff", "viewer"];
 
 function editableRole(role: UserRole) {
-  return roleOptions.includes(role) ? role : "user";
+  return roleOptions.includes(role) ? role : "staff";
 }
 
 export function AdminUsers() {
   return (
-    <LoginGate allowedRoles={["admin"]} title="平台管理中心登入">
+    <LoginGate allowedRoles={["systemAdmin"]} title="平台管理中心登入">
       {() => <AdminUsersContent />}
     </LoginGate>
   );
@@ -29,7 +29,7 @@ function AdminUsersContent() {
   const [savingId, setSavingId] = useState("");
   const [lookupValue, setLookupValue] = useState("");
   const [lookupUser, setLookupUser] = useState<User | null>(null);
-  const [lookupRole, setLookupRole] = useState<UserRole>("user");
+  const [lookupRole, setLookupRole] = useState<UserRole>("staff");
   const [lookupStoreId, setLookupStoreId] = useState("");
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupMessage, setLookupMessage] = useState("");
@@ -296,8 +296,8 @@ function AdminUsersContent() {
                           >
                             {roleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
                           </select>
-                          <button onClick={() => approveUser(user)} disabled={savingId === user.id || user.role === "admin"} className="rounded-lg bg-leaf px-3 py-1 text-xs font-black text-white disabled:opacity-50">核准</button>
-                          <button onClick={() => rejectUser(user)} disabled={savingId === user.id || user.role === "admin"} className="rounded-lg bg-tomato px-3 py-1 text-xs font-black text-white disabled:opacity-50">拒絕</button>
+                          <button onClick={() => approveUser(user)} disabled={savingId === user.id || user.role === "systemAdmin"} className="rounded-lg bg-leaf px-3 py-1 text-xs font-black text-white disabled:opacity-50">核准</button>
+                          <button onClick={() => rejectUser(user)} disabled={savingId === user.id || user.role === "systemAdmin"} className="rounded-lg bg-tomato px-3 py-1 text-xs font-black text-white disabled:opacity-50">拒絕</button>
                         </div>
                       </td>
                     </tr>

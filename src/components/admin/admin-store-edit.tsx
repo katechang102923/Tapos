@@ -8,7 +8,7 @@ import type { Store } from "@/lib/types";
 
 export function AdminStoreEdit({ storeId }: { storeId: string }) {
   return (
-    <LoginGate allowedRoles={["admin"]} title="平台管理中心登入">
+    <LoginGate allowedRoles={["systemAdmin"]} title="平台管理中心登入">
       {() => <AdminStoreEditContent storeId={storeId} />}
     </LoginGate>
   );

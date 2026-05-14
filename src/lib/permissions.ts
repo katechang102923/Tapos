@@ -1,4 +1,5 @@
 import type { StoreMemberRole, User, UserPermissions } from "./types";
+import { isPlatformAdmin } from "./store-access";
 
 export const ALL_PERMISSIONS: UserPermissions = {
   canViewDailyReport: true,
@@ -182,7 +183,7 @@ export function resolvePermissions(
   storeId: string
 ): UserPermissions {
   if (!profile) return NO_PERMISSIONS;
-  if (profile.role === "admin") return ALL_PERMISSIONS;
+  if (isPlatformAdmin(profile)) return ALL_PERMISSIONS;
 
   // Resolve store-level role
   const storeRole =
@@ -190,12 +191,7 @@ export function resolvePermissions(
     profile.memberships?.[storeId] ??
     null;
 
-  // Also accept global merchant role mapped to owner
   let effectiveRole: StoreMemberRole | null = storeRole;
-  if (!effectiveRole && (profile.role === "merchant" || profile.role === "owner")) {
-    effectiveRole = "owner";
-  }
-
   if (!effectiveRole) return NO_PERMISSIONS;
 
   const defaults = ROLE_DEFAULT_PERMISSIONS[effectiveRole];

@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { ArrowRight, LayoutDashboard, QrCode, ShieldCheck, ShoppingCart, Store } from "lucide-react";
 import { useAuthState } from "@/lib/auth";
-import { isPlatformAdminEmail } from "@/lib/store-access";
+import { isPlatformAdmin, isPlatformAdminEmail } from "@/lib/store-access";
 
 export default function HomePage() {
   const { firebaseUser, profile, loading } = useAuthState();
   const isLoggedIn = !loading && Boolean(firebaseUser);
-  const isAdmin = isLoggedIn && (profile?.role === "admin" || isPlatformAdminEmail(firebaseUser?.email));
+  const isAdmin = isLoggedIn && (isPlatformAdmin(profile) || isPlatformAdminEmail(firebaseUser?.email));
 
   return (
     <main className="min-h-screen bg-mist">
