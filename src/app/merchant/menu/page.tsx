@@ -1,15 +1,52 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Eye, EyeOff, GripVertical, Layers3, Plus } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  Layers3,
+  Menu as MenuIcon,
+  Plus,
+  Search,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
+import { ProductEditorDialog } from "@/components/merchant/product-editor-dialog";
 import { useDemoStore } from "@/lib/demo-store";
 import { buildMenuTemplateProducts, menuTemplateLabel, type MenuTemplateType } from "@/lib/menu-import-templates";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { canSwitchStore, defaultStoreId, isPlatformAdmin } from "@/lib/store-access";
-import type { Category, User } from "@/lib/types";
-import { useEffect, useMemo, useState } from "react";
+import type { Category, Product, ProductOptionChoice, ProductOptionGroup, SharedOptionGroup, User } from "@/lib/types";
+
+const blankProduct: Product = {
+  id: "new-product",
+  storeId: "",
+  categoryId: "",
+  name: "",
+  description: "",
+  imageUrl: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=900&q=80",
+  originalPrice: 70,
+  price: 60,
+  discountType: "none",
+  discountValue: 0,
+  isAvailable: true,
+  isSoldOut: false,
+  sort: 99,
+  options: [],
+  optionGroups: []
+};
+
+const imagePresets = [
+  "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=900&q=80",
+  "https://images.unsplash.com/photo-1525351484163-7529414344d8?auto=format&fit=crop&w=900&q=80",
+  "https://images.unsplash.com/photo-1571934811356-5cc061b6821f?auto=format&fit=crop&w=900&q=80",
+  "https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?auto=format&fit=crop&w=900&q=80"
+];
 
 export default function MerchantMenuPage() {
   return (
@@ -30,29 +67,83 @@ function MerchantMenuShell({ profile }: { profile: User | null }) {
     [db.stores, platformAdmin]
   );
   const [selectedStoreId, setSelectedStoreId] = useState(requestedStoreId || defaultStoreId(profile));
+
   useEffect(() => {
     if (!platformAdmin || switchableStoreIds.length === 0) return;
     if (!selectedStoreId || !switchableStoreIds.includes(selectedStoreId)) {
       setSelectedStoreId(switchableStoreIds[0]);
     }
   }, [platformAdmin, selectedStoreId, switchableStoreIds]);
+
   const fallbackStoreId = platformAdmin ? switchableStoreIds[0] ?? selectedStoreId : defaultStoreId(profile);
   const storeId = platformAdmin
     ? (selectedStoreId && switchableStoreIds.includes(selectedStoreId) ? selectedStoreId : fallbackStoreId)
     : defaultStoreId(profile);
-  return <MerchantMenuContent adminMode={platformAdmin && adminMode} canSwitch={canSwitchStore(profile)} storeId={storeId} storeIds={switchableStoreIds} stores={db.stores} onStoreChange={setSelectedStoreId} />;
+
+  return (
+    <MerchantMenuWorkspace
+      adminMode={platformAdmin && adminMode}
+      canSwitch={canSwitchStore(profile)}
+      storeId={storeId}
+      storeIds={switchableStoreIds}
+      stores={db.stores}
+      onStoreChange={setSelectedStoreId}
+    />
+  );
 }
 
-function MerchantMenuContent({ storeId, adminMode = false, canSwitch = false, storeIds = [], stores = [], onStoreChange }: { storeId: string; adminMode?: boolean; canSwitch?: boolean; storeIds?: string[]; stores?: Array<{ id: string; name: string }>; onStoreChange?: (storeId: string) => void }) {
-  const { db, upsertCategory, upsertProduct } = useDemoStore({ storeId, skipOrderList: true });
+function MerchantMenuWorkspace({
+  storeId,
+  adminMode = false,
+  canSwitch = false,
+  storeIds = [],
+  stores = [],
+  onStoreChange
+}: {
+  storeId: string;
+  adminMode?: boolean;
+  canSwitch?: boolean;
+  storeIds?: string[];
+  stores?: Array<{ id: string; name: string }>;
+  onStoreChange?: (storeId: string) => void;
+}) {
+  const { db, deleteProduct, upsertCategory, upsertProduct } = useDemoStore({ storeId, skipOrderList: true });
+  const [selectedCategoryId, setSelectedCategoryId] = useState("all");
   const [categoryName, setCategoryName] = useState("");
+  const [query, setQuery] = useState("");
   const [templateType, setTemplateType] = useState<MenuTemplateType>("breakfast");
   const [templateMessage, setTemplateMessage] = useState("");
   const [templateError, setTemplateError] = useState("");
+  const [editingProduct, setEditingProduct] = useState<Product>({ ...blankProduct, storeId });
+  const [productEditorOpen, setProductEditorOpen] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "unsaved" | "saving" | "saved" | "error">("idle");
+  const [saveMessage, setSaveMessage] = useState("");
+
   const store = db.stores.find((item) => item.id === storeId);
   const storeDisplayName = store?.name || stores.find((item) => item.id === storeId)?.name || "未命名店家";
   const categories = db.categories.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
   const products = db.products.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
+  const sharedGroups = useMemo(
+    () => (db.sharedOptionGroups ?? []).filter((item) => item.storeId === storeId),
+    [db.sharedOptionGroups, storeId]
+  );
+  const filteredProducts = products.filter((product) => {
+    const matchesCategory = selectedCategoryId === "all" || product.categoryId === selectedCategoryId;
+    const keyword = query.trim().toLowerCase();
+    const matchesQuery = !keyword || product.name.toLowerCase().includes(keyword) || product.description.toLowerCase().includes(keyword);
+    return matchesCategory && matchesQuery;
+  });
+
+  useEffect(() => {
+    setSelectedCategoryId("all");
+    setEditingProduct({ ...blankProduct, storeId, categoryId: categories[0]?.id || "" });
+  }, [categories, storeId]);
+
+  function setEditingProductDraft(next: Product | ((current: Product) => Product)) {
+    setSaveState("unsaved");
+    setSaveMessage("尚未儲存");
+    setEditingProduct(next);
+  }
 
   function addCategory() {
     if (!categoryName.trim()) return;
@@ -60,15 +151,170 @@ function MerchantMenuContent({ storeId, adminMode = false, canSwitch = false, st
     setCategoryName("");
   }
 
-  function moveCategory(category: Category, direction: -1 | 1) {
-    upsertCategory({ ...category, sort: Math.max(1, category.sort + direction) });
+  function startNewProduct() {
+    setSaveState("idle");
+    setSaveMessage("");
+    setEditingProduct({ ...blankProduct, id: "new-product", storeId, categoryId: selectedCategoryId === "all" ? categories[0]?.id || "" : selectedCategoryId, sort: products.length + 1 });
+    setProductEditorOpen(true);
+  }
+
+  async function saveProduct() {
+    if (!editingProduct.name.trim()) return;
+    setSaveState("saving");
+    setSaveMessage("儲存中...");
+    try {
+      await upsertProduct({
+        ...editingProduct,
+        id: editingProduct.id === "new-product" ? "" : editingProduct.id,
+        storeId,
+        price: Number(editingProduct.price),
+        originalPrice: Number(editingProduct.originalPrice || editingProduct.price),
+        discountType: editingProduct.discountType ?? "none",
+        discountValue: Number(editingProduct.discountValue ?? 0),
+        sort: Number(editingProduct.sort) || products.length + 1,
+        categoryId: editingProduct.categoryId || categories[0]?.id || ""
+      });
+      setSaveState("saved");
+      setSaveMessage("已儲存");
+      setProductEditorOpen(false);
+    } catch (error) {
+      setSaveState("error");
+      setSaveMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function removeEditingProduct() {
+    if (!editingProduct.id || editingProduct.id === "new-product") return;
+    if (!window.confirm(`確定刪除「${editingProduct.name}」？`)) return;
+    deleteProduct(editingProduct.id);
+    setProductEditorOpen(false);
+  }
+
+  function makeOptionGroup(name = "新選項群組"): ProductOptionGroup {
+    return {
+      id: `group-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      name,
+      groupName: name,
+      required: false,
+      minSelect: 0,
+      maxSelect: 1,
+      type: "single",
+      sourceType: "custom",
+      sortOrder: editingProduct.optionGroups?.length ?? 0,
+      linkedGroupId: null,
+      sharedGroupId: null,
+      groupId: null,
+      children: [],
+      options: []
+    };
+  }
+
+  function makeOption(): ProductOptionChoice {
+    return { id: `option-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`, name: "新選項", optionName: "新選項", priceDelta: 0, isAvailable: true, children: [], childGroupIds: [] };
+  }
+
+  function mapGroups(groups: ProductOptionGroup[], mapper: (group: ProductOptionGroup) => ProductOptionGroup | null): ProductOptionGroup[] {
+    return groups.flatMap((group) => {
+      const mapped = mapper(group);
+      if (!mapped) return [];
+      return [{
+        ...mapped,
+        options: (mapped.options ?? []).map((option) => ({
+          ...option,
+          children: option.children ? mapGroups(option.children, mapper) : option.children
+        }))
+      }];
+    });
+  }
+
+  function setOptionGroups(updater: (groups: ProductOptionGroup[]) => ProductOptionGroup[]) {
+    setEditingProductDraft((current) => ({ ...current, optionGroups: updater(current.optionGroups ?? []) }));
+  }
+
+  function addOptionGroup() {
+    setOptionGroups((groups) => [...groups, makeOptionGroup()]);
+  }
+
+  function applySharedGroups(groupIds: string[]) {
+    setOptionGroups((groups) => {
+      const existingIds = new Set(groups.map((group) => group.groupId ?? group.sharedGroupId ?? group.id.replace(/^shared-/, "")));
+      const refs: ProductOptionGroup[] = [];
+      groupIds.filter((id) => !existingIds.has(id)).forEach((id, index) => {
+        const shared = sharedGroups.find((group) => group.id === id);
+        if (!shared) return;
+        refs.push({
+            id: `shared-${shared.id}`,
+            name: shared.name,
+            groupName: shared.groupName ?? shared.name,
+            required: shared.required ?? false,
+            minSelect: shared.minSelect ?? 0,
+            maxSelect: shared.maxSelect ?? 1,
+            type: shared.type ?? ((shared.maxSelect ?? 1) > 1 ? "multiple" : "single"),
+            sourceType: "shared" as const,
+            groupId: shared.id,
+            sharedGroupId: shared.id,
+            linkedGroupId: null,
+            sortOrder: groups.length + index,
+            children: [],
+            options: []
+          });
+      });
+      return [...groups, ...refs];
+    });
+  }
+
+  function moveOptionGroup(groupId: string, direction: -1 | 1) {
+    setOptionGroups((groups) => {
+      const index = groups.findIndex((group) => group.id === groupId);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= groups.length) return groups;
+      const next = [...groups];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next.map((group, sortOrder) => ({ ...group, sortOrder }));
+    });
+  }
+
+  function updateOptionGroup(groupId: string, patch: Partial<ProductOptionGroup>) {
+    setOptionGroups((groups) => mapGroups(groups, (group) => group.id === groupId ? { ...group, ...patch } : group));
+  }
+
+  function removeOptionGroup(groupId: string) {
+    setOptionGroups((groups) => mapGroups(groups, (group) => group.id === groupId ? null : group));
+  }
+
+  function addGroupOption(groupId: string) {
+    setOptionGroups((groups) => mapGroups(groups, (group) => group.id === groupId ? { ...group, options: [...(group.options ?? []), makeOption()] } : group));
+  }
+
+  function updateGroupOption(groupId: string, optionId: string, patch: Partial<ProductOptionChoice>) {
+    setOptionGroups((groups) => mapGroups(groups, (group) => {
+      if (group.id !== groupId) return group;
+      return { ...group, options: (group.options ?? []).map((option) => option.id === optionId ? { ...option, ...patch } : option) };
+    }));
+  }
+
+  function removeGroupOption(groupId: string, optionId: string) {
+    setOptionGroups((groups) => mapGroups(groups, (group) => {
+      if (group.id !== groupId) return group;
+      return { ...group, options: (group.options ?? []).filter((option) => option.id !== optionId) };
+    }));
+  }
+
+  function addChildGroup(groupId: string, optionId: string) {
+    setOptionGroups((groups) => mapGroups(groups, (group) => {
+      if (group.id !== groupId) return group;
+      return {
+        ...group,
+        options: (group.options ?? []).map((option) => option.id === optionId ? { ...option, children: [...(option.children ?? []), makeOptionGroup("下一層選項")] } : option)
+      };
+    }));
   }
 
   async function importTemplate() {
     setTemplateMessage("");
     setTemplateError("");
     if (!storeId) return;
-    if (!window.confirm(`匯入${menuTemplateLabel(templateType)}範本會新增一批商品，不會刪除原本商品。是否繼續？`)) return;
+    if (!window.confirm(`匯入「${menuTemplateLabel(templateType)}」會新增一批商品，不會刪除原有商品。是否繼續？`)) return;
     try {
       const templateProducts = buildMenuTemplateProducts(storeId, templateType, products.length + 1);
       const categoryByName = new Map(categories.map((category) => [category.name, category]));
@@ -101,104 +347,202 @@ function MerchantMenuContent({ storeId, adminMode = false, canSwitch = false, st
   }
 
   return (
-    <main className="min-h-screen bg-[#fff7e8]">
-      <header className="border-b border-orange-100 bg-white p-4 shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+    <main className="min-h-screen bg-slate-100 text-slate-900">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-slate-100/90 px-4 py-3 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-sm font-black text-leaf">{adminMode ? "平台代管菜單" : "店家後台設定"}</p>
-            <h1 className="text-3xl font-black text-ink">目前{adminMode ? "代管" : "管理"}店家：{storeDisplayName}</h1>
-            <p className="mt-1 text-sm font-bold text-steel">管理分類、商品排序、上下架與菜單預覽。套餐、加購與商品選項請到商品選項管理。</p>
+            <p className="text-sm font-black text-leaf">{adminMode ? "平台代管菜單" : "店家菜單管理"}</p>
+            <h1 className="text-3xl font-black tracking-tight text-slate-950">{storeDisplayName}</h1>
+            <p className="mt-1 text-sm font-bold text-slate-500">分類、商品、套餐、加購與共用群組庫集中在同一個工作台。</p>
             {canSwitch && storeIds.length > 0 && (
-              <label className="mt-3 block text-sm font-black text-steel">
-                切換店家
-                <select value={storeId} onChange={(event) => onStoreChange?.(event.target.value)} className="mt-1 rounded-lg border border-orange-100 px-3 py-2 font-bold text-ink">
+              <label className="mt-3 block text-sm font-black text-slate-500">
+                切換代管店家
+                <select value={storeId} onChange={(event) => onStoreChange?.(event.target.value)} className="mt-1 rounded-xl border border-slate-200 bg-white px-3 py-2 font-bold text-slate-900">
                   {storeIds.map((id) => <option key={id} value={id}>{stores.find((item) => item.id === id)?.name ?? "未命名店家"}</option>)}
                 </select>
               </label>
             )}
           </div>
-          <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-lg border border-orange-100 bg-white px-4 py-3 font-black text-ink">
-            <ArrowLeft className="size-5" />
-            返回設定中心
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 shadow-sm transition hover:-translate-y-0.5">
+              <ArrowLeft className="size-4" />
+              返回設定中心
+            </Link>
+            <button onClick={startNewProduct} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+              <Plus className="size-4" />
+              新增商品
+            </button>
+          </div>
         </div>
       </header>
 
-      <section className="mx-auto grid max-w-7xl gap-5 p-4 lg:grid-cols-[360px_1fr]">
-        <aside className="space-y-5">
-          <div className="rounded-lg bg-white p-5 shadow-sm">
-            <h2 className="text-2xl font-black text-ink">分類管理</h2>
-            <div className="mt-4 flex gap-2">
-              <input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} placeholder="新增分類名稱" className="min-w-0 flex-1 rounded-lg border border-orange-100 px-4 py-3 font-bold" />
-              <button onClick={addCategory} className="rounded-lg bg-ink px-4 py-3 font-black text-white"><Plus className="size-5" /></button>
+      <section className="mx-auto grid max-w-7xl gap-4 p-4 lg:grid-cols-[260px_minmax(0,1fr)_340px]">
+        <aside className="lg:sticky lg:top-24 lg:self-start">
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-black text-leaf">分類樹狀結構</p>
+                <h2 className="text-xl font-black text-slate-950">菜單分類</h2>
+              </div>
+              <MenuIcon className="size-5 text-slate-400" />
             </div>
-            <div className="mt-4 grid gap-2">
+            <div className="mt-4 grid gap-1.5">
+              <CategoryButton active={selectedCategoryId === "all"} label="全部商品" count={products.length} onClick={() => setSelectedCategoryId("all")} />
               {categories.map((category) => (
-                <div key={category.id} className="flex items-center gap-2 rounded-lg bg-orange-50 px-3 py-3">
-                  <GripVertical className="size-4 text-steel" />
-                  <button onClick={() => upsertCategory({ ...category, isActive: !category.isActive })} className={`flex-1 text-left font-black ${category.isActive ? "text-ink" : "text-stone-400"}`}>{category.name}</button>
-                  <button onClick={() => moveCategory(category, -1)} className="rounded-md bg-white px-2 py-1 text-xs font-black">上移</button>
-                  <button onClick={() => moveCategory(category, 1)} className="rounded-md bg-white px-2 py-1 text-xs font-black">下移</button>
-                </div>
+                <CategoryButton key={category.id} active={selectedCategoryId === category.id} label={category.name} count={products.filter((product) => product.categoryId === category.id).length} disabled={!category.isActive} onClick={() => setSelectedCategoryId(category.id)} />
               ))}
             </div>
-          </div>
-          <div className="rounded-lg bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-black text-ink">匯入菜單範本</h2>
-            <p className="mt-1 text-sm font-bold text-steel">範本只會新增分類與商品，不會刪除原本菜單。</p>
-            <div className="mt-4 grid gap-2">
-              <select value={templateType} onChange={(event) => setTemplateType(event.target.value as MenuTemplateType)} className="rounded-lg border border-orange-100 px-4 py-3 font-bold text-ink">
-                <option value="breakfast">早餐店</option>
-                <option value="drink">飲料店</option>
-                <option value="noodle">鍋燒麵店</option>
-              </select>
-              <button onClick={importTemplate} className="rounded-lg bg-leaf px-4 py-3 font-black text-white">匯入菜單範本</button>
-              {templateMessage && <p className="rounded-lg bg-leaf/10 p-3 text-sm font-black text-leaf">{templateMessage}</p>}
-              {templateError && <p className="rounded-lg bg-tomato/10 p-3 text-sm font-black text-tomato">{templateError}</p>}
+            <div className="mt-4 flex gap-2">
+              <input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} placeholder="新增分類" className="min-w-0 flex-1 rounded-xl border-0 bg-slate-100 px-3 py-2 text-sm font-bold outline-none ring-1 ring-transparent focus:bg-white focus:ring-leaf" />
+              <button onClick={addCategory} className="grid size-10 place-items-center rounded-xl bg-slate-900 text-white transition hover:-translate-y-0.5">
+                <Plus className="size-4" />
+              </button>
             </div>
           </div>
-          <Link href="/merchant/options" className="flex items-center justify-between rounded-lg bg-ink p-5 font-black text-white shadow-sm">
-            前往商品選項管理
-            <Layers3 className="size-6" />
-          </Link>
         </aside>
 
-        <section className="rounded-lg bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-orange-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+        <section className="min-w-0 rounded-2xl bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-2xl font-black text-ink">商品列表與菜單預覽</h2>
-              <p className="mt-1 text-sm font-bold text-steel">快速切換上下架、檢查折扣後售價與分類。</p>
+              <h2 className="text-2xl font-black text-slate-950">商品列表</h2>
+              <p className="mt-1 text-sm font-bold text-slate-500">點擊商品即可開啟右側商品編輯 Drawer。</p>
             </div>
-            <Link href="/merchant/options" className="rounded-lg bg-leaf px-4 py-3 font-black text-white">新增 / 編輯商品</Link>
+            <label className="flex min-w-0 items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 md:w-72">
+              <Search className="size-4 text-slate-400" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋商品" className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none" />
+            </label>
           </div>
-          <div className="mt-4 grid gap-3">
-            {products.length === 0 ? (
-              <p className="rounded-lg bg-orange-50 p-6 text-center font-black text-steel">尚無商品，請先新增商品。</p>
-            ) : products.map((product) => {
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {filteredProducts.length === 0 ? (
+              <div className="col-span-full rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
+                <p className="font-black text-slate-900">尚無商品</p>
+                <p className="mt-1 text-sm font-bold text-slate-500">新增商品或匯入菜單範本後即可開始設定。</p>
+              </div>
+            ) : filteredProducts.map((product) => {
               const category = categories.find((item) => item.id === product.categoryId);
               const discounted = productFinalPrice(product) !== product.price;
               return (
-                <article key={product.id} className="grid gap-3 rounded-lg border border-orange-100 bg-[#fffaf0] p-3 sm:grid-cols-[80px_1fr_auto] sm:items-center">
-                  <img src={product.imageUrl} alt={product.name} className="size-20 rounded-lg object-cover" />
-                  <div>
-                    <p className="text-lg font-black text-ink">{product.name}</p>
-                    <p className="mt-1 text-sm font-bold text-steel">{category?.name ?? "未分類"} · 排序 {product.sort}</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span className="font-black text-tomato">${productFinalPrice(product)}</span>
-                      {discounted && <span className="text-sm font-bold text-stone-400 line-through">${product.price}</span>}
-                      {discountLabel(product.discountType, product.discountValue) && <span className="rounded-full bg-tomato/10 px-2 py-1 text-xs font-black text-tomato">{discountLabel(product.discountType, product.discountValue)}</span>}
+                <article
+                  key={product.id}
+                  onClick={() => {
+                    setSaveState("idle");
+                    setSaveMessage("");
+                    setEditingProduct({ ...product, optionGroups: product.optionGroups ?? [] });
+                    setProductEditorOpen(true);
+                  }}
+                  className="group cursor-pointer rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100 transition hover:-translate-y-1 hover:bg-white hover:shadow-md"
+                >
+                  <img src={product.imageUrl} alt={product.name} className="aspect-[4/3] w-full rounded-xl object-cover" />
+                  <div className="mt-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-black text-slate-950">{product.name}</p>
+                      <p className="mt-0.5 text-xs font-bold text-slate-500">{category?.name ?? "未分類"}</p>
                     </div>
+                    <span className={`rounded-full px-2 py-1 text-xs font-black ${product.isAvailable ? "bg-emerald-50 text-leaf" : "bg-slate-200 text-slate-500"}`}>
+                      {product.isAvailable ? "上架" : "停售"}
+                    </span>
                   </div>
-                  <button onClick={() => upsertProduct({ ...product, isAvailable: !product.isAvailable, isSoldOut: false })} className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-3 font-black ${product.isAvailable ? "bg-leaf/10 text-leaf" : "bg-stone-200 text-stone-500"}`}>
-                    {product.isAvailable ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
-                    {product.isAvailable ? "上架中" : "停售中"}
-                  </button>
+                  <div className="mt-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-lg font-black text-tomato">${productFinalPrice(product)}</p>
+                      {discounted && <p className="text-xs font-bold text-slate-400 line-through">${product.price}</p>}
+                    </div>
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        upsertProduct({ ...product, isAvailable: !product.isAvailable, isSoldOut: false });
+                      }}
+                      className="grid size-10 place-items-center rounded-xl bg-white text-slate-500 shadow-sm transition group-hover:text-slate-900"
+                    >
+                      {product.isAvailable ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+                    </button>
+                  </div>
+                  {discountLabel(product.discountType, product.discountValue) && <p className="mt-2 inline-flex rounded-full bg-rose-50 px-2 py-1 text-xs font-black text-tomato">{discountLabel(product.discountType, product.discountValue)}</p>}
                 </article>
               );
             })}
           </div>
         </section>
+
+        <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
+          <section className="rounded-2xl bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Settings className="size-5 text-leaf" />
+              <h2 className="text-xl font-black text-slate-950">菜單設定</h2>
+            </div>
+            <p className="mt-2 text-sm font-bold leading-6 text-slate-500">共用群組庫集中管理甜度、冰塊、加料、套餐等常用選項，商品內可直接套用。</p>
+            <div className="mt-4 grid gap-2">
+              <Link href="/merchant/options" className="inline-flex items-center justify-between rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5">
+                開啟共用群組庫
+                <Layers3 className="size-4" />
+              </Link>
+              <div className="flex flex-wrap gap-1.5">
+                {sharedGroups.length === 0 ? (
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">尚無共用群組</span>
+                ) : sharedGroups.slice(0, 8).map((group) => (
+                  <span key={group.id} className="rounded-full bg-leaf/10 px-3 py-1 text-xs font-black text-leaf">{group.name}</span>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Sparkles className="size-5 text-amber-500" />
+              <h2 className="text-xl font-black text-slate-950">匯入菜單範本</h2>
+            </div>
+            <p className="mt-2 text-sm font-bold text-slate-500">匯入範本只會新增商品，不會刪除既有菜單。</p>
+            <div className="mt-4 grid gap-2">
+              <select value={templateType} onChange={(event) => setTemplateType(event.target.value as MenuTemplateType)} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900">
+                <option value="breakfast">早餐店</option>
+                <option value="drink">飲料店</option>
+                <option value="noodle">鍋燒麵店</option>
+              </select>
+              <button onClick={importTemplate} className="rounded-xl bg-leaf px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5">匯入範本</button>
+              {templateMessage && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-black text-leaf">{templateMessage}</p>}
+              {templateError && <p className="rounded-xl bg-rose-50 p-3 text-sm font-black text-tomato">{templateError}</p>}
+            </div>
+          </section>
+        </aside>
       </section>
+
+      {productEditorOpen && (
+        <ProductEditorDialog
+          addChildGroup={addChildGroup}
+          addGroupOption={addGroupOption}
+          addOptionGroup={addOptionGroup}
+          applySharedGroups={applySharedGroups}
+          categories={categories}
+          editingProduct={editingProduct}
+          imagePresets={imagePresets}
+          removeEditingProduct={removeEditingProduct}
+          removeGroupOption={removeGroupOption}
+          removeOptionGroup={removeOptionGroup}
+          moveOptionGroup={moveOptionGroup}
+          saveProduct={saveProduct}
+          setEditingProduct={setEditingProductDraft}
+          setProductEditorOpen={setProductEditorOpen}
+          sharedGroups={sharedGroups}
+          updateGroupOption={updateGroupOption}
+          updateOptionGroup={updateOptionGroup}
+          saveState={saveState}
+          saveMessage={saveMessage}
+        />
+      )}
     </main>
+  );
+}
+
+function CategoryButton({ active, label, count, disabled, onClick }: { active: boolean; label: string; count: number; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex items-center justify-between rounded-xl px-3 py-2 text-left text-sm font-black transition disabled:opacity-45 ${active ? "bg-slate-900 text-white shadow-sm" : "bg-slate-50 text-slate-600 hover:bg-slate-100"}`}
+    >
+      <span className="truncate">{label}</span>
+      <span className={`rounded-full px-2 py-0.5 text-xs ${active ? "bg-white/15 text-white" : "bg-white text-slate-500"}`}>{count}</span>
+    </button>
   );
 }
