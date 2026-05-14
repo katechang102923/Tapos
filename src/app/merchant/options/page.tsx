@@ -135,9 +135,17 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
     return {
       id: `group-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
       name,
+      groupName: name,
       required: false,
       minSelect: 0,
       maxSelect: 1,
+      type: "single",
+      sourceType: "custom",
+      sortOrder: editingProduct.optionGroups?.length ?? 0,
+      linkedGroupId: null,
+      sharedGroupId: null,
+      groupId: null,
+      children: [],
       options: []
     };
   }
@@ -152,13 +160,57 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
     setEditingProduct({ ...editingProduct, optionGroups: [...(editingProduct.optionGroups ?? []), makeOptionGroup()] });
   }
 
+  function makeSharedGroupReference(group: SharedOptionGroup, sortOrder: number): ProductOptionGroup {
+    return {
+      id: `shared-${group.id}`,
+      name: group.name,
+      groupName: group.groupName ?? group.name,
+      required: group.required ?? false,
+      minSelect: group.minSelect ?? 0,
+      maxSelect: group.maxSelect ?? 1,
+      type: group.type ?? ((group.maxSelect ?? 1) > 1 ? "multiple" : "single"),
+      sourceType: "shared",
+      groupId: group.id,
+      sharedGroupId: group.id,
+      linkedGroupId: null,
+      sortOrder,
+      children: [],
+      options: []
+    };
+  }
+
+  function applySharedGroups(groupIds: string[]) {
+    setOptionGroups((groups) => {
+      const existingIds = new Set(groups.map((group) => group.groupId ?? group.sharedGroupId ?? group.id.replace(/^shared-/, "")));
+      const refs = groupIds
+        .filter((id) => !existingIds.has(id))
+        .map((id, index) => {
+          const shared = sharedGroups.find((group) => group.id === id);
+          return shared ? makeSharedGroupReference(shared, groups.length + index) : null;
+        })
+        .filter((group): group is ProductOptionGroup => Boolean(group));
+      return [...groups, ...refs];
+    });
+  }
+
+  function moveOptionGroup(groupId: string, direction: -1 | 1) {
+    setOptionGroups((groups) => {
+      const index = groups.findIndex((group) => group.id === groupId);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= groups.length) return groups;
+      const next = [...groups];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next.map((group, sortOrder) => ({ ...group, sortOrder }));
+    });
+  }
+
   function mapGroups(groups: ProductOptionGroup[], mapper: (group: ProductOptionGroup) => ProductOptionGroup | null): ProductOptionGroup[] {
     return groups.flatMap((group) => {
       const mapped = mapper(group);
       if (!mapped) return [];
       return [{
         ...mapped,
-        options: mapped.options.map((option) => ({
+        options: (mapped.options ?? []).map((option) => ({
           ...option,
           children: option.children ? mapGroups(option.children, mapper) : option.children
         }))
@@ -184,20 +236,20 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
   }
 
   function addGroupOption(groupId: string) {
-    setOptionGroups((groups) => mapGroups(groups, (group) => group.id === groupId ? { ...group, options: [...group.options, makeOption()] } : group));
+    setOptionGroups((groups) => mapGroups(groups, (group) => group.id === groupId ? { ...group, options: [...(group.options ?? []), makeOption()] } : group));
   }
 
   function updateGroupOption(groupId: string, optionId: string, patch: Partial<ProductOptionChoice>) {
     setOptionGroups((groups) => mapGroups(groups, (group) => {
       if (group.id !== groupId) return group;
-      return { ...group, options: group.options.map((option) => option.id === optionId ? { ...option, ...patch } : option) };
+      return { ...group, options: (group.options ?? []).map((option) => option.id === optionId ? { ...option, ...patch } : option) };
     }));
   }
 
   function removeGroupOption(groupId: string, optionId: string) {
     setOptionGroups((groups) => mapGroups(groups, (group) => {
       if (group.id !== groupId) return group;
-      return { ...group, options: group.options.filter((option) => option.id !== optionId) };
+      return { ...group, options: (group.options ?? []).filter((option) => option.id !== optionId) };
     }));
   }
 
@@ -552,12 +604,14 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
           addChildGroup={addChildGroup}
           addGroupOption={addGroupOption}
           addOptionGroup={addOptionGroup}
+          applySharedGroups={applySharedGroups}
           categories={categories}
           editingProduct={editingProduct}
           imagePresets={imagePresets}
           removeEditingProduct={removeEditingProduct}
           removeGroupOption={removeGroupOption}
           removeOptionGroup={removeOptionGroup}
+          moveOptionGroup={moveOptionGroup}
           saveProduct={saveProduct}
           setEditingProduct={setEditingProductDraft}
           setProductEditorOpen={setProductEditorOpen}

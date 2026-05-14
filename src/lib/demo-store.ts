@@ -123,6 +123,7 @@ function sanitizeProduct(product: Product): Product {
 }
 
 function sanitizeOptionGroup(group: ProductOptionGroup): ProductOptionGroup {
+  const sharedRefId = group.groupId ?? group.sharedGroupId ?? null;
   return sanitizeForFirestore({
       id: group.id ?? newId("group"),
       name: group.name ?? group.groupName ?? "",
@@ -131,9 +132,11 @@ function sanitizeOptionGroup(group: ProductOptionGroup): ProductOptionGroup {
       minSelect: group.minSelect ?? 0,
       maxSelect: group.maxSelect ?? 1,
       type: group.type ?? ((group.maxSelect ?? 1) > 1 ? "multiple" : "single"),
+      sourceType: group.sourceType ?? (sharedRefId ? "shared" : "custom"),
+      groupId: sharedRefId,
       sortOrder: group.sortOrder ?? 0,
       linkedGroupId: group.linkedGroupId ?? null,
-      sharedGroupId: group.sharedGroupId ?? null,
+      sharedGroupId: sharedRefId,
       children: (group.children ?? []).map((child) => sanitizeOptionGroup(child)),
       options: (group.options ?? []).map((opt) => ({
         id: opt.id ?? newId("option"),
@@ -161,6 +164,8 @@ function sanitizeSharedOptionGroup(group: SharedOptionGroup): SharedOptionGroup 
     minSelect: group.minSelect ?? 0,
     maxSelect: group.maxSelect ?? 1,
     type: group.type ?? ((group.maxSelect ?? 1) > 1 ? "multiple" : "single"),
+    sourceType: "custom",
+    groupId: null,
     sortOrder: group.sortOrder ?? 0,
     linkedGroupId: group.linkedGroupId ?? null,
     sharedGroupId: group.sharedGroupId ?? null,

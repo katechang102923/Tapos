@@ -289,6 +289,8 @@ export type ProductOptionGroup = {
   minSelect: number;
   maxSelect: number;
   type?: "single" | "multiple";
+  sourceType?: "custom" | "shared";
+  groupId?: string | null;
   sortOrder?: number;
   linkedGroupId?: string | null;
   sharedGroupId?: string | null;

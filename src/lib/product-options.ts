@@ -21,8 +21,34 @@ export function legacySelections(product: Product): OrderItemOption[] {
   });
 }
 
-export function productOptionGroups(product: Product): ProductOptionGroup[] {
-  if (product.optionGroups?.length) return product.optionGroups;
+function isSharedGroupReference(group: ProductOptionGroup) {
+  return group.sourceType === "shared" || Boolean(group.groupId || group.sharedGroupId);
+}
+
+function resolveSharedGroupReference(group: ProductOptionGroup, sharedGroups: (ProductOptionGroup | SharedOptionGroup)[]) {
+  if (!isSharedGroupReference(group)) return group;
+  const sharedId = group.groupId ?? group.sharedGroupId ?? group.id.replace(/^shared-/, "");
+  const shared = sharedGroups.find((item) => item.id === sharedId);
+  if (!shared) {
+    return {
+      ...group,
+      id: group.id,
+      name: group.name || "共用群組",
+      groupName: group.groupName || group.name || "共用群組",
+      options: group.options ?? []
+    };
+  }
+  return {
+    ...shared,
+    id: shared.id,
+    sourceType: "shared" as const,
+    groupId: shared.id,
+    sharedGroupId: shared.id
+  };
+}
+
+export function productOptionGroups(product: Product, sharedGroups: (ProductOptionGroup | SharedOptionGroup)[] = []): ProductOptionGroup[] {
+  if (product.optionGroups?.length) return product.optionGroups.map((group) => resolveSharedGroupReference(group, sharedGroups));
   return (product.options ?? []).map((option, index) => ({
     id: `legacy-${index}`,
     name: option.name,
@@ -39,7 +65,7 @@ export function productOptionGroups(product: Product): ProductOptionGroup[] {
 }
 
 export function visibleOptionGroups(product: Product, selected: OrderItemOption[], sharedGroups: (ProductOptionGroup | SharedOptionGroup)[] = []) {
-  const groups = productOptionGroups(product);
+  const groups = productOptionGroups(product, sharedGroups);
   const childIds = new Set(groups.flatMap((group) => group.options.flatMap((option) => option.nextGroupIds ?? [])));
   const selectedChoiceIds = new Set(selected.map((item) => item.choiceId));
 
@@ -68,7 +94,7 @@ export function visibleOptionGroups(product: Product, selected: OrderItemOption[
 }
 
 export function optionGroupLevels(product: Product, selected: OrderItemOption[], sharedGroups: (ProductOptionGroup | SharedOptionGroup)[] = []) {
-  const groups = productOptionGroups(product);
+  const groups = productOptionGroups(product, sharedGroups);
   const selectedChoiceIds = new Set(selected.map((item) => item.choiceId));
   const levels = new Map<string, number>();
 
