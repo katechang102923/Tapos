@@ -1,25 +1,53 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Eye, EyeOff, GripVertical, Layers3, Plus } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
+import { buildMenuTemplateProducts, menuTemplateLabel, type MenuTemplateType } from "@/lib/menu-import-templates";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
-import { defaultStoreId } from "@/lib/store-access";
-import type { Category } from "@/lib/types";
-import { useState } from "react";
+import { canSwitchStore, defaultStoreId, isPlatformAdmin } from "@/lib/store-access";
+import type { Category, User } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
 
 export default function MerchantMenuPage() {
   return (
-    <LoginGate allowedRoles={["merchant", "admin"]} title="菜單管理">
-      {({ profile }) => <MerchantMenuContent storeId={defaultStoreId(profile)} />}
+    <LoginGate allowedRoles={["merchant", "admin", "systemAdmin", "softwareAdmin", "owner", "manager"]} title="菜單管理">
+      {({ profile }) => <MerchantMenuShell profile={profile} />}
     </LoginGate>
   );
 }
 
-function MerchantMenuContent({ storeId }: { storeId: string }) {
+function MerchantMenuShell({ profile }: { profile: User | null }) {
+  const searchParams = useSearchParams();
+  const requestedStoreId = searchParams.get("storeId") ?? "";
+  const platformAdmin = isPlatformAdmin(profile);
+  const { db } = useDemoStore({ admin: platformAdmin, skipOrderList: true });
+  const switchableStoreIds = useMemo(
+    () => platformAdmin ? db.stores.filter((store) => !store.isDeleted).map((store) => store.id) : [],
+    [db.stores, platformAdmin]
+  );
+  const [selectedStoreId, setSelectedStoreId] = useState(requestedStoreId || defaultStoreId(profile));
+  useEffect(() => {
+    if (!platformAdmin || switchableStoreIds.length === 0) return;
+    if (!selectedStoreId || !switchableStoreIds.includes(selectedStoreId)) {
+      setSelectedStoreId(switchableStoreIds[0]);
+    }
+  }, [platformAdmin, selectedStoreId, switchableStoreIds]);
+  const fallbackStoreId = platformAdmin ? switchableStoreIds[0] ?? selectedStoreId : defaultStoreId(profile);
+  const storeId = platformAdmin
+    ? (selectedStoreId && switchableStoreIds.includes(selectedStoreId) ? selectedStoreId : fallbackStoreId)
+    : defaultStoreId(profile);
+  return <MerchantMenuContent canSwitch={canSwitchStore(profile)} storeId={storeId} storeIds={switchableStoreIds} stores={db.stores} onStoreChange={setSelectedStoreId} />;
+}
+
+function MerchantMenuContent({ storeId, canSwitch = false, storeIds = [], stores = [], onStoreChange }: { storeId: string; canSwitch?: boolean; storeIds?: string[]; stores?: Array<{ id: string; name: string }>; onStoreChange?: (storeId: string) => void }) {
   const { db, upsertCategory, upsertProduct } = useDemoStore({ storeId, skipOrderList: true });
   const [categoryName, setCategoryName] = useState("");
+  const [templateType, setTemplateType] = useState<MenuTemplateType>("breakfast");
+  const [templateMessage, setTemplateMessage] = useState("");
+  const [templateError, setTemplateError] = useState("");
   const store = db.stores.find((item) => item.id === storeId);
   const categories = db.categories.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
   const products = db.products.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
@@ -34,6 +62,42 @@ function MerchantMenuContent({ storeId }: { storeId: string }) {
     upsertCategory({ ...category, sort: Math.max(1, category.sort + direction) });
   }
 
+  async function importTemplate() {
+    setTemplateMessage("");
+    setTemplateError("");
+    if (!storeId) return;
+    if (!window.confirm(`匯入${menuTemplateLabel(templateType)}範本會新增一批商品，不會刪除原本商品。是否繼續？`)) return;
+    try {
+      const templateProducts = buildMenuTemplateProducts(storeId, templateType, products.length + 1);
+      const categoryByName = new Map(categories.map((category) => [category.name, category]));
+      const categoryIds = new Map<string, string>();
+      let nextCategorySort = categories.length + 1;
+      for (const product of templateProducts) {
+        const name = product.categoryName || "未分類";
+        const existing = categoryByName.get(name);
+        const categoryId = existing?.id || `cat-${storeId}-${templateType}-${name}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+        categoryIds.set(name, categoryId);
+        if (!existing) {
+          await upsertCategory({ id: categoryId, storeId, name, sort: nextCategorySort, isActive: true });
+          nextCategorySort += 1;
+        }
+      }
+      await Promise.all(templateProducts.map((product) => upsertProduct({
+        ...product,
+        storeId,
+        categoryId: categoryIds.get(product.categoryName || "未分類") || categories[0]?.id || "",
+        sort: product.sort || products.length + 1,
+        sortOrder: product.sortOrder ?? product.sort ?? 0,
+        isAvailable: true,
+        isSoldOut: false
+      })));
+      setTemplateMessage(`已匯入 ${templateProducts.length} 筆商品`);
+    } catch (error) {
+      console.error("importMenuTemplate failed", error);
+      setTemplateError(error instanceof Error ? error.message : "匯入菜單範本失敗");
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#fff7e8]">
       <header className="border-b border-orange-100 bg-white p-4 shadow-sm">
@@ -42,6 +106,14 @@ function MerchantMenuContent({ storeId }: { storeId: string }) {
             <p className="text-sm font-black text-leaf">店家後台設定</p>
             <h1 className="text-3xl font-black text-ink">{store?.name ?? "店家"} · 菜單管理概覽</h1>
             <p className="mt-1 text-sm font-bold text-steel">管理分類、商品排序、上下架與菜單預覽。套餐、加購與商品選項請到商品選項管理。</p>
+            {canSwitch && storeIds.length > 0 && (
+              <label className="mt-3 block text-sm font-black text-steel">
+                切換店家
+                <select value={storeId} onChange={(event) => onStoreChange?.(event.target.value)} className="mt-1 rounded-lg border border-orange-100 px-3 py-2 font-bold text-ink">
+                  {storeIds.map((id) => <option key={id} value={id}>{stores.find((item) => item.id === id)?.name ?? id}</option>)}
+                </select>
+              </label>
+            )}
           </div>
           <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-lg border border-orange-100 bg-white px-4 py-3 font-black text-ink">
             <ArrowLeft className="size-5" />
@@ -67,6 +139,20 @@ function MerchantMenuContent({ storeId }: { storeId: string }) {
                   <button onClick={() => moveCategory(category, 1)} className="rounded-md bg-white px-2 py-1 text-xs font-black">下移</button>
                 </div>
               ))}
+            </div>
+          </div>
+          <div className="rounded-lg bg-white p-5 shadow-sm">
+            <h2 className="text-xl font-black text-ink">匯入菜單範本</h2>
+            <p className="mt-1 text-sm font-bold text-steel">範本只會新增分類與商品，不會刪除原本菜單。</p>
+            <div className="mt-4 grid gap-2">
+              <select value={templateType} onChange={(event) => setTemplateType(event.target.value as MenuTemplateType)} className="rounded-lg border border-orange-100 px-4 py-3 font-bold text-ink">
+                <option value="breakfast">早餐店</option>
+                <option value="drink">飲料店</option>
+                <option value="noodle">鍋燒麵店</option>
+              </select>
+              <button onClick={importTemplate} className="rounded-lg bg-leaf px-4 py-3 font-black text-white">匯入菜單範本</button>
+              {templateMessage && <p className="rounded-lg bg-leaf/10 p-3 text-sm font-black text-leaf">{templateMessage}</p>}
+              {templateError && <p className="rounded-lg bg-tomato/10 p-3 text-sm font-black text-tomato">{templateError}</p>}
             </div>
           </div>
           <Link href="/merchant/options" className="flex items-center justify-between rounded-lg bg-ink p-5 font-black text-white shadow-sm">

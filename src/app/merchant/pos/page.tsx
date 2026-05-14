@@ -14,7 +14,7 @@ import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { normalizeSelectedOptions, selectionsTotal } from "@/lib/product-options";
 import { calculatePromotions } from "@/lib/promotions";
 import { resolvePermissions } from "@/lib/permissions";
-import { defaultStoreId, selectorStoreIds, storeRoleFor } from "@/lib/store-access";
+import { defaultStoreId, isPlatformAdmin, selectorStoreIds, storeRoleFor } from "@/lib/store-access";
 import { checkStoreAccess, checkUserAccess } from "@/lib/subscription";
 import type { CashFlow, CashFlowAmountMode, CashFlowItem, CashFlowType, Customer, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, StoreMemberRole, User } from "@/lib/types";
 
@@ -56,7 +56,7 @@ const posAccessRoles: StoreMemberRole[] = ["owner", "manager", "staff", "viewer"
 
 export default function MerchantPosPage() {
   return (
-    <LoginGate allowedRoles={["merchant", "kitchen", "admin", "owner", "manager", "staff", "viewer"]} title="POS 前台工作台">
+    <LoginGate allowedRoles={["merchant", "kitchen", "admin", "systemAdmin", "softwareAdmin", "owner", "manager", "staff", "viewer"]} title="POS 前台工作台">
       {({ profile }) => <MerchantPosShell profile={profile} />}
     </LoginGate>
   );
@@ -72,12 +72,13 @@ function posLsKey(userId: string) {
 }
 
 function MerchantPosShell({ profile }: { profile: User | null }) {
-  const isAdmin = profile?.role === "admin";
+  const isAdmin = isPlatformAdmin(profile);
   const userId = profile?.id ?? "";
   const lsKey = posLsKey(userId);
+  const { db: adminDb } = useDemoStore({ admin: isAdmin, skipOrderList: true });
 
   // Role-mapped store IDs with demo entries already stripped
-  const allStoreIds = selectorStoreIds(profile);
+  const allStoreIds = isAdmin ? adminDb.stores.map((store) => store.id) : selectorStoreIds(profile);
 
   // Validated store IDs: trimmed to only stores that actually exist in Firestore
   // so stale profile entries (deleted stores, seed data) never reach the selector.
@@ -143,6 +144,17 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
     if (lsKey) window.localStorage.setItem(lsKey, id);
   }
 
+  useEffect(() => {
+    const nextStoreId = storeIds.includes(activeStoreId) ? activeStoreId : storeIds[0] ?? "";
+    if (nextStoreId !== activeStoreId) {
+      setActiveStoreId(nextStoreId);
+      if (lsKey) {
+        if (nextStoreId) window.localStorage.setItem(lsKey, nextStoreId);
+        else window.localStorage.removeItem(lsKey);
+      }
+    }
+  }, [activeStoreId, lsKey, storeIds]);
+
   const selectedStoreId = storeIds.includes(activeStoreId) ? activeStoreId : storeIds[0] ?? "";
   const storeRole = storeRoleFor(profile, selectedStoreId);
   const hasStoreAccess = Boolean(selectedStoreId && storeRole && posAccessRoles.includes(storeRole));
@@ -171,7 +183,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const products = useMemo(() => db.products.filter((item) => item.storeId === storeId && item.isAvailable && !item.isSoldOut).sort((a, b) => a.sort - b.sort), [db.products, storeId]);
   const cashFlowItems = useMemo(() => (db.cashFlowItems ?? []).filter((item) => item.storeId === storeId && item.enabled).sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")), [db.cashFlowItems, storeId]);
   const permissions = resolvePermissions(profile, storeId);
-  const effectiveRole = profile?.role === "admin" ? "admin" : activeStoreRole;
+  const effectiveRole = isPlatformAdmin(profile) ? "admin" : activeStoreRole;
   const canViewReport = permissions.canViewDailyReport;
   const canAddCashFlow = permissions.canUseCashflow;
   const canManageCashItems = permissions.canUseCashflow && permissions.canManageMenu;
@@ -239,7 +251,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   if (!storeId) return <CenteredNotice title="請先完成店家設定" text="POS 前台需要綁定店家後才能使用。" />;
   if (!store) return <CenteredNotice title="載入店家資料..." text="" />;
 
-  const isAdmin = profile?.role === "admin";
+  const isAdmin = isPlatformAdmin(profile);
   const storeAccess = !isAdmin ? checkStoreAccess(store) : { ok: true, reason: "" };
   const userAccess = !isAdmin ? checkUserAccess(profile, storeId) : { ok: true, reason: "" };
   if (!userAccess.ok) return <CenteredNotice title="帳號存取受限" text={userAccess.reason} />;

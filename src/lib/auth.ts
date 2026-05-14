@@ -11,10 +11,10 @@ import {
 import { collection, deleteDoc, doc, getDocFromServer, getDocs, onSnapshot, query, setDoc, where, type DocumentSnapshot } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { auth, firebaseEnabled, firestore } from "./firebase";
-import { isPlatformAdminEmail, platformAdminEmail } from "./store-access";
+import { accessibleStoreIds, isPlatformAdminEmail, platformAdminEmail } from "./store-access";
 import type { StoreMemberRole, User, UserRole } from "./types";
 
-const supportedRoles: UserRole[] = ["user", "merchant", "kitchen", "admin", "owner", "manager", "staff", "viewer"];
+const supportedRoles: UserRole[] = ["user", "merchant", "kitchen", "admin", "systemAdmin", "softwareAdmin", "owner", "manager", "staff", "viewer"];
 const storeRoles: StoreMemberRole[] = ["owner", "manager", "staff", "viewer"];
 
 function normalizeMemberships(value: unknown): Record<string, StoreMemberRole> {
@@ -81,6 +81,122 @@ function adminProfile(uid: string, email = platformAdminEmail, data?: Record<str
     createdAt: typeof data?.createdAt === "string" ? data.createdAt : now,
     updatedAt: now
   };
+}
+
+async function storeRolesFromBindings(email: string): Promise<Record<string, StoreMemberRole>> {
+  if (!firestore) return {};
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) return {};
+  const bindingSnapshots = await Promise.all([
+    getDocs(query(collection(firestore, "storeUserBindings"), where("email", "==", normalizedEmail))),
+    getDocs(query(collection(firestore, "storeUsers"), where("email", "==", normalizedEmail)))
+  ]);
+  return bindingSnapshots.flatMap((result) => result.docs).reduce<Record<string, StoreMemberRole>>((roles, item) => {
+    const data = item.data();
+    const storeId = typeof data.storeId === "string" ? data.storeId : "";
+    const memberRole = typeof data.storeRole === "string" ? data.storeRole : typeof data.role === "string" ? data.role : "";
+    if (storeId && storeRoles.includes(memberRole as StoreMemberRole)) {
+      roles[storeId] = memberRole as StoreMemberRole;
+    }
+    return roles;
+  }, {});
+}
+
+async function profileWithFreshStoreBindings(rawProfile: User | null): Promise<User | null> {
+  if (!rawProfile?.email) return rawProfile;
+  const bindingRoles = await storeRolesFromBindings(rawProfile.email);
+  const authoritativeRoles = Object.keys(bindingRoles).length > 0
+    ? bindingRoles
+    : { ...normalizeMemberships(rawProfile.memberships), ...normalizeMemberships(rawProfile.storeRoles) };
+  const storeIds = Object.keys(authoritativeRoles);
+  const role = rawProfile.role === "admin" || rawProfile.role === "systemAdmin" || rawProfile.role === "softwareAdmin"
+    ? rawProfile.role
+    : (storeIds.length ? platformRoleFromStoreRoles(authoritativeRoles) : rawProfile.role);
+  return {
+    ...rawProfile,
+    role,
+    memberships: authoritativeRoles,
+    storeRoles: authoritativeRoles,
+    storeIds,
+    storeId: storeIds[0] ?? null
+  };
+}
+
+function clearStoreRuntimeCache() {
+  if (typeof window === "undefined") return;
+  const exactKeys = new Set([
+    "selectedStoreId",
+    "activeStoreId",
+    "currentStoreId",
+    "merchantStore",
+    "menuCache",
+    "auth:allowedStoreIds"
+  ]);
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    for (let i = storage.length - 1; i >= 0; i -= 1) {
+      const key = storage.key(i);
+      if (!key) continue;
+      if (
+        exactKeys.has(key)
+        || key.startsWith("pos:storeId:")
+        || key.startsWith("menuCache:")
+        || key.startsWith("merchantStore:")
+        || key.startsWith("selectedStoreId:")
+        || key.startsWith("activeStoreId:")
+      ) {
+        storage.removeItem(key);
+      }
+    }
+  }
+}
+
+function syncCurrentStoreCache(nextProfile: User | null) {
+  if (typeof window === "undefined") return;
+  if (!nextProfile) {
+    clearStoreRuntimeCache();
+    return;
+  }
+  const currentStoreIds = nextProfile ? accessibleStoreIds(nextProfile) : [];
+  const currentSet = new Set(currentStoreIds);
+  const cacheKey = "auth:allowedStoreIds";
+  const storeSelectionKeys = ["currentStoreId", "selectedStoreId", "activeStoreId"];
+  let previousStoreIds: string[] = [];
+  try {
+    const raw = window.localStorage.getItem(cacheKey);
+    previousStoreIds = raw ? JSON.parse(raw) : [];
+  } catch {
+    previousStoreIds = [];
+  }
+
+  const changed = previousStoreIds.length !== currentStoreIds.length
+    || previousStoreIds.some((id) => !currentSet.has(id));
+
+  if (changed) {
+    const storesToClear = previousStoreIds.filter((id) => !currentSet.has(id));
+    for (const storage of [window.localStorage, window.sessionStorage]) {
+      for (const storeId of storesToClear) {
+        for (let i = storage.length - 1; i >= 0; i -= 1) {
+          const key = storage.key(i);
+          if (key && key.includes(storeId)) storage.removeItem(key);
+        }
+      }
+      for (let i = storage.length - 1; i >= 0; i -= 1) {
+        const key = storage.key(i);
+        if (key?.startsWith("pos:storeId:")) {
+          const value = storage.getItem(key) ?? "";
+          if (value && !currentSet.has(value)) storage.removeItem(key);
+        }
+      }
+    }
+  }
+
+  window.localStorage.setItem(cacheKey, JSON.stringify(currentStoreIds));
+  const nextDefaultStoreId = currentStoreIds[0] ?? "";
+  for (const key of storeSelectionKeys) {
+    const savedStoreId = window.localStorage.getItem(key) ?? "";
+    if (savedStoreId && !currentSet.has(savedStoreId)) window.localStorage.removeItem(key);
+    if (nextDefaultStoreId) window.localStorage.setItem(key, nextDefaultStoreId);
+  }
 }
 
 async function ensureFixedAdminUser(uid: string, email: string) {
@@ -157,7 +273,7 @@ export function useAuthState(): AuthState {
     let active = true;
 
     let unsubscribeProfile: (() => void) | null = null;
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!active) return;
       setFirebaseUser(user);
       setProfile(null);
@@ -165,11 +281,17 @@ export function useAuthState(): AuthState {
       unsubscribeProfile?.();
 
       if (!user) {
+        syncCurrentStoreCache(null);
         setLoading(false);
         return;
       }
 
       setLoading(true);
+      try {
+        await user.getIdToken(true);
+      } catch (tokenError) {
+        console.warn("refresh Firebase token failed", tokenError);
+      }
       const userRef = doc(db, "users", user.uid);
       const isFixedAdmin = isPlatformAdminEmail(user.email);
 
@@ -178,6 +300,7 @@ export function useAuthState(): AuthState {
           .then((fixedAdminProfile) => {
             if (!active) return;
             setProfile(fixedAdminProfile);
+            syncCurrentStoreCache(fixedAdminProfile);
             setError("");
             setLoading(false);
           })
@@ -189,11 +312,13 @@ export function useAuthState(): AuthState {
       }
 
       getDocFromServer(userRef)
-        .then((snapshot) => {
+        .then(async (snapshot) => {
           if (!active) return;
           if (isFixedAdmin) return;
-          const nextProfile = profileFromSnapshot(snapshot);
+          const nextProfile = await profileWithFreshStoreBindings(profileFromSnapshot(snapshot));
+          if (!active) return;
           setProfile(nextProfile);
+          syncCurrentStoreCache(nextProfile);
           setError(nextProfile ? "" : missingProfileMessage(user.uid));
           setLoading(false);
         })
@@ -210,18 +335,31 @@ export function useAuthState(): AuthState {
           if (isFixedAdmin) {
             const nextProfile = profileFromSnapshot(snapshot);
             if (nextProfile) {
-              setProfile(adminProfile(user.uid, user.email ?? platformAdminEmail, nextProfile as unknown as Record<string, unknown>));
+              const nextAdminProfile = adminProfile(user.uid, user.email ?? platformAdminEmail, nextProfile as unknown as Record<string, unknown>);
+              setProfile(nextAdminProfile);
+              syncCurrentStoreCache(nextAdminProfile);
             } else {
-              setProfile(adminProfile(user.uid, user.email ?? platformAdminEmail));
+              const nextAdminProfile = adminProfile(user.uid, user.email ?? platformAdminEmail);
+              setProfile(nextAdminProfile);
+              syncCurrentStoreCache(nextAdminProfile);
             }
             setError("");
             setLoading(false);
             return;
           }
-          const nextProfile = profileFromSnapshot(snapshot);
-          setProfile(nextProfile);
-          setError(nextProfile ? "" : missingProfileMessage(user.uid));
-          setLoading(false);
+          profileWithFreshStoreBindings(profileFromSnapshot(snapshot))
+            .then((nextProfile) => {
+              if (!active) return;
+              setProfile(nextProfile);
+              syncCurrentStoreCache(nextProfile);
+              setError(nextProfile ? "" : missingProfileMessage(user.uid));
+              setLoading(false);
+            })
+            .catch((snapshotError) => {
+              if (!active) return;
+              setError(snapshotError.message);
+              setLoading(false);
+            });
         },
         (snapshotError) => {
           if (!active) return;
@@ -241,7 +379,9 @@ export function useAuthState(): AuthState {
   async function signIn(email: string, password: string) {
     if (!auth) throw new Error("Firebase Auth 尚未設定");
     setError("");
-    await signInWithEmailAndPassword(auth, email, password);
+    clearStoreRuntimeCache();
+    const credential = await signInWithEmailAndPassword(auth, email, password);
+    await credential.user.getIdToken(true);
   }
 
   async function registerOwner(email: string, password: string, name: string) {
@@ -282,7 +422,9 @@ export function useAuthState(): AuthState {
 
   async function signOutUser() {
     if (!auth) return;
+    clearStoreRuntimeCache();
     await signOut(auth);
+    clearStoreRuntimeCache();
   }
 
   return { firebaseUser, profile, loading, error, signIn, registerOwner, resetPassword, signOutUser };

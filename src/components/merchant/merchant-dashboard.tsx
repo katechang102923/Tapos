@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChefHat, Contact, Cpu, Gift, LayoutDashboard, Menu as MenuIcon, Plus, Power, QrCode, ReceiptText, Settings, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { resolvePermissions, roleLabel, roleBadgeClass } from "@/lib/permissions";
-import { accessibleStoreIds, defaultStoreId, storeRoleFor } from "@/lib/store-access";
+import { accessibleStoreIds, defaultStoreId, isPlatformAdmin, storeRoleFor } from "@/lib/store-access";
 import { checkStoreAccess, checkUserAccess } from "@/lib/subscription";
 import type { Category, Store, User } from "@/lib/types";
 
@@ -14,7 +14,7 @@ type MerchantView = "dashboard" | "menu";
 
 export function MerchantDashboard({ view = "dashboard" }: { view?: MerchantView }) {
   return (
-    <LoginGate allowedRoles={["merchant", "admin", "owner", "manager", "staff", "viewer"]} title="店家後台管理">
+    <LoginGate allowedRoles={["merchant", "admin", "systemAdmin", "softwareAdmin", "owner", "manager", "staff", "viewer"]} title="店家後台管理">
       {({ profile, signOutUser }) => {
         if (!profile) return null;
         if (profile.status === "pending" || profile.status === "rejected") {
@@ -29,7 +29,7 @@ export function MerchantDashboard({ view = "dashboard" }: { view?: MerchantView 
             </main>
           );
         }
-        if (accessibleStoreIds(profile).length === 0) {
+        if (!isPlatformAdmin(profile) && accessibleStoreIds(profile).length === 0) {
           return (
             <main className="grid min-h-screen place-items-center bg-[#fff7e8] p-4">
               <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-soft">
@@ -48,20 +48,29 @@ export function MerchantDashboard({ view = "dashboard" }: { view?: MerchantView 
 }
 
 function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User; view: MerchantView; onSignOut: () => Promise<void> }) {
-  const storeIds = accessibleStoreIds(profile);
+  const isAdmin = isPlatformAdmin(profile);
   const [selectedStoreId, setSelectedStoreId] = useState(defaultStoreId(profile));
-  const { db, upsertCategory, upsertStore } = useDemoStore({ storeId: selectedStoreId, skipOrderList: true });
+  const authorizedStoreIds = accessibleStoreIds(profile);
+  const bootstrapStoreId = isAdmin ? selectedStoreId : (authorizedStoreIds.includes(selectedStoreId) ? selectedStoreId : authorizedStoreIds[0] ?? "");
+  const { db, upsertCategory, upsertStore } = useDemoStore({ storeId: bootstrapStoreId, admin: isAdmin, skipOrderList: true });
+  const storeIds = isAdmin ? db.stores.map((item) => item.id) : accessibleStoreIds(profile);
+  const activeStoreId = storeIds.includes(selectedStoreId) ? selectedStoreId : storeIds[0] ?? "";
   const [categoryName, setCategoryName] = useState("");
   const [notice, setNotice] = useState("");
 
-  const store = db.stores.find((item) => item.id === selectedStoreId);
-  const categories = db.categories.filter((item) => item.storeId === selectedStoreId).sort((a, b) => a.sort - b.sort);
-  const storeRole = storeRoleFor(profile, selectedStoreId);
-  const role = profile.role === "admin" ? "admin" : storeRole;
-  const permissions = resolvePermissions(profile, selectedStoreId);
-  const canManageStore = permissions.canManageMenu || profile.role === "admin";
-  const storeAccessCheck = profile.role !== "admin" ? checkStoreAccess(store) : { ok: true, reason: "" };
-  const userAccessCheck = profile.role !== "admin" ? checkUserAccess(profile, selectedStoreId) : { ok: true, reason: "" };
+  useEffect(() => {
+    if (!storeIds.length) return;
+    if (!selectedStoreId || !storeIds.includes(selectedStoreId)) setSelectedStoreId(storeIds[0]);
+  }, [selectedStoreId, storeIds]);
+
+  const store = db.stores.find((item) => item.id === activeStoreId);
+  const categories = db.categories.filter((item) => item.storeId === activeStoreId).sort((a, b) => a.sort - b.sort);
+  const storeRole = storeRoleFor(profile, activeStoreId);
+  const role = isAdmin ? "admin" : storeRole;
+  const permissions = resolvePermissions(profile, activeStoreId);
+  const canManageStore = permissions.canManageMenu || isAdmin;
+  const storeAccessCheck = !isAdmin ? checkStoreAccess(store) : { ok: true, reason: "" };
+  const userAccessCheck = !isAdmin ? checkUserAccess(profile, activeStoreId) : { ok: true, reason: "" };
 
   // Access gates (skip while store data is loading)
   if (db.stores.length > 0 && !userAccessCheck.ok) {
@@ -98,7 +107,7 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
 
   function addCategory() {
     if (!categoryName.trim()) return;
-    upsertCategory({ id: "", storeId: selectedStoreId, name: categoryName.trim(), sort: categories.length + 1, isActive: true });
+    upsertCategory({ id: "", storeId: activeStoreId, name: categoryName.trim(), sort: categories.length + 1, isActive: true });
     setCategoryName("");
   }
 
@@ -126,7 +135,7 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
           {store?.features?.memberEnabled && permissions.canManageMembers && <SidebarItem href="/merchant/member-rules" icon={Contact} label="會員規則設定" />}
           <Link href="/merchant/pos" className="inline-flex items-center gap-3 rounded-lg bg-leaf px-4 py-3 font-black text-white"><ShoppingCart className="size-5" />前往 POS 前台</Link>
           {store?.features?.kdsEnabled && (
-            <Link href={`/kitchen/${selectedStoreId}`} className="inline-flex items-center gap-3 rounded-lg bg-white/10 px-4 py-3 font-black text-white hover:bg-white/20"><ChefHat className="size-5" />廚房 KDS</Link>
+            <Link href={`/kitchen/${activeStoreId}`} className="inline-flex items-center gap-3 rounded-lg bg-white/10 px-4 py-3 font-black text-white hover:bg-white/20"><ChefHat className="size-5" />廚房 KDS</Link>
           )}
         </nav>
       </aside>
@@ -136,10 +145,10 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
           <div>
             <p className="text-sm font-black text-steel">{view === "dashboard" ? "店家後台設定" : "菜單分類管理"}</p>
             <h1 className="text-3xl font-black text-ink">{view === "dashboard" ? "設定中心" : "菜單管理"}</h1>
-            {profile.role === "admin" && storeIds.length > 1 && (
+            {isAdmin && storeIds.length > 1 && (
               <label className="mt-3 block text-sm font-bold text-steel">
                 選擇店家
-                <select value={selectedStoreId} onChange={(event) => setSelectedStoreId(event.target.value)} className="mt-1 block rounded-lg border border-stone-300 px-3 py-2 text-sm">
+                <select value={activeStoreId} onChange={(event) => setSelectedStoreId(event.target.value)} className="mt-1 block rounded-lg border border-stone-300 px-3 py-2 text-sm">
                   {storeIds.map((id) => {
                     const optionStore = db.stores.find((item) => item.id === id);
                     return <option key={id} value={id}>{optionStore?.name ?? id}</option>;

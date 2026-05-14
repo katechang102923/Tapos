@@ -24,6 +24,9 @@ function MembersShell({ profile }: { profile: User | null }) {
   const storeIds = selectorStoreIds(profile);
   const [selectedStoreId, setSelectedStoreId] = useState(defaultStoreId(profile));
   const storeId = storeIds.includes(selectedStoreId) ? selectedStoreId : storeIds[0] ?? "";
+  useEffect(() => {
+    if (storeIds.length > 0 && selectedStoreId !== storeId) setSelectedStoreId(storeId);
+  }, [selectedStoreId, storeId, storeIds]);
 
   const isAdmin = profile?.role === "admin";
   const permissions = resolvePermissions(profile, storeId);

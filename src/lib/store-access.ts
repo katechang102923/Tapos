@@ -33,22 +33,16 @@ export function normalizeStoreRoles(profile: Pick<User, "memberships" | "storeRo
 
 export function accessibleStoreIds(profile: Pick<User, "storeId" | "storeIds" | "memberships" | "storeRoles"> | null | undefined) {
   if (!profile) return [];
-  const roleStoreIds = Object.keys(normalizeStoreRoles(profile));
-  if (roleStoreIds.length > 0) return roleStoreIds;
-  const explicitStoreIds = Array.isArray(profile.storeIds) ? profile.storeIds.filter((id): id is string => typeof id === "string" && id.length > 0) : [];
-  const legacyStoreId = typeof profile.storeId === "string" && profile.storeId.length > 0 ? [profile.storeId] : [];
-  return Array.from(new Set([...explicitStoreIds, ...roleStoreIds, ...legacyStoreId]));
+  return roleStoreIdsFromProfile(profile);
 }
 
 /** Role-derived store IDs with demo/seed entries removed. Shared by defaultStoreId and selectorStoreIds. */
-function roleStoreIds(profile: Pick<User, "memberships" | "storeRoles"> | null | undefined): string[] {
+function roleStoreIdsFromProfile(profile: Pick<User, "memberships" | "storeRoles"> | null | undefined): string[] {
   return Object.keys(normalizeStoreRoles(profile)).filter((id) => !DEMO_STORE_IDS.has(id));
 }
 
 export function defaultStoreId(profile: Pick<User, "storeId" | "storeIds" | "memberships" | "storeRoles"> | null | undefined) {
-  const ids = roleStoreIds(profile);
-  if (ids.length > 0) return ids[0];
-  return accessibleStoreIds(profile)[0] ?? "";
+  return roleStoreIdsFromProfile(profile)[0] ?? "";
 }
 
 /**
@@ -60,11 +54,7 @@ export function selectorStoreIds(
   profile: Pick<User, "storeId" | "storeIds" | "memberships" | "storeRoles" | "role"> | null | undefined
 ): string[] {
   if (!profile) return [];
-  if (profile.role === "admin") return accessibleStoreIds(profile);
-  const ids = roleStoreIds(profile);
-  if (ids.length > 0) return ids;
-  const legacyId = typeof profile.storeId === "string" && profile.storeId.length > 0 ? profile.storeId : "";
-  return legacyId && !DEMO_STORE_IDS.has(legacyId) ? [legacyId] : [];
+  return roleStoreIdsFromProfile(profile);
 }
 
 export function storeRoleFor(profile: Pick<User, "memberships" | "storeRoles"> | null | undefined, storeId: string) {
@@ -84,6 +74,38 @@ export function canManageStoreSettings(profile: User | null | undefined, storeId
 
 export function isPlatformAdminEmail(email: string | null | undefined) {
   return email?.trim().toLowerCase() === platformAdminEmail;
+}
+
+export function isPlatformAdmin(profile: Partial<Pick<User, "email" | "role" | "approved" | "status">> | null | undefined) {
+  if (!profile) return false;
+  return isPlatformAdminEmail(profile.email)
+    || (
+      (profile.role === "admin" || profile.role === "systemAdmin" || profile.role === "softwareAdmin")
+      && profile.approved === true
+      && profile.status === "active"
+    );
+}
+
+export function canSwitchStore(profile: Partial<Pick<User, "email" | "role" | "approved" | "status">> | null | undefined) {
+  return isPlatformAdmin(profile);
+}
+
+export function canManageAnyStore(profile: Partial<Pick<User, "email" | "role" | "approved" | "status">> | null | undefined) {
+  return isPlatformAdmin(profile);
+}
+
+export function canAccessStore(profile: User | null | undefined, storeId: string) {
+  return Boolean(storeId && (isPlatformAdmin(profile) || storeRoleFor(profile, storeId)));
+}
+
+export function canManageMenu(profile: User | null | undefined, storeId: string) {
+  const role = storeRoleFor(profile, storeId);
+  return Boolean(storeId && (isPlatformAdmin(profile) || role === "owner" || role === "manager"));
+}
+
+export function canViewReports(profile: User | null | undefined, storeId: string) {
+  const role = storeRoleFor(profile, storeId);
+  return Boolean(storeId && (isPlatformAdmin(profile) || role === "owner" || role === "manager" || role === "viewer"));
 }
 
 export const ROLE_DISPLAY_NAMES: Record<string, string> = {

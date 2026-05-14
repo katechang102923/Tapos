@@ -54,7 +54,7 @@ service cloud.firestore {
           request.auth.token.email == "ciut0000@gmail.com"
           || (
             hasUserDoc()
-            && userDoc().data.role == "admin"
+            && userDoc().data.role in ["admin", "systemAdmin", "softwareAdmin"]
             && userDoc().data.approved == true
             && userDoc().data.status == "active"
           )
@@ -62,7 +62,7 @@ service cloud.firestore {
     }
 
     function isOwner(storeId) {
-      return signedIn() && approved() && ((userStoreId() == storeId && role() in ["merchant", "owner"]) || membershipRole(storeId) == "owner");
+      return signedIn() && approved() && membershipRole(storeId) == "owner";
     }
 
     function ownsStoreDoc(storeId) {
@@ -80,7 +80,6 @@ service cloud.firestore {
         && (
           isAdmin()
           || membershipRole(storeId) in ["owner", "manager", "staff"]
-          || (approved() && userStoreId() == storeId && role() in ["merchant", "kitchen", "owner", "manager", "staff"])
         );
     }
 
@@ -97,8 +96,7 @@ service cloud.firestore {
 
     function canWriteCashFlow(storeId) {
       return isAdmin()
-        || membershipRole(storeId) in ["owner", "manager", "staff"]
-        || (approved() && userStoreId() == storeId && role() in ["merchant", "owner"]);
+        || membershipRole(storeId) in ["owner", "manager", "staff"];
     }
 
     function validOrderStatusUpdate() {
@@ -289,14 +287,12 @@ service cloud.firestore {
 
     function canManageMembers(storeId) {
       return isAdmin()
-        || membershipRole(storeId) in ["owner", "manager"]
-        || (approved() && userStoreId() == storeId && role() in ["merchant", "owner"]);
+        || membershipRole(storeId) in ["owner", "manager"];
     }
 
     function canLookupMembers(storeId) {
       return isAdmin()
-        || membershipRole(storeId) in ["owner", "manager", "staff"]
-        || (approved() && userStoreId() == storeId && role() in ["merchant", "owner"]);
+        || membershipRole(storeId) in ["owner", "manager", "staff"];
     }
 
     function storeHasMemberEnabled(storeId) {
@@ -314,14 +310,19 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin() || resource.data.email == request.auth.token.email);
       allow create: if validOwnerUserCreate(userId) || isAdmin();
-      allow update: if isAdmin();
+      allow update: if isAdmin() || validOwnProfileUpdate(userId);
       allow delete: if isAdmin();
     }
 
     match /stores/{storeId} {
       allow get: if true;
       allow list: if isAdmin();
-      allow create: if isAdmin();
+      allow create: if isAdmin()
+        || (
+          signedIn()
+          && request.resource.data.ownerId == request.auth.uid
+          && request.resource.data.name is string
+        );
       // owners/managers can update store fields, but NOT the features block (e.g. kdsEnabled)
       allow update: if isAdmin()
         || (canManageStore(storeId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["features"]));
@@ -366,12 +367,16 @@ service cloud.firestore {
         || canViewStoreData(storeId)
         || (resource.data.storeId is string && resource.data.options is list && resource.data.options.size() > 0);
       allow create, update, delete: if isAdmin()
-        || (approved() && userStoreId() == storeId && role() in ["merchant", "owner", "manager", "staff"])
         || membershipRole(storeId) in ["owner", "manager", "staff"];
     }
 
     match /stores/{storeId}/settings/memberRules {
       allow read: if true;
+      allow create, update, delete: if isAdmin() || membershipRole(storeId) in ["owner", "manager"];
+    }
+
+    match /stores/{storeId}/settings/{settingId} {
+      allow read: if isAdmin() || canViewStoreData(storeId);
       allow create, update, delete: if isAdmin() || membershipRole(storeId) in ["owner", "manager"];
     }
 
@@ -467,7 +472,7 @@ service cloud.firestore {
       // so we enforce this in frontend queries and backend admin checks.
       // - Admin can list all orders
       // - Staff/Owner/Viewer must have canViewStoreData permission (enforced via scoped queries in client code)
-      allow list: if signedIn();
+      allow list: if isAdmin();
       allow create: if validQrOrderCreate() || validPosOrderCreate() || isAdmin();
       allow update: if isAdmin() || (canHandleOrders(resource.data.storeId) && validOrderStatusUpdate());
       allow delete: if isAdmin();
@@ -477,12 +482,10 @@ service cloud.firestore {
       allow read: if isAdmin()
         || (resource.data.storeId is string && (
           membershipRole(resource.data.storeId) in ["owner", "manager", "viewer"]
-          || (approved() && userStoreId() == resource.data.storeId && role() in ["merchant", "owner"])
         ));
       allow create, update: if isAdmin()
         || (request.resource.data.storeId is string && (
           membershipRole(request.resource.data.storeId) in ["owner", "manager"]
-          || (approved() && userStoreId() == request.resource.data.storeId && role() in ["merchant", "owner"])
         ));
       allow delete: if isAdmin();
     }
@@ -504,11 +507,13 @@ service cloud.firestore {
     }
 
     match /storeUserBindings/{bindingId} {
-      allow read, create, update, delete: if isAdmin();
+      allow read: if isAdmin() || (signedIn() && resource.data.email == request.auth.token.email);
+      allow create, update, delete: if isAdmin();
     }
 
     match /storeUsers/{bindingId} {
-      allow read, create, update, delete: if isAdmin();
+      allow read: if isAdmin() || (signedIn() && resource.data.email == request.auth.token.email);
+      allow create, update, delete: if isAdmin();
     }
 
     match /platformNotifications/{notifId} {
@@ -521,8 +526,22 @@ service cloud.firestore {
         && request.resource.data.phone is string
         && request.resource.data.read == false;
       // Only the platform admin can read, update (mark-read), or delete
-      allow read, update, delete: if signedIn()
-        && request.auth.token.email == "ciut0000@gmail.com";
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /storeApplications/{applicationId} {
+      allow create: if signedIn()
+        && request.resource.data.type == "store_registration"
+        && request.resource.data.status in ["pending", "new"]
+        && request.resource.data.email is string
+        && request.resource.data.storeId is string
+        && request.resource.data.storeName is string
+        && request.resource.data.contactName is string
+        && request.resource.data.phone is string
+        && request.resource.data.businessType is string
+        && request.resource.data.createdAt is string
+        && request.resource.data.updatedAt is string;
+      allow read, update, delete: if isAdmin();
     }
 
     match /customers/{customerId} {

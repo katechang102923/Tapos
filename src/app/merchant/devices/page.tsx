@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, Cpu, Plus, Printer, Save, Tags, Trash2 } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
@@ -133,6 +133,9 @@ function MerchantDevicesContent({ profile }: { profile: User | null }) {
   const storeIds = accessibleStoreIds(profile);
   const [selectedStoreId, setSelectedStoreId] = useState(defaultStoreId(profile));
   const activeStoreId = storeIds.includes(selectedStoreId) ? selectedStoreId : storeIds[0] ?? "";
+  useEffect(() => {
+    if (storeIds.length > 0 && selectedStoreId !== activeStoreId) setSelectedStoreId(activeStoreId);
+  }, [activeStoreId, selectedStoreId, storeIds]);
   const { db, deleteDevice, upsertDevice } = useDemoStore({ storeId: activeStoreId, skipOrderList: true });
   const [editingDevice, setEditingDevice] = useState<Device>(() => blankDevice(activeStoreId));
   const [message, setMessage] = useState("");

@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Contact, Plus, Search, X } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
@@ -20,16 +20,20 @@ export default function MerchantCustomersPage() {
 function CustomersShell({ profile }: { profile: User | null }) {
   const storeIds = accessibleStoreIds(profile);
   const [selectedStoreId, setSelectedStoreId] = useState(defaultStoreId(profile));
-  const { db, createCustomer, updateCustomer, adjustCustomerPoints, adjustStoredValue } = useDemoStore({ storeId: selectedStoreId, loadCustomers: true });
+  const activeStoreId = storeIds.includes(selectedStoreId) ? selectedStoreId : storeIds[0] ?? "";
+  useEffect(() => {
+    if (storeIds.length > 0 && selectedStoreId !== activeStoreId) setSelectedStoreId(activeStoreId);
+  }, [activeStoreId, selectedStoreId, storeIds]);
+  const { db, createCustomer, updateCustomer, adjustCustomerPoints, adjustStoredValue } = useDemoStore({ storeId: activeStoreId, loadCustomers: true });
 
-  const store = db.stores.find((s) => s.id === selectedStoreId);
-  const permissions = resolvePermissions(profile, selectedStoreId);
+  const store = db.stores.find((s) => s.id === activeStoreId);
+  const permissions = resolvePermissions(profile, activeStoreId);
   const isAdmin = profile?.role === "admin";
 
   // Always call hooks before any early returns
-  const customers = useMemo(() => (db.customers ?? []).filter((c) => c.storeId === selectedStoreId).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [db.customers, selectedStoreId]);
-  const pointLogs = useMemo(() => (db.pointLogs ?? []).filter((l) => l.storeId === selectedStoreId), [db.pointLogs, selectedStoreId]);
-  const storedValueLogs = useMemo(() => (db.storedValueLogs ?? []).filter((l) => l.storeId === selectedStoreId), [db.storedValueLogs, selectedStoreId]);
+  const customers = useMemo(() => (db.customers ?? []).filter((c) => c.storeId === activeStoreId).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [db.customers, activeStoreId]);
+  const pointLogs = useMemo(() => (db.pointLogs ?? []).filter((l) => l.storeId === activeStoreId), [db.pointLogs, activeStoreId]);
+  const storedValueLogs = useMemo(() => (db.storedValueLogs ?? []).filter((l) => l.storeId === activeStoreId), [db.storedValueLogs, activeStoreId]);
   const memberStoredValueEnabled = store?.features?.memberStoredValueEnabled ?? false;
 
   if (!store?.features?.memberEnabled && !isAdmin) {
@@ -57,7 +61,7 @@ function CustomersShell({ profile }: { profile: User | null }) {
 
   return (
     <CustomersContent
-      storeId={selectedStoreId}
+      storeId={activeStoreId}
       storeIds={storeIds}
       db={db}
       profile={profile}
