@@ -4,7 +4,7 @@ export type StoreOrderStatus = "open" | "paused" | "closed";
 export type StoreMemberRole = "owner" | "manager" | "staff" | "viewer";
 export type SubscriptionStatus = "trial" | "active" | "expired" | "suspended";
 export type AccessStatus = "active" | "expired" | "suspended";
-export type UserRole = "user" | "merchant" | "kitchen" | "admin" | StoreMemberRole;
+export type UserRole = "user" | "merchant" | "kitchen" | "admin" | "systemAdmin" | "softwareAdmin" | StoreMemberRole;
 export type StoreType = "breakfast" | "drink" | "snack" | "hotpot";
 export type BusinessType = "breakfast" | "drink" | "snack" | "restaurant" | "other";
 export type DiscountType = "none" | "percent" | "amount" | "specialPrice";
@@ -272,6 +272,9 @@ export type ProductOptionChoice = {
   optionName?: string;
   priceDelta: number;
   isAvailable: boolean;
+  sortOrder?: number;
+  linkedGroupId?: string | null;
+  sharedGroupId?: string | null;
   children?: ProductOptionGroup[];
   nextGroupIds?: string[];
   /** IDs of shared option groups (from the sharedOptionGroups collection) shown when this choice is selected. */
@@ -285,6 +288,11 @@ export type ProductOptionGroup = {
   required: boolean;
   minSelect: number;
   maxSelect: number;
+  type?: "single" | "multiple";
+  sortOrder?: number;
+  linkedGroupId?: string | null;
+  sharedGroupId?: string | null;
+  children?: ProductOptionGroup[];
   options: ProductOptionChoice[];
 };
 
@@ -339,16 +347,19 @@ export type Product = {
   id: string;
   storeId: string;
   categoryId: string;
+  categoryName?: string;
   name: string;
   description: string;
   imageUrl: string;
   originalPrice?: number;
+  cost?: number;
   price: number;
   discountType?: DiscountType;
   discountValue?: number;
   isAvailable: boolean;
   isSoldOut: boolean;
   sort: number;
+  sortOrder?: number;
   options?: ProductOption[];
   optionGroups?: ProductOptionGroup[];
 };
@@ -611,6 +622,7 @@ export type Promotion = {
 export type PlatformNotification = {
   id: string;
   type: "store_registration";
+  applicationId?: string;
   email: string;
   storeId: string;
   storeName: string;
@@ -619,7 +631,25 @@ export type PlatformNotification = {
   address: string;
   businessType: BusinessType;
   createdAt: string;
+  updatedAt?: string;
   read: boolean;
+  status?: "new" | "pending" | "approved" | "rejected" | "bound";
+};
+
+export type StoreApplication = {
+  id: string;
+  type: "store_registration";
+  status: "new" | "pending" | "approved" | "rejected" | "bound";
+  email: string;
+  uid?: string;
+  storeId: string;
+  storeName: string;
+  contactName: string;
+  phone: string;
+  address: string;
+  businessType: BusinessType;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type DemoDatabase = {
@@ -641,6 +671,7 @@ export type DemoDatabase = {
   dailyReports?: DailyReport[];
   promotions?: Promotion[];
   platformNotifications?: PlatformNotification[];
+  storeApplications?: StoreApplication[];
   customers?: Customer[];
   pointLogs?: PointLog[];
   storedValueLogs?: StoredValueLog[];
