@@ -14,6 +14,7 @@ import {
   Search,
   Settings,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { ProductEditorDialog } from "@/components/merchant/product-editor-dialog";
@@ -107,7 +108,7 @@ function MerchantMenuWorkspace({
   stores?: Array<{ id: string; name: string }>;
   onStoreChange?: (storeId: string) => void;
 }) {
-  const { db, deleteProduct, upsertCategory, upsertProduct } = useDemoStore({ storeId, skipOrderList: true });
+  const { db, deleteCategory, deleteProduct, upsertCategory, upsertProduct } = useDemoStore({ storeId, skipOrderList: true });
   const [selectedCategoryId, setSelectedCategoryId] = useState("all");
   const [categoryName, setCategoryName] = useState("");
   const [query, setQuery] = useState("");
@@ -121,7 +122,8 @@ function MerchantMenuWorkspace({
 
   const store = db.stores.find((item) => item.id === storeId);
   const storeDisplayName = store?.name || stores.find((item) => item.id === storeId)?.name || "未命名店家";
-  const categories = db.categories.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
+  const rawCategories = db.categories.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
+  const categories = useMemo(() => dedupeCategories(rawCategories), [rawCategories]);
   const firstCategoryId = categories[0]?.id || "";
   const products = db.products.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
   const sharedGroups = useMemo(
@@ -202,9 +204,28 @@ function MerchantMenuWorkspace({
   }
 
   function addCategory() {
-    if (!categoryName.trim()) return;
-    upsertCategory({ id: "", storeId, name: categoryName.trim(), sort: categories.length + 1, isActive: true });
+    const name = categoryName.trim();
+    if (!name) return;
+    const exists = categories.some((category) => normalizeCategoryName(category.name) === normalizeCategoryName(name));
+    if (exists) {
+      setCategoryName("");
+      return;
+    }
+    upsertCategory({ id: "", storeId, name, sort: categories.length + 1, isActive: true });
     setCategoryName("");
+  }
+
+  async function removeCategory(category: Category) {
+    if (!window.confirm(`確定刪除分類「${category.name}」？此分類商品會移到未分類。`)) return;
+    try {
+      await deleteCategory(category.id, storeId);
+      if (selectedCategoryId === category.id) {
+        setSelectedCategoryId("all");
+      }
+    } catch (error) {
+      console.error("[merchant/menu] deleteCategory failed", error);
+      window.alert(`刪除分類失敗：${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   function selectCategory(categoryId: string) {
@@ -489,23 +510,24 @@ function MerchantMenuWorkspace({
     if (!window.confirm(`匯入「${menuTemplateLabel(templateType)}」會新增一批商品，不會刪除原有商品。是否繼續？`)) return;
     try {
       const templateProducts = buildMenuTemplateProducts(storeId, templateType, products.length + 1);
-      const categoryByName = new Map(categories.map((category) => [category.name, category]));
+      const categoryByName = new Map(categories.map((category) => [normalizeCategoryName(category.name), category]));
       const categoryIds = new Map<string, string>();
       let nextCategorySort = categories.length + 1;
       for (const product of templateProducts) {
-        const name = product.categoryName || "未分類";
-        const existing = categoryByName.get(name);
+        const name = (product.categoryName || "未分類").trim();
+        const existing = categoryByName.get(normalizeCategoryName(name));
         const categoryId = existing?.id || `cat-${storeId}-${templateType}-${name}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
         categoryIds.set(name, categoryId);
         if (!existing) {
           await upsertCategory({ id: categoryId, storeId, name, sort: nextCategorySort, isActive: true });
+          categoryByName.set(normalizeCategoryName(name), { id: categoryId, storeId, name, sort: nextCategorySort, isActive: true });
           nextCategorySort += 1;
         }
       }
       await Promise.all(templateProducts.map((product) => upsertProduct({
         ...product,
         storeId,
-        categoryId: categoryIds.get(product.categoryName || "未分類") || categories[0]?.id || "",
+        categoryId: categoryIds.get((product.categoryName || "未分類").trim()) || categories[0]?.id || "",
         sort: product.sort || products.length + 1,
         sortOrder: product.sortOrder ?? product.sort ?? 0,
         isAvailable: true,
@@ -520,7 +542,7 @@ function MerchantMenuWorkspace({
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="bg-fuchsia-600 px-4 py-2 text-center text-lg font-black text-white">
+      <div className="pointer-events-none fixed bottom-3 right-3 z-[80] rounded-full bg-fuchsia-600/60 px-3 py-1 text-[11px] font-black text-white shadow-sm">
         DEBUG MENU PAGE v20260515
       </div>
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-slate-100/90 px-4 py-3 backdrop-blur">
@@ -564,7 +586,14 @@ function MerchantMenuWorkspace({
             <div className="mt-4 grid gap-1.5">
               <CategoryButton active={selectedCategoryId === "all"} label="全部商品" count={products.length} onClick={() => selectCategory("all")} />
               {categories.map((category) => (
-                <CategoryButton key={category.id} active={selectedCategoryId === category.id} label={category.name} count={products.filter((product) => productMatchesCategory(product, category.id, categoryById)).length} onClick={() => selectCategory(category.id)} />
+                <CategoryButton
+                  key={category.id}
+                  active={selectedCategoryId === category.id}
+                  label={category.name}
+                  count={products.filter((product) => productMatchesCategory(product, category.id, categoryById)).length}
+                  onClick={() => selectCategory(category.id)}
+                  onDelete={() => removeCategory(category)}
+                />
               ))}
             </div>
             <div className="mt-4 flex gap-2">
@@ -708,22 +737,54 @@ function MerchantMenuWorkspace({
   );
 }
 
-function CategoryButton({ active, label, count, disabled, onClick }: { active: boolean; label: string; count: number; disabled?: boolean; onClick: () => void }) {
+function CategoryButton({ active, label, count, disabled, onClick, onDelete }: { active: boolean; label: string; count: number; disabled?: boolean; onClick: () => void; onDelete?: () => void }) {
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={`flex items-center justify-between rounded-xl px-3 py-2 text-left text-sm font-black transition disabled:opacity-45 ${active ? "bg-slate-900 text-white shadow-sm" : "bg-slate-50 text-slate-600 hover:bg-slate-100"}`}
-    >
-      <span className="truncate">{label}</span>
-      <span className={`rounded-full px-2 py-0.5 text-xs ${active ? "bg-white/15 text-white" : "bg-white text-slate-500"}`}>{count}</span>
-    </button>
+    <div className={`flex items-center gap-1 rounded-xl transition ${active ? "bg-slate-900 text-white shadow-sm" : "bg-slate-50 text-slate-600 hover:bg-slate-100"}`}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
+        className="flex min-w-0 flex-1 items-center justify-between px-3 py-2 text-left text-sm font-black disabled:opacity-45"
+      >
+        <span className="truncate">{label}</span>
+        <span className={`rounded-full px-2 py-0.5 text-xs ${active ? "bg-white/15 text-white" : "bg-white text-slate-500"}`}>{count}</span>
+      </button>
+      {onDelete && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+          className={`mr-1 grid size-8 place-items-center rounded-lg transition ${active ? "text-white/80 hover:bg-white/10 hover:text-white" : "text-slate-400 hover:bg-red-50 hover:text-tomato"}`}
+          title={`刪除分類 ${label}`}
+        >
+          <Trash2 className="size-4" />
+        </button>
+      )}
+    </div>
   );
 }
 
-function normalizeCategoryKey(value?: string) {
+function normalizeCategoryName(value?: string) {
   return (value ?? "").trim().toLowerCase();
+}
+
+function dedupeCategories(categories: Category[]) {
+  const byName = new Map<string, Category>();
+  categories.forEach((category) => {
+    const key = normalizeCategoryName(category.name);
+    if (!key) return;
+    const existing = byName.get(key);
+    if (!existing || category.sort < existing.sort) {
+      byName.set(key, category);
+    }
+  });
+  return [...byName.values()].sort((a, b) => a.sort - b.sort);
+}
+
+function normalizeCategoryKey(value?: string) {
+  return normalizeCategoryName(value);
 }
 
 function productMatchesCategory(product: Product, categoryId: string, categoryById: Map<string, Category>) {

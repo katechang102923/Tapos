@@ -793,6 +793,32 @@ export function useDemoStore(options: StoreOptions = {}) {
     });
   }
 
+  async function deleteCategory(categoryId: string, targetStoreId = storeId): Promise<void> {
+    if (useFirestore && firestore) {
+      const productsSnap = await getDocs(query(collection(firestore, "products"), where("storeId", "==", targetStoreId), where("categoryId", "==", categoryId)));
+      const batch = writeBatch(firestore);
+      productsSnap.docs.forEach((productDoc) => {
+        batch.update(productDoc.ref, { categoryId: "", categoryName: "未分類" });
+      });
+      batch.delete(doc(firestore, "categories", categoryId));
+      await batch.commit();
+      return;
+    }
+    setDb((current) => {
+      const next = {
+        ...current,
+        categories: current.categories.filter((category) => category.id !== categoryId),
+        products: current.products.map((product) => (
+          product.storeId === targetStoreId && product.categoryId === categoryId
+            ? { ...product, categoryId: "", categoryName: "未分類" }
+            : product
+        ))
+      };
+      saveLocalData(next);
+      return next;
+    });
+  }
+
   async function upsertStore(store: Store) {
     if (useFirestore && firestore) {
       const id = store.id || doc(collection(firestore, "stores")).id;
@@ -1747,6 +1773,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     upsertCashFlowItem,
     upsertPromotion,
     deletePromotion,
+    deleteCategory,
     deleteProduct,
     deleteStoreCascade,
     resetDemo,
