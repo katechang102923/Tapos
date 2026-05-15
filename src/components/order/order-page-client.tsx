@@ -7,7 +7,7 @@ import { CheckCircle2, ChevronLeft, Megaphone, Minus, Plus, Search, Send, Shoppi
 import { ProductOptionModal } from "@/components/product-option-modal";
 import { useDemoStore } from "@/lib/demo-store";
 import { firebaseEnabled, firestore } from "@/lib/firebase";
-import { discountLabel, productFinalPrice } from "@/lib/pricing";
+import { discountLabel, productFinalPrice, productIsAvailable } from "@/lib/pricing";
 import { selectionsTotal } from "@/lib/product-options";
 import { calculatePromotions } from "@/lib/promotions";
 import { businessOrderBlockReason } from "@/lib/business-hours";
@@ -128,6 +128,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
   const categories = db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort);
   const products = db.products
     .filter((item) => item.storeId === storeId)
+    .filter((item) => productIsAvailable(item))
     .filter((item) => activeCategory === "all" || item.categoryId === activeCategory)
     .filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(query.trim().toLowerCase()))
     .sort((a, b) => a.sort - b.sort);
@@ -166,7 +167,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
   }, [lastOrderId, storeId]);
 
   function addToCart(product: Product) {
-    if (!store?.isOpen || product.isSoldOut || !product.isAvailable) return;
+    if (!store?.isOpen || !productIsAvailable(product)) return;
     setChoosingProduct(product);
   }
 
@@ -526,7 +527,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
               </div>
             ) : (
               products.map((product) => {
-                const disabled = !store.isOpen || !product.isAvailable || product.isSoldOut;
+                const disabled = !store.isOpen || !productIsAvailable(product);
                 return (
                   <article key={product.id} className={`overflow-hidden rounded-lg border bg-white shadow-sm transition ${disabled ? "border-stone-200 opacity-60 grayscale" : "border-orange-100"}`}>
                     <div className="relative">

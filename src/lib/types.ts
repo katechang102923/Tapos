@@ -193,8 +193,12 @@ export type Store = {
   bannerUrl?: string;
   phone?: string;
   address?: string;
+  addressCity?: string;
+  addressDistrict?: string;
+  addressDetail?: string;
   businessHours?: string;
   businessSchedule?: Partial<BusinessSchedule>;
+  closedDates?: string[];
   temporaryClosed?: boolean;
   temporaryPaused?: boolean;
   allowPosOutsideBusinessHours?: boolean;
@@ -375,6 +379,17 @@ export type Product = {
   sortOrder?: number;
   options?: ProductOption[];
   optionGroups?: ProductOptionGroup[];
+  scheduledChanges?: ProductScheduledChange[];
+};
+
+export type ProductScheduledChange = {
+  id: string;
+  effectiveAt: string;
+  price?: number;
+  cost?: number;
+  isActive?: boolean;
+  note?: string;
+  createdAt?: string;
 };
 
 export type OrderItemOption = {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { ChevronDown, ChevronRight, Link2, Plus, Search, X } from "lucide-react";
-import type { Category, Product, ProductOptionChoice, ProductOptionGroup, SharedOptionGroup } from "@/lib/types";
+import type { Category, Product, ProductOptionChoice, ProductOptionGroup, ProductScheduledChange, SharedOptionGroup } from "@/lib/types";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 
 type ProductEditorDialogProps = {
@@ -54,6 +54,7 @@ export function ProductEditorDialog({
   const [sharedPickerOpen, setSharedPickerOpen] = useState(false);
   const [sharedSearch, setSharedSearch] = useState("");
   const [selectedSharedIds, setSelectedSharedIds] = useState<string[]>([]);
+  const scheduledChanges = editingProduct.scheduledChanges ?? [];
 
   const sharedRefs = optionGroups.filter((group) => isSharedGroupRef(group));
   const appliedSharedIds = useMemo(() => new Set(sharedRefs.map((group) => sharedRefId(group))), [sharedRefs]);
@@ -71,6 +72,37 @@ export function ProductEditorDialog({
     );
   }, [editingProduct, form.optionGroups]);
 
+  function addScheduledChange() {
+    const now = new Date().toISOString();
+    const next: ProductScheduledChange = {
+      id: newClientId("scheduled"),
+      effectiveAt: datetimeLocalToTaipeiIso(defaultNextMonthDatetimeLocal()),
+      price: Number(editingProduct.price ?? 0),
+      cost: Number(editingProduct.cost ?? editingProduct.originalPrice ?? 0),
+      isActive: editingProduct.isAvailable ?? true,
+      note: "",
+      createdAt: now
+    };
+    setEditingProduct((current) => ({
+      ...current,
+      scheduledChanges: [...(current.scheduledChanges ?? []), next]
+    }));
+  }
+
+  function updateScheduledChange(changeId: string, patch: Partial<ProductScheduledChange>) {
+    setEditingProduct((current) => ({
+      ...current,
+      scheduledChanges: (current.scheduledChanges ?? []).map((change) => change.id === changeId ? { ...change, ...patch } : change)
+    }));
+  }
+
+  function removeScheduledChange(changeId: string) {
+    setEditingProduct((current) => ({
+      ...current,
+      scheduledChanges: (current.scheduledChanges ?? []).filter((change) => change.id !== changeId)
+    }));
+  }
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/45 p-3 sm:p-5">
       <section className="mx-auto flex min-h-[calc(100vh-24px)] w-full max-w-7xl flex-col overflow-hidden rounded-lg bg-[#fff7e8] shadow-2xl sm:min-h-[calc(100vh-40px)]">
@@ -84,7 +116,6 @@ export function ProductEditorDialog({
             ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-lg bg-fuchsia-600 px-3 py-2 text-sm font-black text-white">DEBUG PRODUCT EDITOR v20260515</span>
             <button type="button" onClick={() => setProductEditorOpen(false)} className="rounded-lg border border-orange-200 bg-white px-4 py-3 font-black text-steel">關閉</button>
             {!isNewProduct && <button type="button" onClick={removeEditingProduct} className="rounded-lg bg-tomato px-4 py-3 font-black text-white">刪除商品</button>}
             <button type="button" onClick={saveProduct} className="rounded-lg bg-ink px-5 py-3 font-black text-white">儲存商品</button>
@@ -120,6 +151,7 @@ export function ProductEditorDialog({
                   折扣後價格：<span className="text-tomato">${productFinalPrice(editingProduct)}</span>
                   {discountLabel(editingProduct.discountType, editingProduct.discountValue) && <span className="ml-2 text-tomato">{discountLabel(editingProduct.discountType, editingProduct.discountValue)}</span>}
                 </div>
+                <LabeledInput label="成本價" type="number" value={String(editingProduct.cost ?? 0)} onChange={(value) => setEditingProduct((current) => ({ ...current, cost: Number(value) }))} />
                 <label className="grid gap-1 text-sm font-black text-steel">
                   商品分類
                   <select value={editingProduct.categoryId} onChange={(event) => setEditingProduct((current) => ({ ...current, categoryId: event.target.value }))} className="rounded-lg border border-orange-100 px-3 py-3 font-bold text-ink">
@@ -133,6 +165,76 @@ export function ProductEditorDialog({
                 <div className="sm:col-span-2">
                   <LabeledInput label="商品圖片網址" value={editingProduct.imageUrl} onChange={(value) => setEditingProduct((current) => ({ ...current, imageUrl: value }))} />
                 </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-xl font-black text-ink">預約修改</h3>
+                  <p className="mt-1 text-sm font-bold text-steel">可先設定未來生效的售價、成本與上下架狀態。POS 與 QR 會依時間自動套用已生效的最新一筆。</p>
+                </div>
+                <button type="button" onClick={addScheduledChange} className="rounded-lg bg-ink px-4 py-3 font-black text-white">新增預約修改</button>
+              </div>
+              <div className="mt-4 grid gap-3">
+                {scheduledChanges.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-orange-200 bg-orange-50 p-4 text-sm font-bold text-steel">尚未設定預約修改</div>
+                ) : scheduledChanges
+                  .slice()
+                  .sort((a, b) => Date.parse(a.effectiveAt) - Date.parse(b.effectiveAt))
+                  .map((change) => {
+                    const effective = Date.parse(change.effectiveAt) <= Date.now();
+                    return (
+                      <div key={change.id} className="rounded-lg border border-orange-100 bg-orange-50 p-3">
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          <span className={`rounded-full px-3 py-1 text-xs font-black ${effective ? "bg-leaf text-white" : "bg-white text-steel"}`}>{effective ? "已生效" : "尚未生效"}</span>
+                          <button type="button" onClick={() => removeScheduledChange(change.id)} className="rounded-lg bg-red-50 px-3 py-2 text-xs font-black text-tomato">刪除</button>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="grid gap-1 text-sm font-black text-steel">
+                            生效日期/時間
+                            <input
+                              type="datetime-local"
+                              value={isoToDatetimeLocal(change.effectiveAt)}
+                              onChange={(event) => updateScheduledChange(change.id, { effectiveAt: datetimeLocalToTaipeiIso(event.target.value) })}
+                              className="rounded-lg border border-orange-100 bg-white px-3 py-3 font-bold text-ink"
+                            />
+                          </label>
+                          <label className="grid gap-1 text-sm font-black text-steel">
+                            新售價
+                            <input
+                              type="number"
+                              value={change.price ?? ""}
+                              onChange={(event) => updateScheduledChange(change.id, { price: numberOrUndefined(event.target.value) })}
+                              className="rounded-lg border border-orange-100 bg-white px-3 py-3 font-bold text-ink"
+                            />
+                          </label>
+                          <label className="grid gap-1 text-sm font-black text-steel">
+                            新成本價
+                            <input
+                              type="number"
+                              value={change.cost ?? ""}
+                              onChange={(event) => updateScheduledChange(change.id, { cost: numberOrUndefined(event.target.value) })}
+                              className="rounded-lg border border-orange-100 bg-white px-3 py-3 font-bold text-ink"
+                            />
+                          </label>
+                          <label className="flex items-center justify-between rounded-lg border border-orange-100 bg-white px-3 py-3 text-sm font-black text-steel">
+                            生效後上架
+                            <input type="checkbox" checked={change.isActive ?? true} onChange={(event) => updateScheduledChange(change.id, { isActive: event.target.checked })} className="size-5" />
+                          </label>
+                          <label className="grid gap-1 text-sm font-black text-steel sm:col-span-2">
+                            備註
+                            <input
+                              value={change.note ?? ""}
+                              onChange={(event) => updateScheduledChange(change.id, { note: event.target.value })}
+                              placeholder="例如 6/1 起漲價"
+                              className="rounded-lg border border-orange-100 bg-white px-3 py-3 font-bold text-ink"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
 
@@ -566,4 +668,46 @@ function LabeledInput({ label, value, onChange, type = "text" }: { label: string
       <input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="rounded-lg border border-orange-100 px-3 py-3 font-bold text-ink" />
     </label>
   );
+}
+
+function newClientId(prefix: string) {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return `${prefix}-${crypto.randomUUID()}`;
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function defaultNextMonthDatetimeLocal() {
+  const next = new Date();
+  next.setMonth(next.getMonth() + 1);
+  next.setDate(1);
+  next.setHours(0, 0, 0, 0);
+  return toDatetimeLocal(next);
+}
+
+function toDatetimeLocal(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function isoToDatetimeLocal(value: string) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return value.slice(0, 16);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return toDatetimeLocal(parsed);
+}
+
+function datetimeLocalToTaipeiIso(value: string) {
+  if (!value) return "";
+  const normalized = value.length === 16 ? `${value}:00` : value;
+  return `${normalized}+08:00`;
+}
+
+function numberOrUndefined(value: string) {
+  if (value.trim() === "") return undefined;
+  const next = Number(value);
+  return Number.isFinite(next) ? next : undefined;
 }

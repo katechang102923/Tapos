@@ -32,6 +32,7 @@ const blankProduct: Product = {
   description: "",
   imageUrl: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=900&q=80",
   originalPrice: 70,
+  cost: 0,
   price: 60,
   discountType: "none",
   discountValue: 0,
@@ -39,7 +40,8 @@ const blankProduct: Product = {
   isSoldOut: false,
   sort: 99,
   options: [],
-  optionGroups: []
+  optionGroups: [],
+  scheduledChanges: []
 };
 
 const imagePresets = [
@@ -270,7 +272,8 @@ function MerchantMenuWorkspace({
     console.log("[editor] opening product", product.name, product.optionGroups);
     return {
       ...product,
-      optionGroups: product.optionGroups ?? []
+      optionGroups: product.optionGroups ?? [],
+      scheduledChanges: product.scheduledChanges ?? []
     };
   }
 
@@ -289,6 +292,7 @@ function MerchantMenuWorkspace({
       id: productId,
       storeId,
       price: Number(editingProduct.price),
+      cost: Number(editingProduct.cost ?? 0),
       originalPrice: Number(editingProduct.originalPrice || editingProduct.price),
       discountType: editingProduct.discountType ?? "none",
       discountValue: Number(editingProduct.discountValue ?? 0),
@@ -297,7 +301,15 @@ function MerchantMenuWorkspace({
       categoryId,
       categoryName: categoryById.get(categoryId)?.name ?? editingProduct.categoryName ?? "",
       options: editingProduct.options ?? [],
-      optionGroups: editingProduct.optionGroups ?? []
+      optionGroups: editingProduct.optionGroups ?? [],
+      scheduledChanges: (editingProduct.scheduledChanges ?? []).map((change) => ({
+        ...change,
+        price: typeof change.price === "number" ? change.price : undefined,
+        cost: typeof change.cost === "number" ? change.cost : undefined,
+        isActive: typeof change.isActive === "boolean" ? change.isActive : undefined,
+        note: change.note ?? "",
+        createdAt: change.createdAt ?? new Date().toISOString()
+      }))
     };
     if (process.env.NODE_ENV !== "production") {
       console.log("[editor] save payload", payload);
@@ -542,9 +554,6 @@ function MerchantMenuWorkspace({
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="pointer-events-none fixed bottom-3 right-3 z-[80] rounded-full bg-fuchsia-600/60 px-3 py-1 text-[11px] font-black text-white shadow-sm">
-        DEBUG MENU PAGE v20260515
-      </div>
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-slate-100/90 px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>

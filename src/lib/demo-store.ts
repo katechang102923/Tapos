@@ -117,6 +117,7 @@ function sanitizeProduct(product: Product): Product {
     sort: Number(product.sort ?? 0),
     sortOrder: Number(product.sortOrder ?? product.sort ?? 0),
     options: product.options ?? [],
+    scheduledChanges: product.scheduledChanges ?? [],
     optionGroups: (product.optionGroups ?? []).map((group) => ({
       ...sanitizeOptionGroup(group),
     }))
