@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { ChevronDown, ChevronRight, Link2, Plus, Search, X } from "lucide-react";
 import type { Category, Product, ProductOptionChoice, ProductOptionGroup, SharedOptionGroup } from "@/lib/types";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
@@ -48,20 +48,28 @@ export function ProductEditorDialog({
   saveState,
   saveMessage
 }: ProductEditorDialogProps) {
-  const optionGroups = editingProduct.optionGroups ?? [];
+  const form = useMemo(() => normalizeProductForm(editingProduct), [editingProduct]);
+  const optionGroups = form.optionGroups ?? [];
   const isNewProduct = editingProduct.id === "new-product";
   const [sharedPickerOpen, setSharedPickerOpen] = useState(false);
   const [sharedSearch, setSharedSearch] = useState("");
   const [selectedSharedIds, setSelectedSharedIds] = useState<string[]>([]);
 
   const sharedRefs = optionGroups.filter((group) => isSharedGroupRef(group));
-  const customGroups = optionGroups.filter((group) => !isSharedGroupRef(group));
   const appliedSharedIds = useMemo(() => new Set(sharedRefs.map((group) => sharedRefId(group))), [sharedRefs]);
   const filteredSharedGroups = sharedGroups.filter((group) => {
     const keyword = sharedSearch.trim().toLowerCase();
     if (!keyword) return true;
     return group.name.toLowerCase().includes(keyword) || (group.groupName ?? "").toLowerCase().includes(keyword);
   });
+
+  useEffect(() => {
+    console.log(
+      "[EDITOR OPTION GROUPS]",
+      editingProduct,
+      form.optionGroups
+    );
+  }, [editingProduct, form.optionGroups]);
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/45 p-3 sm:p-5">
@@ -204,12 +212,12 @@ export function ProductEditorDialog({
                     <button type="button" onClick={() => setSharedPickerOpen(true)} className="rounded-lg border border-leaf bg-white px-5 py-3 font-black text-leaf">套用調味群組</button>
                   </div>
                 </div>
-              ) : customGroups.map((group) => (
+              ) : optionGroups.map((group) => (
                 <OptionGroupEditor
                   key={group.id}
                   group={group}
                   depth={0}
-                  isShared={false}
+                  isShared={isSharedGroupRef(group)}
                   sharedGroups={sharedGroups}
                   addChildGroup={addChildGroup}
                   addGroupOption={addGroupOption}
@@ -285,6 +293,46 @@ function isSharedGroupRef(group: ProductOptionGroup) {
 
 function sharedRefId(group: ProductOptionGroup) {
   return group.groupId ?? group.sharedGroupId ?? group.id.replace(/^shared-/, "");
+}
+
+function normalizeProductForm(product: Product): Product {
+  return {
+    ...product,
+    optionGroups: normalizeOptionGroups(product.optionGroups)
+  };
+}
+
+function normalizeOptionGroups(value: Product["optionGroups"] | Record<string, ProductOptionGroup> | null | undefined): ProductOptionGroup[] {
+  if (!value) return [];
+  const groups = Array.isArray(value) ? value : Object.values(value);
+  return groups.map((group, index) => normalizeOptionGroup(group, index));
+}
+
+function normalizeOptionGroup(group: ProductOptionGroup, index: number): ProductOptionGroup {
+  const name = group.groupName ?? group.name ?? "未命名群組";
+  return {
+    ...group,
+    id: group.id || `group-${index}`,
+    name,
+    groupName: name,
+    required: group.required ?? false,
+    minSelect: group.minSelect ?? 0,
+    maxSelect: group.maxSelect ?? 1,
+    type: group.type ?? ((group.maxSelect ?? 1) > 1 ? "multiple" : "single"),
+    children: normalizeOptionGroups(group.children),
+    options: (group.options ?? []).map((option, optionIndex) => ({
+      ...option,
+      id: option.id || `option-${index}-${optionIndex}`,
+      name: option.optionName ?? option.name ?? "未命名選項",
+      optionName: option.optionName ?? option.name ?? "未命名選項",
+      priceDelta: Number(option.priceDelta ?? 0),
+      sortOrder: option.sortOrder ?? optionIndex,
+      isAvailable: option.isAvailable ?? true,
+      children: normalizeOptionGroups(option.children),
+      childGroupIds: option.childGroupIds ?? [],
+      nextGroupIds: option.nextGroupIds ?? []
+    }))
+  };
 }
 
 function AppliedSharedGroupCard({ groupRef, sharedGroup, canMoveUp, canMoveDown, onMove, onRemove }: {
