@@ -1,6 +1,13 @@
 export type OrderStatus = "pending" | "waiting" | "unprocessed" | "accepted" | "cooking" | "preparing" | "ready" | "completed" | "cancelled";
 export type OrderMode = "dine-in" | "takeout";
 export type StoreOrderStatus = "open" | "paused" | "closed";
+export type WeekdayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+export type BusinessDayHours = {
+  enabled: boolean;
+  start: string;
+  end: string;
+};
+export type BusinessSchedule = Record<WeekdayKey, BusinessDayHours>;
 export type StoreMemberRole = "owner" | "manager" | "staff" | "viewer";
 export type SubscriptionStatus = "trial" | "active" | "expired" | "suspended";
 export type AccessStatus = "active" | "expired" | "suspended";
@@ -187,6 +194,10 @@ export type Store = {
   phone?: string;
   address?: string;
   businessHours?: string;
+  businessSchedule?: Partial<BusinessSchedule>;
+  temporaryClosed?: boolean;
+  temporaryPaused?: boolean;
+  allowPosOutsideBusinessHours?: boolean;
   description?: string;
   dataRetentionMonths?: number | null; // default 6; null when mode is not "months"
   dataRetentionMode?: "months" | "customDate" | "neverExpire";

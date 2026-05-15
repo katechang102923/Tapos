@@ -27,8 +27,8 @@ type MerchantView = "dashboard" | "menu";
 
 const mainNav = [
   { href: "/merchant/pos", label: "點餐營運", description: "接單、現場單、今日銷售", icon: ShoppingCart },
-  { href: "/merchant/menu", label: "菜單管理", description: "分類、商品、套餐與共用群組庫", icon: MenuIcon },
-  { href: "/merchant/pos?panel=reports", label: "訂單與報表", description: "訂單紀錄、日報、現金流", icon: BarChart3 },
+  { href: "/merchant/menu", label: "菜單管理", description: "分類、商品、套餐與調味群組庫", icon: MenuIcon },
+  { href: "/merchant/reports", label: "日報與銷售狀況", description: "每日報表、銷售狀況、商品排行與日結紀錄", icon: BarChart3 },
   { href: "/merchant/customers", label: "會員與促銷", description: "會員、點數、活動券", icon: Users },
   { href: "/merchant/settings", label: "店家設定", description: "QR、營業、設備、權限", icon: Settings },
 ];
@@ -316,7 +316,7 @@ function DashboardOverview({
           <h2 className="text-xl font-black text-slate-950">後台設定建議</h2>
           <div className="mt-4 grid gap-2 text-sm font-bold text-slate-600">
             <p className="rounded-xl bg-slate-100 px-3 py-2">先建立分類與商品</p>
-            <p className="rounded-xl bg-slate-100 px-3 py-2">在商品內套用甜度、冰塊、加料等共用群組</p>
+            <p className="rounded-xl bg-slate-100 px-3 py-2">在商品內套用甜度、冰塊、加料等調味群組</p>
             <p className="rounded-xl bg-slate-100 px-3 py-2">產生外帶與桌號 QR Code</p>
             <p className="rounded-xl bg-slate-100 px-3 py-2">設定印單機與 KDS</p>
           </div>

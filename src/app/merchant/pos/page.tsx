@@ -16,11 +16,12 @@ import { calculatePromotions } from "@/lib/promotions";
 import { resolvePermissions } from "@/lib/permissions";
 import { defaultStoreId, isPlatformAdmin, selectorStoreIds, storeRoleFor } from "@/lib/store-access";
 import { checkStoreAccess, checkUserAccess } from "@/lib/subscription";
+import { businessOrderBlockReason } from "@/lib/business-hours";
 import type { CashFlow, CashFlowAmountMode, CashFlowItem, CashFlowType, Customer, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, StoreMemberRole, User } from "@/lib/types";
 
 type CartItemDiscount = { type: "amount" | "percent"; value: number } | null;
 type CartLine = { product: Product; quantity: number; note: string; selectedOptions: OrderItemOption[]; discount: CartItemDiscount };
-type PosPanel = "orders" | "report" | "cash" | "daily";
+type PosPanel = "orders";
 type CashForm = { itemId: string; amount: string; note: string };
 type CashItemForm = { name: string; type: CashFlowType; amountMode: CashFlowAmountMode; fixedAmount: string };
 
@@ -276,6 +277,11 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
       setOrderError("POS 現場單目前暫停建立");
       return;
     }
+    const businessBlockReason = businessOrderBlockReason(store, "pos");
+    if (businessBlockReason) {
+      setOrderError(businessBlockReason);
+      return;
+    }
     setIsSubmitting(true);
     try {
       const memberRules = boundMember ? await loadMemberRules(storeId) : null;
@@ -447,14 +453,22 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
         </header>
 
         <section className="mb-5 grid gap-3 md:grid-cols-4">
-          <PanelButton active={activePanel === "orders"} icon={ReceiptText} label="接單工作台" onClick={() => setActivePanel("orders")} />
-          <PanelButton active={activePanel === "report"} icon={BarChart3} label="每日報表" onClick={() => setActivePanel("report")} disabled={!canViewReport || !dailyReportFeature} />
-          <PanelButton active={activePanel === "cash"} icon={WalletCards} label="現金流" onClick={() => setActivePanel("cash")} disabled={(!canAddCashFlow && !canViewReport) || !cashFlowFeature} />
-          <PanelButton active={activePanel === "daily"} icon={FileText} label="日結" onClick={() => setActivePanel("daily")} disabled={!canViewReport || !dailyReportFeature} />
+          <PanelButton active={activePanel === "orders"} icon={ReceiptText} label="POS 點餐" onClick={() => setActivePanel("orders")} />
+          <QuickLinkButton href="/merchant/reports" icon={BarChart3} label="日報與銷售狀況" disabled={!canViewReport || !dailyReportFeature} />
+          <QuickLinkButton href="/merchant/reports#daily-close" icon={FileText} label="日結" disabled={!canViewReport || !dailyReportFeature} />
+          <QuickLinkButton href="/merchant/dashboard" icon={ArrowLeft} label="返回設定中心" />
         </section>
 
         {orderSuccess && <div className="mb-5 rounded-lg border border-leaf/30 bg-leaf/10 p-5 font-black text-leaf">{orderSuccess}</div>}
         {orderError && <div className="mb-5 rounded-lg border border-tomato/30 bg-tomato/10 p-5 font-black text-tomato">{orderError}</div>}
+
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-4 shadow-sm">
+          <div>
+            <p className="font-black text-ink">現金流入口</p>
+            <p className="text-sm font-bold text-steel">收入、支出與現金流項目管理獨立處理，不與報表頁混在一起。</p>
+          </div>
+          <QuickLinkButton href="/merchant/cashflow" icon={WalletCards} label="前往現金流" disabled={(!canAddCashFlow && !canViewReport) || !cashFlowFeature} />
+        </div>
 
         {activePanel === "orders" && (
           <>
@@ -468,9 +482,6 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
           </>
         )}
 
-        {activePanel === "report" && (canViewReport ? <DailySalesPanel averageOrderValue={averageOrderValue} cashExpense={cashExpense} cashIncome={cashIncome} cashNet={cashNet} cancelledCount={cancelledOrders.length} completedRevenue={completedRevenue} estimatedCashBalance={estimatedCashBalance} orderCount={todayOrders.length} ranking={ranking} totalRevenue={totalRevenue} /> : <PermissionNotice text="staff 可新增現金流，但不能查看完整每日報表。" />)}
-        {activePanel === "cash" && <CashFlowPanel addCashFlowItem={addCashFlowItem} canAddCashFlow={canAddCashFlow} canManageCashItems={canManageCashItems} cashError={cashError} cashFlows={todayCashFlows} cashForm={cashForm} cashItemForm={cashItemForm} cashItems={cashFlowItems} cashMessage={cashMessage} cashNet={cashNet} chooseCashItem={chooseCashItem} selectedCashItem={selectedCashItem} setCashForm={setCashForm} setCashItemForm={setCashItemForm} submitCashFlow={submitCashFlow} />}
-        {activePanel === "daily" && (canViewReport ? <DailyReportPanel storeId={storeId} storeName={store.name} todayOrders={todayOrders} todayCashFlows={todayCashFlows} userEmail={profile?.email} userRole={effectiveRole ?? undefined} storeFeatures={store.features} customers={db.customers} pointLogs={db.pointLogs} storedValueLogs={db.storedValueLogs} dataRetentionMonths={store.dataRetentionMonths ?? undefined} /> : <PermissionNotice text="日結功能僅限 owner、manager 以上角色。" />)}
       </div>
       {choosingProduct && <ProductOptionModal product={choosingProduct} sharedGroups={db.sharedOptionGroups} onClose={() => setChoosingProduct(null)} onConfirm={confirmProductOptions} />}
       {memberModalOpen && <MemberModal onClose={() => setMemberModalOpen(false)} onSubmit={createMember} />}
@@ -737,6 +748,11 @@ function MetricCard({ icon: Icon, label, value, tone = "text-ink" }: { icon: Rea
 
 function PanelButton({ active, disabled, icon: Icon, label, onClick }: { active: boolean; disabled?: boolean; icon: React.ElementType; label: string; onClick: () => void }) {
   return <button disabled={disabled} onClick={onClick} className={`inline-flex items-center justify-center gap-2 rounded-lg px-5 py-4 font-black shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${active ? "bg-ink text-white" : "bg-white text-ink"}`}><Icon className="size-5" />{label}</button>;
+}
+
+function QuickLinkButton({ disabled, href, icon: Icon, label }: { disabled?: boolean; href: string; icon: React.ElementType; label: string }) {
+  if (disabled) return <span className="inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-white px-5 py-4 font-black text-ink opacity-50 shadow-sm"><Icon className="size-5" />{label}</span>;
+  return <Link href={href} className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-5 py-4 font-black text-ink shadow-sm transition hover:-translate-y-0.5 hover:shadow-soft"><Icon className="size-5" />{label}</Link>;
 }
 
 function PermissionNotice({ text }: { text: string }) {

@@ -23,6 +23,7 @@ import { createDefaultMenu } from "./menu-templates";
 import { productFinalPrice } from "./pricing";
 import { legacySelections } from "./product-options";
 import { normalizeUserRole } from "./roles";
+import { businessOrderBlockReason } from "./business-hours";
 import type { AccessStatus, CashFlow, CashFlowItem, Category, Customer, DailyReport, DemoDatabase, Device, MemberCoupon, MemberRules, Order, OrderItem, OrderPayload, OrderStatus, PlatformNotification, PointLog, PointLogType, Product, ProductOptionGroup, Promotion, RewardCoupon, SharedOptionGroup, Store, StoreApplication, StoredValueLog, StoredValueLogType, StoreMemberRole, StoreUserAccess, SubscriptionStatus, Table, User, UserPermissions } from "./types";
 
 const storageKey = "light-qr-ordering-demo-db-v2";
@@ -186,16 +187,8 @@ function sanitizeSharedOptionGroup(group: SharedOptionGroup): SharedOptionGroup 
   } as SharedOptionGroup);
 }
 
-function isStoreClosed(store?: Store) {
-  return !store || !store.isOpen || store.orderStatus === "closed";
-}
-
 function qrBlockReason(store: Store | undefined, mode: OrderPayload["mode"]) {
-  if (isStoreClosed(store)) return "店家休息中";
-  if (!store) return "店家休息中";
-  if (mode === "takeout" && (store.takeoutOrderingEnabled ?? store.takeoutEnabled ?? true) === false) return "店家暫停外帶接單";
-  if (mode === "dine-in" && (store.dineInOrderingEnabled ?? store.dineInEnabled ?? true) === false) return "店家暫停內用接單";
-  return "";
+  return businessOrderBlockReason(store, mode);
 }
 
 function optionDefaults(product: Product) {
@@ -706,19 +699,32 @@ export function useDemoStore(options: StoreOptions = {}) {
     if (useFirestore && firestore) {
       const id = cleanProduct.id || doc(collection(firestore, "products")).id;
       const cleanPayload = sanitizeForFirestore({ ...cleanProduct, id });
-      await setDoc(doc(firestore, "products", id), cleanPayload, { merge: true });
+      try {
+        await setDoc(doc(firestore, "products", id), cleanPayload, { merge: true });
+      } catch (writeError) {
+        console.error("[DemoStore] upsertProduct failed", {
+          productId: id,
+          storeId: cleanProduct.storeId,
+          optionGroupCount: cleanProduct.optionGroups?.length ?? 0,
+          error: writeError
+        });
+        setError(writeError instanceof Error ? writeError.message : String(writeError));
+        throw writeError;
+      }
       return;
     }
     // Save synchronously inside the updater to prevent the 1200ms sync interval
     // from loading stale localStorage data before the useEffect can persist the new state,
     // which would cause child option groups to disappear after saving a product.
     setDb((current) => {
-      const exists = current.products.some((item) => item.id === product.id);
+      const localId = cleanProduct.id || newId("p");
+      const record = { ...cleanProduct, id: localId, sort: cleanProduct.sort || current.products.length + 1 };
+      const exists = current.products.some((item) => item.id === localId);
       const next = {
         ...current,
         products: exists
-          ? current.products.map((item) => (item.id === product.id ? product : item))
-          : [{ ...product, id: newId("p"), sort: product.sort || current.products.length + 1 }, ...current.products]
+          ? current.products.map((item) => (item.id === localId ? record : item))
+          : [record, ...current.products]
       };
       saveLocalData(next);
       return next;

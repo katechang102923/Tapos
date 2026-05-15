@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { OrderItemOption, Product, SharedOptionGroup } from "@/lib/types";
 import { productFinalPrice } from "@/lib/pricing";
-import { optionGroupLevels, productOptionGroups, visibleOptionGroups } from "@/lib/product-options";
+import { optionGroupLevels, visibleOptionGroups } from "@/lib/product-options";
 
 export function ProductOptionModal({
   product,
@@ -16,11 +16,33 @@ export function ProductOptionModal({
   onClose: () => void;
   onConfirm: (selectedOptions: OrderItemOption[]) => void;
 }) {
-  const groups = useMemo(() => productOptionGroups(product), [product]);
   const [selected, setSelected] = useState<OrderItemOption[]>([]);
+  const fallbackOptions = null;
   const visibleGroups = visibleOptionGroups(product, selected, sharedGroups);
   const levels = optionGroupLevels(product, selected, sharedGroups);
   const totalDelta = selected.reduce((sum, item) => sum + item.priceDelta, 0);
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log(
+      "[POS OPTIONS SOURCE]",
+      product.name,
+      {
+        optionGroups: product.optionGroups,
+        options: product.options,
+        fallback: fallbackOptions,
+      }
+    );
+    console.log("[pos] product optionGroups source", {
+      productId: product.id,
+      productName: product.name,
+      optionGroupsCount: product.optionGroups?.length ?? 0,
+      legacyOptionsCount: product.options?.length ?? 0,
+      visibleGroups: visibleGroups.map((group) => group.groupName ?? group.name)
+    });
+    if (!(product.optionGroups?.length) && product.options?.length) {
+      console.warn("[pos] using fallback options", product.name);
+    }
+  }
 
   function toggle(groupId: string, groupName: string, choiceId: string, choiceName: string, priceDelta: number, maxSelect: number) {
     setSelected((current) => {
@@ -51,6 +73,9 @@ export function ProductOptionModal({
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4">
       <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-5 shadow-soft">
+        <div className="mb-3 rounded-lg bg-fuchsia-600 px-3 py-2 text-center text-sm font-black text-white">
+          DEBUG POS OPTIONS v20260515
+        </div>
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-black text-leaf">選擇商品選項</p>

@@ -6,8 +6,9 @@ import { ArrowLeft, Contact, Plus, Search, X } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { resolvePermissions } from "@/lib/permissions";
+import { normalizeSelectedOptions } from "@/lib/product-options";
 import { accessibleStoreIds, defaultStoreId } from "@/lib/store-access";
-import type { Customer, PointLog, StoredValueLog, User } from "@/lib/types";
+import type { Customer, Order, OrderItem, PointLog, StoredValueLog, User } from "@/lib/types";
 
 export default function MerchantCustomersPage() {
   return (
@@ -345,16 +346,9 @@ function CustomersContent({ storeId, storeIds, db, profile, permissions, isAdmin
               {selectedOrders.length > 0 && (
                 <div className="rounded-lg bg-white p-5 shadow-sm">
                   <h3 className="text-xl font-black">近期消費記錄</h3>
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-3 space-y-3">
                     {selectedOrders.map((order) => (
-                      <div key={order.id} className="flex items-center justify-between rounded-lg bg-stone-50 px-3 py-3">
-                        <div>
-                          <p className="font-black">#{order.orderNumber} — {order.mode === "takeout" ? "外帶" : `內用 ${order.tableNo}`}</p>
-                          <p className="text-sm font-bold text-steel">{new Date(order.createdAt).toLocaleString("zh-TW")}</p>
-                          {order.pointsEarned && <p className="text-xs font-bold text-blue-600">+{order.pointsEarned} 點</p>}
-                        </div>
-                        <p className="font-black text-tomato">${order.total}</p>
-                      </div>
+                      <MemberOrderHistoryCard key={order.id} order={order} />
                     ))}
                   </div>
                 </div>
@@ -369,6 +363,72 @@ function CustomersContent({ storeId, storeIds, db, profile, permissions, isAdmin
       </div>
     </main>
   );
+}
+
+function MemberOrderHistoryCard({ order }: { order: Order }) {
+  const items = order.items ?? [];
+  return (
+    <div className="rounded-lg bg-stone-50 px-4 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-black">#{order.orderNumber} — {order.mode === "takeout" ? "外帶" : `內用 ${order.tableName ?? order.tableNo}`}</p>
+          <p className="text-sm font-bold text-steel">{new Date(order.createdAt).toLocaleString("zh-TW")}</p>
+          {order.pointsEarned ? <p className="text-xs font-bold text-blue-600">+{order.pointsEarned} 點</p> : null}
+        </div>
+        <p className="font-black text-tomato">合計：${order.totalAmount ?? order.total}</p>
+      </div>
+
+      <div className="mt-3 rounded-lg bg-white p-3">
+        <p className="text-sm font-black text-steel">商品：</p>
+        {items.length === 0 ? (
+          <p className="mt-2 text-sm font-bold text-steel">此筆訂單沒有完整明細</p>
+        ) : (
+          <div className="mt-2 space-y-3">
+            {items.map((item, index) => <MemberOrderItemDetail key={item.id || `${order.id}-${index}`} item={item} />)}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 grid gap-2 text-sm font-bold text-steel sm:grid-cols-2">
+        <p>付款方式：{paymentMethodLabel(order.paymentMethod)}</p>
+        {(order.discountSummary?.totalDiscount || order.couponDiscountAmount) ? <p>折扣：${(order.discountSummary?.totalDiscount ?? 0) + (order.couponDiscountAmount ?? 0)}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+function MemberOrderItemDetail({ item }: { item: OrderItem }) {
+  const options = normalizeSelectedOptions(item.selectedOptions);
+  const unitPrice = item.finalPrice ?? item.price ?? item.unitPrice ?? 0;
+  return (
+    <div className="border-b border-stone-100 pb-3 last:border-0 last:pb-0">
+      <p className="font-black text-ink">{item.productName || item.name} x{item.quantity} ${unitPrice}</p>
+      {options.length > 0 && (
+        <div className="mt-1 pl-3 text-sm font-bold text-steel">
+          <p>選項：</p>
+          <ul className="mt-1 space-y-0.5">
+            {options.map((option, index) => (
+              <li key={`${option.groupId}-${option.choiceId}-${index}`}>- {option.choiceName}{option.priceDelta ? ` +${option.priceDelta}` : ""}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {(item.itemNote || item.note) && <p className="mt-1 pl-3 text-sm font-bold text-steel">備註：{item.itemNote || item.note}</p>}
+      {item.discount && <p className="mt-1 pl-3 text-sm font-bold text-tomato">單品折扣：-${item.discount.amount}</p>}
+    </div>
+  );
+}
+
+function paymentMethodLabel(method?: string) {
+  const labels: Record<string, string> = {
+    cash: "現金",
+    stored_value: "儲值金",
+    linepay: "Line Pay",
+    card: "信用卡",
+    jkopay: "街口支付",
+    other: "其他"
+  };
+  return labels[method ?? ""] ?? "未紀錄";
 }
 
 function StatBox({ label, value, color = "text-ink" }: { label: string; value: string; color?: string }) {

@@ -10,8 +10,9 @@ import { firebaseEnabled, firestore } from "@/lib/firebase";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 import { selectionsTotal } from "@/lib/product-options";
 import { calculatePromotions } from "@/lib/promotions";
+import { businessOrderBlockReason } from "@/lib/business-hours";
 import { checkStoreAccess } from "@/lib/subscription";
-import type { Customer, MemberCoupon, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, RewardCoupon } from "@/lib/types";
+import type { Customer, MemberCoupon, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, RewardCoupon, Store } from "@/lib/types";
 
 type CartLine = {
   product: Product;
@@ -47,11 +48,8 @@ function customerStatusMessage(status: OrderStatus, rejectReason?: string) {
   return "等待店家接單";
 }
 
-function orderBlockReason(store: { isOpen: boolean; orderStatus?: string; takeoutEnabled?: boolean; dineInEnabled?: boolean; takeoutOrderingEnabled?: boolean; dineInOrderingEnabled?: boolean } | undefined, mode: OrderMode) {
-  if (!store?.isOpen || store.orderStatus === "closed") return "店家休息中";
-  if (mode === "takeout" && (store.takeoutOrderingEnabled ?? store.takeoutEnabled ?? true) === false) return "目前暫停外帶接單，請稍候再試";
-  if (mode === "dine-in" && (store.dineInOrderingEnabled ?? store.dineInEnabled ?? true) === false) return "目前暫停內用接單，請稍候再試";
-  return "";
+function orderBlockReason(store: Store | undefined, mode: OrderMode) {
+  return businessOrderBlockReason(store, mode);
 }
 
 export function OrderPageClient({ storeId, tableId, orderType }: { storeId: string; tableId?: string; orderType?: OrderMode }) {

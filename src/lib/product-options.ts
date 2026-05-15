@@ -33,8 +33,8 @@ function resolveSharedGroupReference(group: ProductOptionGroup, sharedGroups: (P
     return {
       ...group,
       id: group.id,
-      name: group.name || "共用群組",
-      groupName: group.groupName || group.name || "共用群組",
+      name: group.name || "調味群組",
+      groupName: group.groupName || group.name || "調味群組",
       options: group.options ?? []
     };
   }
@@ -49,19 +49,7 @@ function resolveSharedGroupReference(group: ProductOptionGroup, sharedGroups: (P
 
 export function productOptionGroups(product: Product, sharedGroups: (ProductOptionGroup | SharedOptionGroup)[] = []): ProductOptionGroup[] {
   if (product.optionGroups?.length) return product.optionGroups.map((group) => resolveSharedGroupReference(group, sharedGroups));
-  return (product.options ?? []).map((option, index) => ({
-    id: `legacy-${index}`,
-    name: option.name,
-    required: Boolean(option.required),
-    minSelect: option.required ? 1 : 0,
-    maxSelect: 1,
-    options: option.values.map((value, optionIndex) => ({
-      id: `legacy-${index}-${optionIndex}`,
-      name: value.replace(/\s*\+\d+$/, ""),
-      priceDelta: legacyPriceDelta(value),
-      isAvailable: true
-    }))
-  }));
+  return [];
 }
 
 export function visibleOptionGroups(product: Product, selected: OrderItemOption[], sharedGroups: (ProductOptionGroup | SharedOptionGroup)[] = []) {

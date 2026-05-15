@@ -80,7 +80,25 @@ service cloud.firestore {
           && userDoc().data.storeRoles is map
           && storeId in userDoc().data.storeRoles
           ? userDoc().data.storeRoles[storeId]
-            : legacyStoreRole(storeId)
+          : (
+            signedIn()
+            && exists(/databases/$(database)/documents/storeUsers/$(storeId + "_" + request.auth.uid))
+            ? (
+              get(/databases/$(database)/documents/storeUsers/$(storeId + "_" + request.auth.uid)).data.role != null
+              ? get(/databases/$(database)/documents/storeUsers/$(storeId + "_" + request.auth.uid)).data.role
+              : get(/databases/$(database)/documents/storeUsers/$(storeId + "_" + request.auth.uid)).data.storeRole
+            )
+            : (
+              signedIn()
+              && exists(/databases/$(database)/documents/storeUserBindings/$(storeId + "_" + request.auth.uid))
+              ? (
+                get(/databases/$(database)/documents/storeUserBindings/$(storeId + "_" + request.auth.uid)).data.role != null
+                ? get(/databases/$(database)/documents/storeUserBindings/$(storeId + "_" + request.auth.uid)).data.role
+                : get(/databases/$(database)/documents/storeUserBindings/$(storeId + "_" + request.auth.uid)).data.storeRole
+              )
+              : legacyStoreRole(storeId)
+            )
+          )
         );
     }
 

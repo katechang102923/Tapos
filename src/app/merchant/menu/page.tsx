@@ -122,22 +122,78 @@ function MerchantMenuWorkspace({
   const store = db.stores.find((item) => item.id === storeId);
   const storeDisplayName = store?.name || stores.find((item) => item.id === storeId)?.name || "未命名店家";
   const categories = db.categories.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
+  const firstCategoryId = categories[0]?.id || "";
   const products = db.products.filter((item) => item.storeId === storeId).sort((a, b) => a.sort - b.sort);
   const sharedGroups = useMemo(
     () => (db.sharedOptionGroups ?? []).filter((item) => item.storeId === storeId),
     [db.sharedOptionGroups, storeId]
   );
-  const filteredProducts = products.filter((product) => {
-    const matchesCategory = selectedCategoryId === "all" || product.categoryId === selectedCategoryId;
+  const categoryById = useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
+  const selectedCategoryName = selectedCategoryId === "all" ? "全部商品" : categoryById.get(selectedCategoryId)?.name ?? "未分類";
+  const categoryFilteredProducts = useMemo(() => selectedCategoryId === "all"
+    ? products
+    : products.filter((product) => {
+      const legacyCategory = (product as Product & { category?: string }).category;
+      const cid = String(product.categoryId ?? "").trim();
+      const cname = String(product.categoryName ?? "").trim();
+      const legacy = String(legacyCategory ?? "").trim();
+
+      return (
+        cid === selectedCategoryId ||
+        cname === selectedCategoryName ||
+        legacy === selectedCategoryName
+      );
+    }), [products, selectedCategoryId, selectedCategoryName]);
+  const filteredProducts = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    const matchesQuery = !keyword || product.name.toLowerCase().includes(keyword) || product.description.toLowerCase().includes(keyword);
-    return matchesCategory && matchesQuery;
-  });
+    if (!keyword) return categoryFilteredProducts;
+    return categoryFilteredProducts.filter((product) =>
+      product.name.toLowerCase().includes(keyword) ||
+      product.description.toLowerCase().includes(keyword)
+    );
+  }, [categoryFilteredProducts, query]);
+
+  console.log(
+    "[MENU PRODUCTS]",
+    products.map((product) => ({
+      name: product.name,
+      categoryId: product.categoryId,
+      categoryName: product.categoryName,
+      category: (product as Product & { category?: string }).category,
+      optionGroups: product.optionGroups,
+    }))
+  );
+  console.log(
+    "[FILTER]",
+    selectedCategoryId,
+    filteredProducts.map((product) => product.name)
+  );
 
   useEffect(() => {
     setSelectedCategoryId("all");
-    setEditingProduct({ ...blankProduct, storeId, categoryId: categories[0]?.id || "" });
-  }, [categories, storeId]);
+    setEditingProduct({ ...blankProduct, storeId, categoryId: firstCategoryId });
+  }, [firstCategoryId, storeId]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    console.log("[menu] selectedCategory", selectedCategoryId, selectedCategoryName);
+    console.log("[menu] products", products.map((product) => ({
+      id: product.id,
+      name: product.name,
+      categoryId: product.categoryId,
+      categoryName: product.categoryName,
+      category: (product as Product & { category?: string }).category
+    })));
+    console.log("[menu] filteredProducts", filteredProducts.map((product) => product.name));
+  }, [filteredProducts.length, products.length, selectedCategoryId, selectedCategoryName]);
+
+  useEffect(() => {
+    if (!productEditorOpen) return;
+    console.log(
+      "[EDITOR OPTION GROUPS]",
+      editingProduct.optionGroups
+    );
+  }, [editingProduct.optionGroups, productEditorOpen]);
 
   function setEditingProductDraft(next: Product | ((current: Product) => Product)) {
     setSaveState("unsaved");
@@ -151,6 +207,37 @@ function MerchantMenuWorkspace({
     setCategoryName("");
   }
 
+  function selectCategory(categoryId: string) {
+    if (process.env.NODE_ENV !== "production") {
+      const nextCount = categoryId === "all"
+        ? products.length
+        : products.filter((product) => {
+          const categoryName = categoryById.get(categoryId)?.name ?? "";
+          const legacyCategory = (product as Product & { category?: string }).category;
+          return String(product.categoryId ?? "").trim() === categoryId
+            || String(product.categoryName ?? "").trim() === categoryName
+            || String(legacyCategory ?? "").trim() === categoryName;
+        }).length;
+      console.log("[menu] selectedCategory", categoryId, categoryId === "all" ? "全部商品" : categoryById.get(categoryId)?.name);
+      console.log("[menu] filteredProducts", products
+        .filter((product) => {
+          if (categoryId === "all") return true;
+          const categoryName = categoryById.get(categoryId)?.name ?? "";
+          const legacyCategory = (product as Product & { category?: string }).category;
+          return String(product.categoryId ?? "").trim() === categoryId
+            || String(product.categoryName ?? "").trim() === categoryName
+            || String(legacyCategory ?? "").trim() === categoryName;
+        })
+        .map((product) => product.name));
+      console.log("[merchant/menu] selectCategory", {
+        selectedCategory: categoryId,
+        selectedCategoryName: categoryId === "all" ? "全部商品" : categoryById.get(categoryId)?.name,
+        filteredProductsLength: nextCount
+      });
+    }
+    setSelectedCategoryId(categoryId);
+  }
+
   function startNewProduct() {
     setSaveState("idle");
     setSaveMessage("");
@@ -158,28 +245,62 @@ function MerchantMenuWorkspace({
     setProductEditorOpen(true);
   }
 
+  function productForEditor(product: Product): Product {
+    console.log("[editor] opening product", product.name, product.optionGroups);
+    return {
+      ...product,
+      optionGroups: product.optionGroups ?? []
+    };
+  }
+
   async function saveProduct() {
-    if (!editingProduct.name.trim()) return;
+    if (!editingProduct.name.trim()) {
+      setSaveState("error");
+      setSaveMessage("請先輸入商品名稱");
+      return;
+    }
     setSaveState("saving");
     setSaveMessage("儲存中...");
-    try {
-      await upsertProduct({
-        ...editingProduct,
-        id: editingProduct.id === "new-product" ? "" : editingProduct.id,
-        storeId,
-        price: Number(editingProduct.price),
-        originalPrice: Number(editingProduct.originalPrice || editingProduct.price),
-        discountType: editingProduct.discountType ?? "none",
-        discountValue: Number(editingProduct.discountValue ?? 0),
-        sort: Number(editingProduct.sort) || products.length + 1,
-        categoryId: editingProduct.categoryId || categories[0]?.id || ""
+    const productId = editingProduct.id === "new-product" ? "" : editingProduct.id;
+    const categoryId = editingProduct.categoryId || categories[0]?.id || "";
+    const payload: Product = {
+      ...editingProduct,
+      id: productId,
+      storeId,
+      price: Number(editingProduct.price),
+      originalPrice: Number(editingProduct.originalPrice || editingProduct.price),
+      discountType: editingProduct.discountType ?? "none",
+      discountValue: Number(editingProduct.discountValue ?? 0),
+      sort: Number(editingProduct.sort) || products.length + 1,
+      sortOrder: Number(editingProduct.sortOrder ?? editingProduct.sort) || products.length + 1,
+      categoryId,
+      categoryName: categoryById.get(categoryId)?.name ?? editingProduct.categoryName ?? "",
+      options: editingProduct.options ?? [],
+      optionGroups: editingProduct.optionGroups ?? []
+    };
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[editor] save payload", payload);
+      console.log("[merchant/menu] saveProduct payload", {
+        storeId: payload.storeId,
+        productId: payload.id || "(new)",
+        name: payload.name,
+        categoryId: payload.categoryId,
+        categoryName: payload.categoryName,
+        optionGroupCount: payload.optionGroups?.length ?? 0
       });
+    }
+    try {
+      await upsertProduct(payload);
       setSaveState("saved");
       setSaveMessage("已儲存");
       setProductEditorOpen(false);
     } catch (error) {
+      console.error("[merchant/menu] saveProduct failed", error);
       setSaveState("error");
       setSaveMessage(error instanceof Error ? error.message : String(error));
+      if (typeof window !== "undefined") {
+        window.alert(`儲存商品失敗：${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 
@@ -190,13 +311,35 @@ function MerchantMenuWorkspace({
     setProductEditorOpen(false);
   }
 
-  function makeOptionGroup(name = "新選項群組"): ProductOptionGroup {
+  function newClientId(prefix: string) {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+      return `${prefix}-${crypto.randomUUID()}`;
+    }
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  }
+
+  function makeOption(name = "正常", priceDelta = 0): ProductOptionChoice {
     return {
-      id: `group-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      id: newClientId("option"),
+      name,
+      optionName: name,
+      priceDelta,
+      sortOrder: 0,
+      isAvailable: true,
+      children: [],
+      childGroupIds: [],
+      linkedGroupId: null,
+      sharedGroupId: null
+    };
+  }
+
+  function makeOptionGroup(name = "調味", options?: ProductOptionChoice[]): ProductOptionGroup {
+    return {
+      id: newClientId("group"),
       name,
       groupName: name,
-      required: false,
-      minSelect: 0,
+      required: true,
+      minSelect: 1,
       maxSelect: 1,
       type: "single",
       sourceType: "custom",
@@ -205,12 +348,13 @@ function MerchantMenuWorkspace({
       sharedGroupId: null,
       groupId: null,
       children: [],
-      options: []
+      options: options ?? [
+        makeOption("正常"),
+        makeOption("不加洋蔥"),
+        makeOption("不加醬"),
+        makeOption("加辣")
+      ]
     };
-  }
-
-  function makeOption(): ProductOptionChoice {
-    return { id: `option-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`, name: "新選項", optionName: "新選項", priceDelta: 0, isAvailable: true, children: [], childGroupIds: [] };
   }
 
   function mapGroups(groups: ProductOptionGroup[], mapper: (group: ProductOptionGroup) => ProductOptionGroup | null): ProductOptionGroup[] {
@@ -232,34 +376,62 @@ function MerchantMenuWorkspace({
   }
 
   function addOptionGroup() {
-    setOptionGroups((groups) => [...groups, makeOptionGroup()]);
+    console.log("[editor] add option group clicked");
+    setEditingProductDraft((current) => ({
+      ...current,
+      optionGroups: [
+        ...(current.optionGroups ?? []),
+        makeOptionGroup("調味")
+      ]
+    }));
+  }
+
+  function cloneOptionGroup(group: ProductOptionGroup | SharedOptionGroup, sortOrder = 0): ProductOptionGroup {
+    const groupName = group.groupName ?? group.name ?? "調味群組";
+    return {
+      id: newClientId("group"),
+      name: groupName,
+      groupName,
+      required: group.required ?? false,
+      minSelect: group.minSelect ?? 0,
+      maxSelect: group.maxSelect ?? 1,
+      type: group.type ?? ((group.maxSelect ?? 1) > 1 ? "multiple" : "single"),
+      sourceType: "custom",
+      groupId: null,
+      sharedGroupId: null,
+      linkedGroupId: group.id,
+      sortOrder,
+      children: (group.children ?? []).map((child, index) => cloneOptionGroup(child, index)),
+      options: (group.options ?? []).map((option, index) => ({
+        id: newClientId("option"),
+        name: option.optionName ?? option.name ?? "",
+        optionName: option.optionName ?? option.name ?? "",
+        priceDelta: Number(option.priceDelta ?? 0),
+        sortOrder: option.sortOrder ?? index,
+        isAvailable: option.isAvailable ?? true,
+        linkedGroupId: option.linkedGroupId ?? null,
+        sharedGroupId: option.sharedGroupId ?? null,
+        childGroupIds: option.childGroupIds ?? [],
+        nextGroupIds: option.nextGroupIds ?? [],
+        children: (option.children ?? []).map((child, childIndex) => cloneOptionGroup(child, childIndex))
+      }))
+    };
   }
 
   function applySharedGroups(groupIds: string[]) {
+    const selectedGroups = groupIds
+      .map((id) => sharedGroups.find((group) => group.id === id))
+      .filter((group): group is SharedOptionGroup => Boolean(group));
+    console.log("[editor] apply flavor groups", selectedGroups);
     setOptionGroups((groups) => {
-      const existingIds = new Set(groups.map((group) => group.groupId ?? group.sharedGroupId ?? group.id.replace(/^shared-/, "")));
-      const refs: ProductOptionGroup[] = [];
+      const existingIds = new Set(groups.map((group) => group.linkedGroupId ?? group.groupId ?? group.sharedGroupId ?? group.id.replace(/^shared-/, "")));
+      const copiedGroups: ProductOptionGroup[] = [];
       groupIds.filter((id) => !existingIds.has(id)).forEach((id, index) => {
         const shared = sharedGroups.find((group) => group.id === id);
         if (!shared) return;
-        refs.push({
-            id: `shared-${shared.id}`,
-            name: shared.name,
-            groupName: shared.groupName ?? shared.name,
-            required: shared.required ?? false,
-            minSelect: shared.minSelect ?? 0,
-            maxSelect: shared.maxSelect ?? 1,
-            type: shared.type ?? ((shared.maxSelect ?? 1) > 1 ? "multiple" : "single"),
-            sourceType: "shared" as const,
-            groupId: shared.id,
-            sharedGroupId: shared.id,
-            linkedGroupId: null,
-            sortOrder: groups.length + index,
-            children: [],
-            options: []
-          });
+        copiedGroups.push(cloneOptionGroup(shared, groups.length + index));
       });
-      return [...groups, ...refs];
+      return [...groups, ...copiedGroups];
     });
   }
 
@@ -283,7 +455,7 @@ function MerchantMenuWorkspace({
   }
 
   function addGroupOption(groupId: string) {
-    setOptionGroups((groups) => mapGroups(groups, (group) => group.id === groupId ? { ...group, options: [...(group.options ?? []), makeOption()] } : group));
+    setOptionGroups((groups) => mapGroups(groups, (group) => group.id === groupId ? { ...group, options: [...(group.options ?? []), makeOption("新選項")] } : group));
   }
 
   function updateGroupOption(groupId: string, optionId: string, patch: Partial<ProductOptionChoice>) {
@@ -305,7 +477,7 @@ function MerchantMenuWorkspace({
       if (group.id !== groupId) return group;
       return {
         ...group,
-        options: (group.options ?? []).map((option) => option.id === optionId ? { ...option, children: [...(option.children ?? []), makeOptionGroup("下一層選項")] } : option)
+        options: (group.options ?? []).map((option) => option.id === optionId ? { ...option, children: [...(option.children ?? []), makeOptionGroup("下一層調味", [])] } : option)
       };
     }));
   }
@@ -348,12 +520,15 @@ function MerchantMenuWorkspace({
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-900">
+      <div className="bg-fuchsia-600 px-4 py-2 text-center text-lg font-black text-white">
+        DEBUG MENU PAGE v20260515
+      </div>
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-slate-100/90 px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-sm font-black text-leaf">{adminMode ? "平台代管菜單" : "店家菜單管理"}</p>
             <h1 className="text-3xl font-black tracking-tight text-slate-950">{storeDisplayName}</h1>
-            <p className="mt-1 text-sm font-bold text-slate-500">分類、商品、套餐、加購與共用群組庫集中在同一個工作台。</p>
+            <p className="mt-1 text-sm font-bold text-slate-500">分類、商品、套餐、加購與調味群組庫集中在同一個工作台。</p>
             {canSwitch && storeIds.length > 0 && (
               <label className="mt-3 block text-sm font-black text-slate-500">
                 切換代管店家
@@ -387,9 +562,9 @@ function MerchantMenuWorkspace({
               <MenuIcon className="size-5 text-slate-400" />
             </div>
             <div className="mt-4 grid gap-1.5">
-              <CategoryButton active={selectedCategoryId === "all"} label="全部商品" count={products.length} onClick={() => setSelectedCategoryId("all")} />
+              <CategoryButton active={selectedCategoryId === "all"} label="全部商品" count={products.length} onClick={() => selectCategory("all")} />
               {categories.map((category) => (
-                <CategoryButton key={category.id} active={selectedCategoryId === category.id} label={category.name} count={products.filter((product) => product.categoryId === category.id).length} disabled={!category.isActive} onClick={() => setSelectedCategoryId(category.id)} />
+                <CategoryButton key={category.id} active={selectedCategoryId === category.id} label={category.name} count={products.filter((product) => productMatchesCategory(product, category.id, categoryById)).length} onClick={() => selectCategory(category.id)} />
               ))}
             </div>
             <div className="mt-4 flex gap-2">
@@ -405,7 +580,7 @@ function MerchantMenuWorkspace({
           <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-2xl font-black text-slate-950">商品列表</h2>
-              <p className="mt-1 text-sm font-bold text-slate-500">點擊商品即可開啟右側商品編輯 Drawer。</p>
+              <p className="mt-1 text-sm font-bold text-slate-500">目前分類：{selectedCategoryName}，共 {filteredProducts.length} 項商品。點擊商品即可開啟右側商品編輯 Drawer。</p>
             </div>
             <label className="flex min-w-0 items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 md:w-72">
               <Search className="size-4 text-slate-400" />
@@ -427,7 +602,7 @@ function MerchantMenuWorkspace({
                   onClick={() => {
                     setSaveState("idle");
                     setSaveMessage("");
-                    setEditingProduct({ ...product, optionGroups: product.optionGroups ?? [] });
+                    setEditingProduct(productForEditor(product));
                     setProductEditorOpen(true);
                   }}
                   className="group cursor-pointer rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100 transition hover:-translate-y-1 hover:bg-white hover:shadow-md"
@@ -470,15 +645,15 @@ function MerchantMenuWorkspace({
               <Settings className="size-5 text-leaf" />
               <h2 className="text-xl font-black text-slate-950">菜單設定</h2>
             </div>
-            <p className="mt-2 text-sm font-bold leading-6 text-slate-500">共用群組庫集中管理甜度、冰塊、加料、套餐等常用選項，商品內可直接套用。</p>
+            <p className="mt-2 text-sm font-bold leading-6 text-slate-500">調味群組庫集中管理甜度、冰塊、加料、套餐選項等常用設定，商品內可直接套用。</p>
             <div className="mt-4 grid gap-2">
               <Link href="/merchant/options" className="inline-flex items-center justify-between rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5">
-                開啟共用群組庫
+                開啟調味群組庫
                 <Layers3 className="size-4" />
               </Link>
               <div className="flex flex-wrap gap-1.5">
                 {sharedGroups.length === 0 ? (
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">尚無共用群組</span>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">尚無調味群組</span>
                 ) : sharedGroups.slice(0, 8).map((group) => (
                   <span key={group.id} className="rounded-full bg-leaf/10 px-3 py-1 text-xs font-black text-leaf">{group.name}</span>
                 ))}
@@ -545,4 +720,18 @@ function CategoryButton({ active, label, count, disabled, onClick }: { active: b
       <span className={`rounded-full px-2 py-0.5 text-xs ${active ? "bg-white/15 text-white" : "bg-white text-slate-500"}`}>{count}</span>
     </button>
   );
+}
+
+function normalizeCategoryKey(value?: string) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function productMatchesCategory(product: Product, categoryId: string, categoryById: Map<string, Category>) {
+  if (normalizeCategoryKey(product.categoryId) === normalizeCategoryKey(categoryId)) return true;
+  const category = categoryById.get(categoryId);
+  if (!category) return false;
+  const expectedName = normalizeCategoryKey(category.name);
+  const legacyCategory = (product as Product & { category?: string }).category;
+  return normalizeCategoryKey(product.categoryName) === expectedName
+    || normalizeCategoryKey(legacyCategory) === expectedName;
 }
