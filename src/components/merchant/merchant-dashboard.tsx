@@ -26,16 +26,17 @@ import type { Store, User } from "@/lib/types";
 type MerchantView = "dashboard" | "menu";
 
 const mainNav = [
-  { href: "/merchant/pos", label: "點餐營運", description: "接單、現場單、今日銷售", icon: ShoppingCart },
-  { href: "/merchant/menu", label: "菜單管理", description: "分類、商品、套餐與調味群組庫", icon: MenuIcon },
-  { href: "/merchant/reports", label: "日報與銷售狀況", description: "每日報表、銷售狀況、商品排行與日結紀錄", icon: BarChart3 },
-  { href: "/merchant/customers", label: "會員與促銷", description: "會員、點數、活動券", icon: Users },
-  { href: "/merchant/settings", label: "店家設定", description: "QR、營業、設備、權限", icon: Settings },
+  { href: "/merchant/pos", label: "點餐營運", description: "POS 點餐、接單與現場訂單", icon: ShoppingCart },
+  { href: "/merchant/menu", label: "菜單管理", description: "分類、商品、價格與選項", icon: MenuIcon },
+  { href: "/merchant/qrcode", label: "QR Code 管理", description: "外帶 QR、內用桌號 QR", icon: QrCode },
+  { href: "/merchant/reports", label: "訂單與報表", description: "每日營收、商品排行與日結", icon: BarChart3 },
+  { href: "/merchant/customers", label: "會員與促銷", description: "會員、點數、儲值與優惠", icon: Users },
+  { href: "/merchant/settings", label: "店家設定", description: "營業、設備、權限與公告", icon: Settings },
 ];
 
 export function MerchantDashboard({ view = "dashboard" }: { view?: MerchantView }) {
   return (
-    <LoginGate allowedRoles={["systemAdmin", "owner", "manager", "staff", "viewer"]} title="店家後台">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager", "staff", "viewer"]} title="店家後台設定">
       {({ profile, signOutUser }) => {
         if (!profile) return null;
 
@@ -44,8 +45,8 @@ export function MerchantDashboard({ view = "dashboard" }: { view?: MerchantView 
             <main className="grid min-h-screen place-items-center bg-slate-100 p-4">
               <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-sm">
                 <QrCode className="size-10 text-leaf" />
-                <h1 className="mt-4 text-3xl font-black text-slate-900">{profile.status === "rejected" ? "帳號未通過審核" : "帳號等待審核"}</h1>
-                <p className="mt-2 text-sm font-semibold text-slate-500">請等待平台管理員核准後再進入店家後台。</p>
+                <h1 className="mt-4 text-3xl font-black text-slate-900">{profile.status === "rejected" ? "帳號審核未通過" : "帳號等待審核"}</h1>
+                <p className="mt-2 text-sm font-semibold text-slate-500">請等待平台管理員核准後，再進入店家後台設定。</p>
                 <button onClick={signOutUser} className="mt-5 rounded-xl bg-slate-900 px-4 py-3 font-black text-white">登出</button>
               </div>
             </main>
@@ -57,8 +58,8 @@ export function MerchantDashboard({ view = "dashboard" }: { view?: MerchantView 
             <main className="grid min-h-screen place-items-center bg-slate-100 p-4">
               <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-sm">
                 <p className="text-sm font-black text-leaf">尚未綁定店家</p>
-                <h1 className="mt-2 text-3xl font-black text-slate-900">請聯絡平台管理員授權店家</h1>
-                <p className="mt-3 leading-7 text-slate-500">此帳號目前沒有任何可操作的店家，授權後重新登入即可使用。</p>
+                <h1 className="mt-2 text-3xl font-black text-slate-900">請先由平台管理員綁定可管理的店家</h1>
+                <p className="mt-3 leading-7 text-slate-500">目前此帳號沒有任何店家權限，因此無法進入店家後台。</p>
                 <button onClick={signOutUser} className="mt-5 rounded-xl bg-slate-900 px-5 py-3 font-black text-white">登出</button>
               </div>
             </main>
@@ -104,11 +105,11 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
   }, [selectedStoreId, storeIds]);
 
   if (db.stores.length > 0 && !userAccessCheck.ok) {
-    return <BlockedPage title="帳號授權已到期" reason={userAccessCheck.reason} onSignOut={onSignOut} />;
+    return <BlockedPage title="帳號目前無法使用" reason={userAccessCheck.reason} onSignOut={onSignOut} />;
   }
 
   if (db.stores.length > 0 && !storeAccessCheck.ok) {
-    return <BlockedPage title="店家服務暫停" reason={storeAccessCheck.reason} onSignOut={onSignOut} />;
+    return <BlockedPage title="店家目前無法使用" reason={storeAccessCheck.reason} onSignOut={onSignOut} />;
   }
 
   function updateStore(patch: Partial<Store>) {
@@ -166,13 +167,13 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
           <header className="sticky top-0 z-20 -mx-4 border-b border-slate-200 bg-slate-100/90 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
             <div className="mx-auto flex max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <p className="text-sm font-black text-leaf">店家設定中心</p>
+                <p className="text-sm font-black text-leaf">店家後台設定中心</p>
                 <h1 className="text-3xl font-black tracking-tight text-slate-950">管理店家資料、菜單、QR Code 與營業設定</h1>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Link href="/merchant/pos" className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
                   <ShoppingCart className="size-4" />
-                  前往 POS 工作台
+                  前往 POS 點餐
                 </Link>
                 {canManageStore && <StoreStatusButtons store={store} updateStore={updateStore} />}
               </div>
@@ -236,7 +237,7 @@ function ToggleButton({ active, label, onClick, disabled = false }: { active: bo
       onClick={onClick}
       className={`rounded-2xl px-4 py-4 text-left text-sm font-black shadow-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 ${active ? "bg-emerald-50 text-leaf ring-1 ring-emerald-100" : "bg-rose-50 text-tomato ring-1 ring-rose-100"}`}
     >
-      <span className="mb-1 block text-xs opacity-70">{active ? "已開放" : "已關閉"}</span>
+      <span className="mb-1 block text-xs opacity-70">{active ? "目前開放" : "目前關閉"}</span>
       {label}
     </button>
   );
@@ -271,11 +272,11 @@ function DashboardOverview({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-2xl font-black text-slate-950">店家後台流程</h2>
-              <p className="mt-1 text-sm font-bold leading-6 text-slate-500">店家日常操作集中在點餐營運；設定、菜單、QR、會員則放在後台設定中心。</p>
+              <p className="mt-1 text-sm font-bold leading-6 text-slate-500">店家日常操作集中在點餐營運；設定、菜單、QR Code、會員則放在後台設定中心。</p>
             </div>
             <Link href="/merchant/pos" className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 hover:shadow-md">
               <ShoppingCart className="size-4" />
-              開啟 POS 工作台
+              前往 POS 點餐
             </Link>
           </div>
           <div className="mt-5 grid gap-3 md:grid-cols-2">
@@ -303,22 +304,22 @@ function DashboardOverview({
           <textarea
             value={notice}
             onChange={(event) => setNotice(event.target.value)}
-            placeholder="例如：現場爆單，餐點需等候約 20 分鐘。"
+            placeholder="例如：現場忙碌，餐點需等待約 20 分鐘"
             disabled={!canManageStore}
             className="mt-4 min-h-28 w-full rounded-2xl border-0 bg-slate-100 px-4 py-3 text-sm font-bold text-slate-900 outline-none ring-1 ring-transparent transition focus:bg-white focus:ring-leaf disabled:opacity-60"
           />
           <button onClick={() => updateStore({ temporaryNotice: notice })} disabled={!canManageStore} className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60">
-            儲存公告
+            發布公告
           </button>
         </section>
 
         <section className="rounded-2xl bg-white p-5 shadow-sm">
-          <h2 className="text-xl font-black text-slate-950">後台設定建議</h2>
+          <h2 className="text-xl font-black text-slate-950">設定中心功能</h2>
           <div className="mt-4 grid gap-2 text-sm font-bold text-slate-600">
-            <p className="rounded-xl bg-slate-100 px-3 py-2">先建立分類與商品</p>
-            <p className="rounded-xl bg-slate-100 px-3 py-2">在商品內套用甜度、冰塊、加料等調味群組</p>
-            <p className="rounded-xl bg-slate-100 px-3 py-2">產生外帶與桌號 QR Code</p>
-            <p className="rounded-xl bg-slate-100 px-3 py-2">設定印單機與 KDS</p>
+            <p className="rounded-xl bg-slate-100 px-3 py-2">管理店名、Logo、Banner 與營業狀態</p>
+            <p className="rounded-xl bg-slate-100 px-3 py-2">管理分類、商品、價格、上下架與選項</p>
+            <p className="rounded-xl bg-slate-100 px-3 py-2">產生外帶與內用桌號 QR Code</p>
+            <p className="rounded-xl bg-slate-100 px-3 py-2">前往 POS 與廚房 KDS 查看訂單</p>
           </div>
         </section>
       </aside>
@@ -341,13 +342,13 @@ function MetricCard({ icon: Icon, title, value, tone = "slate" }: { icon: React.
 
 function SettingsCard({ href, title, description, icon: Icon }: { href: string; title: string; description: string; icon: React.ElementType }) {
   return (
-    <Link href={href} className="group rounded-2xl bg-slate-50 p-4 shadow-sm ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md">
+    <Link href={href} className="group rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md">
       <div className="flex items-start gap-3">
-        <div className="grid size-10 place-items-center rounded-xl bg-white text-slate-700 shadow-sm transition group-hover:bg-leaf group-hover:text-white">
+        <div className="grid size-11 place-items-center rounded-xl bg-white text-slate-800 shadow-sm transition group-hover:bg-leaf group-hover:text-white">
           <Icon className="size-5" />
         </div>
         <div>
-          <p className="font-black text-slate-950">{title}</p>
+          <h3 className="font-black text-slate-950">{title}</h3>
           <p className="mt-1 text-sm font-bold leading-6 text-slate-500">{description}</p>
         </div>
       </div>
