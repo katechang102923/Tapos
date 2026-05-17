@@ -61,7 +61,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
     window.localStorage.setItem(key, next);
     return next;
   });
-  const { db, createOrder } = useDemoStore({ storeId, customerSessionId, skipOrderList: true });
+  const { db, ready, createOrder } = useDemoStore({ storeId, customerSessionId, skipOrderList: true });
   const [mode, setMode] = useState<OrderMode>(orderType ?? (tableId ? "dine-in" : "takeout"));
   const [tableNo, setTableNo] = useState(tableId ?? "1");
   const [activeCategory, setActiveCategory] = useState("all");
@@ -421,7 +421,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
       <div className="mx-auto max-w-7xl px-3 py-3 sm:px-4 sm:py-4 lg:grid lg:grid-cols-[1fr_410px] lg:gap-5">
         <section className="min-w-0 lg:space-y-4">
           <div className="overflow-hidden rounded-lg bg-white shadow-soft">
-            <div className="relative h-32 bg-ink sm:h-40">
+            <div className="relative h-20 bg-ink sm:h-28">
               <img src={store.bannerUrl || store.logoUrl} alt={store.name} className="h-full w-full object-cover opacity-70" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/75 to-transparent" />
               <div className="absolute inset-x-0 bottom-0 p-3 text-white sm:p-4">
@@ -480,50 +480,6 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
             </div>
           )}
 
-          <div className="rounded-lg bg-white p-3 shadow-soft sm:p-4">
-            <div className="flex items-center gap-2">
-              <UserPlus className="size-5 text-leaf" />
-              <h2 className="text-lg font-black text-ink">
-                {mode === "takeout" ? "會員登入（選填）" : "會員登入 / 建立會員"}
-              </h2>
-            </div>
-            {member ? (
-              <div className="mt-3 rounded-lg bg-blue-50 p-3">
-                <p className="font-black text-ink">{member.name} <span className="text-sm font-bold text-steel">({member.phone})</span></p>
-                <p className="text-sm font-bold text-steel">點數：{member.points} ｜ 儲值金：${member.balance ?? member.storedValueBalance}</p>
-                {rewardCoupons.length > 0 && (
-                  <div className="mt-3 grid gap-2">
-                    <p className="text-xs font-black text-blue-800">點數兌換券</p>
-                    {rewardCoupons.map((coupon) => (
-                      <button key={coupon.id} onClick={() => redeemCoupon(coupon)} disabled={memberLoading || member.points < (coupon.pointsCost ?? coupon.pointsRequired ?? 0)} className="rounded-lg bg-white px-3 py-2 text-left text-xs font-black text-ink disabled:opacity-50">
-                        {coupon.title} ｜ {coupon.pointsCost ?? coupon.pointsRequired ?? 0} 點{coupon.type === "discount" ? ` ｜ 折 $${coupon.discountAmount}` : ` ｜ ${coupon.exchangeItemName ?? "兌換品"}`}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {memberCoupons.length > 0 && (
-                  <label className="mt-3 block text-xs font-black text-blue-800">
-                    可用券
-                    <select value={selectedCouponId} onChange={(event) => setSelectedCouponId(event.target.value)} className="mt-1 w-full rounded-lg border border-blue-100 bg-white px-3 py-2 text-sm font-bold">
-                      <option value="">不使用</option>
-                      {memberCoupons.map((coupon) => <option key={coupon.id} value={coupon.id}>{coupon.title}{coupon.type === "discount" ? ` -$${coupon.discountAmount ?? 0}` : `（${coupon.exchangeItemName ?? "兌換券"}）`}</option>)}
-                    </select>
-                  </label>
-                )}
-                <p className="text-sm font-bold text-steel">點數：{member.points} ｜ 儲值金：${member.balance ?? member.storedValueBalance}</p>
-              </div>
-            ) : (
-              <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
-                <input value={memberPhone} onChange={(event) => setMemberPhone(event.target.value)} placeholder="手機號碼（查詢會員）" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold" />
-                <input value={memberName} onChange={(event) => setMemberName(event.target.value)} placeholder="新會員姓名（選填）" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold" />
-                <input value={memberBirthday} onChange={(event) => setMemberBirthday(event.target.value)} placeholder="生日（可選）" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold sm:col-span-2" />
-                <button onClick={lookupMember} disabled={memberLoading || !memberPhone.trim()} className="rounded-lg bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">查詢</button>
-                <button onClick={createMember} disabled={memberLoading || !memberPhone.trim() || !memberName.trim()} className="rounded-lg bg-leaf px-4 py-3 text-sm font-black text-white disabled:opacity-50">建立</button>
-              </div>
-            )}
-            {memberMessage && <p className="mt-2 text-xs font-black text-steel">{memberMessage}</p>}
-          </div>
-
           {lastOrder && (
             <div className={`rounded-lg border-2 bg-white p-4 shadow-soft sm:p-5 ${lastOrder.status === "cancelled" ? "border-tomato" : "border-leaf"}`}>
               <div className="flex items-start justify-between gap-3">
@@ -568,42 +524,105 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
-            {products.length === 0 ? (
-              <div className="col-span-full rounded-lg bg-white p-8 text-center shadow-sm">
-                <p className="font-black text-steel">目前沒有可點選的餐點</p>
+          {/* Loading skeleton */}
+          {!ready && (
+            <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div key={i} className="overflow-hidden rounded-lg border border-stone-100 bg-white shadow-sm">
+                  <div className="aspect-[4/3] w-full animate-pulse bg-stone-100" />
+                  <div className="space-y-2 p-3 sm:p-4">
+                    <div className="h-5 w-2/3 animate-pulse rounded bg-stone-100" />
+                    <div className="h-3 w-full animate-pulse rounded bg-stone-100" />
+                    <div className="h-10 w-full animate-pulse rounded-lg bg-stone-100" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {ready && (
+            <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
+              {products.length === 0 ? (
+                <div className="col-span-full rounded-lg bg-white p-8 text-center shadow-sm">
+                  <p className="font-black text-steel">目前沒有可點選的餐點</p>
+                </div>
+              ) : (
+                products.map((product) => {
+                  const disabled = !store.isOpen || !productIsAvailable(product);
+                  return (
+                    <article key={product.id} className={`overflow-hidden rounded-lg border bg-white shadow-sm transition ${disabled ? "border-stone-200 opacity-60 grayscale" : "border-orange-100"}`}>
+                      <div className="relative">
+                        <img src={product.imageUrl} alt={product.name} className="aspect-[4/3] w-full object-cover" />
+                        {product.isSoldOut && <div className="absolute inset-0 grid place-items-center bg-black/55"><span className="rounded-lg bg-white px-4 py-2 text-sm font-black text-ink sm:px-5 sm:py-3 sm:text-lg">售完</span></div>}
+                      </div>
+                      <div className="p-3 sm:p-4">
+                        <div className="flex items-start justify-between gap-2 sm:gap-3">
+                          <div className="min-w-0">
+                            <h2 className="text-lg font-black text-ink sm:text-2xl">{product.name}</h2>
+                            <p className="mt-1 min-h-0 text-xs leading-5 text-steel sm:text-base sm:leading-6">{product.description}</p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-lg font-black text-tomato sm:text-2xl">${productFinalPrice(product)}</p>
+                            {productFinalPrice(product) !== product.price && <p className="text-xs font-bold text-stone-400 line-through">${product.price}</p>}
+                            {discountLabel(product.discountType, product.discountValue) && <p className="mt-1 rounded-full bg-tomato/10 px-2 py-1 text-xs font-black text-tomato">{discountLabel(product.discountType, product.discountValue)}</p>}
+                          </div>
+                        </div>
+                        <button onClick={() => addToCart(product)} disabled={disabled} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-ink px-3 py-3 text-sm font-black text-white disabled:bg-stone-300 sm:mt-4 sm:px-4 sm:py-4 sm:text-base">
+                          <Plus className="size-4 sm:size-5" />
+                          加入購物車
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })
+              )}
+            </div>
+          )}
+
+          {/* 會員登入 — 移至商品清單下方 */}
+          <div className="rounded-lg bg-white p-3 shadow-soft sm:p-4">
+            <div className="flex items-center gap-2">
+              <UserPlus className="size-5 text-leaf" />
+              <h2 className="text-base font-black text-ink">
+                {mode === "takeout" ? "會員登入（選填）" : "會員登入 / 建立會員"}
+              </h2>
+            </div>
+            {member ? (
+              <div className="mt-3 rounded-lg bg-blue-50 p-3">
+                <p className="font-black text-ink">{member.name} <span className="text-sm font-bold text-steel">({member.phone})</span></p>
+                <p className="text-sm font-bold text-steel">點數：{member.points} ｜ 儲值金：${member.balance ?? member.storedValueBalance}</p>
+                {rewardCoupons.length > 0 && (
+                  <div className="mt-3 grid gap-2">
+                    <p className="text-xs font-black text-blue-800">點數兌換券</p>
+                    {rewardCoupons.map((coupon) => (
+                      <button key={coupon.id} onClick={() => redeemCoupon(coupon)} disabled={memberLoading || member.points < (coupon.pointsCost ?? coupon.pointsRequired ?? 0)} className="rounded-lg bg-white px-3 py-2 text-left text-xs font-black text-ink disabled:opacity-50">
+                        {coupon.title} ｜ {coupon.pointsCost ?? coupon.pointsRequired ?? 0} 點{coupon.type === "discount" ? ` ｜ 折 $${coupon.discountAmount}` : ` ｜ ${coupon.exchangeItemName ?? "兌換品"}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {memberCoupons.length > 0 && (
+                  <label className="mt-3 block text-xs font-black text-blue-800">
+                    可用券
+                    <select value={selectedCouponId} onChange={(event) => setSelectedCouponId(event.target.value)} className="mt-1 w-full rounded-lg border border-blue-100 bg-white px-3 py-2 text-sm font-bold">
+                      <option value="">不使用</option>
+                      {memberCoupons.map((coupon) => <option key={coupon.id} value={coupon.id}>{coupon.title}{coupon.type === "discount" ? ` -$${coupon.discountAmount ?? 0}` : `（${coupon.exchangeItemName ?? "兌換券"}）`}</option>)}
+                    </select>
+                  </label>
+                )}
               </div>
             ) : (
-              products.map((product) => {
-                const disabled = !store.isOpen || !productIsAvailable(product);
-                return (
-                  <article key={product.id} className={`overflow-hidden rounded-lg border bg-white shadow-sm transition ${disabled ? "border-stone-200 opacity-60 grayscale" : "border-orange-100"}`}>
-                    <div className="relative">
-                      <img src={product.imageUrl} alt={product.name} className="aspect-[4/3] w-full object-cover" />
-                      {product.isSoldOut && <div className="absolute inset-0 grid place-items-center bg-black/55"><span className="rounded-lg bg-white px-4 py-2 text-sm font-black text-ink sm:px-5 sm:py-3 sm:text-lg">售完</span></div>}
-                    </div>
-                    <div className="p-3 sm:p-4">
-                      <div className="flex items-start justify-between gap-2 sm:gap-3">
-                        <div className="min-w-0">
-                          <h2 className="text-lg font-black text-ink sm:text-2xl">{product.name}</h2>
-                          <p className="mt-1 min-h-0 text-xs leading-5 text-steel sm:text-base sm:leading-6">{product.description}</p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-lg font-black text-tomato sm:text-2xl">${productFinalPrice(product)}</p>
-                          {productFinalPrice(product) !== product.price && <p className="text-xs font-bold text-stone-400 line-through">${product.price}</p>}
-                          {discountLabel(product.discountType, product.discountValue) && <p className="mt-1 rounded-full bg-tomato/10 px-2 py-1 text-xs font-black text-tomato">{discountLabel(product.discountType, product.discountValue)}</p>}
-                        </div>
-                      </div>
-                      <button onClick={() => addToCart(product)} disabled={disabled} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-ink px-3 py-3 text-sm font-black text-white disabled:bg-stone-300 sm:mt-4 sm:px-4 sm:py-4 sm:text-base">
-                        <Plus className="size-4 sm:size-5" />
-                        加入購物車
-                      </button>
-                    </div>
-                  </article>
-                );
-              })
+              <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
+                <input value={memberPhone} onChange={(event) => setMemberPhone(event.target.value)} placeholder="手機號碼（查詢會員）" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold" />
+                <input value={memberName} onChange={(event) => setMemberName(event.target.value)} placeholder="新會員姓名（選填）" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold" />
+                <input value={memberBirthday} onChange={(event) => setMemberBirthday(event.target.value)} placeholder="生日（可選）" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold sm:col-span-2" />
+                <button onClick={lookupMember} disabled={memberLoading || !memberPhone.trim()} className="rounded-lg bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">查詢</button>
+                <button onClick={createMember} disabled={memberLoading || !memberPhone.trim() || !memberName.trim()} className="rounded-lg bg-leaf px-4 py-3 text-sm font-black text-white disabled:opacity-50">建立</button>
+              </div>
             )}
+            {memberMessage && <p className="mt-2 text-xs font-bold text-steel">{memberMessage}</p>}
           </div>
+
           <div className="h-4 sm:h-0" />
         </section>
 

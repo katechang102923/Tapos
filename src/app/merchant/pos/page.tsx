@@ -210,6 +210,8 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const [ordersOpen, setOrdersOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [successOrderNumber, setSuccessOrderNumber] = useState("");
+  const [rightTab, setRightTab] = useState<"cart" | "orders">("cart");
+  const [nowTick, setNowTick] = useState(Date.now());
 
   // P0-3: 成功/失敗通知 3 秒後自動消失
   useEffect(() => {
@@ -224,6 +226,12 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
     const t = setTimeout(() => setSuccessOrderNumber(""), 3000);
     return () => clearTimeout(t);
   }, [successOrderNumber]);
+
+  // 30s tick — OrderWorkCard 用來計算等待時間
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   // ── 新訂單通知系統 ────────────────────────────────────────────────────────
   type NewOrderToast = { key: string; text: string };
@@ -361,6 +369,13 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const cashNet = cashIncome - cashExpense;
   const estimatedCashBalance = completedRevenue + cashNet;
   const selectedCashItem = cashFlowItems.find((item) => item.id === cashForm.itemId) ?? null;
+  const cartItemCount = cart.reduce((sum, line) => sum + line.quantity, 0);
+
+  // 有新待接單且購物車空的 → 自動切換到接單 tab（不打斷正在結帳的操作）
+  useEffect(() => {
+    if (pendingOrderCount > 0 && cartItemCount === 0) setRightTab("orders");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingOrderCount]);
 
   // ── 持續響鈴：有待接單時每 5 秒播一次叮咚，接單 / 取消後停止 ────────────
   useEffect(() => {
@@ -605,39 +620,65 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
 
           <PosStatusBar
             activeOrderCount={processingOrderCount}
-            dineInEnabled={store.dineInOrderingEnabled ?? store.dineInEnabled ?? true}
             orderCount={todayOrders.length}
             paused={!store.isOpen || store.orderStatus === "closed"}
             posEnabled={posEnabled}
-            takeoutEnabled={store.takeoutOrderingEnabled ?? store.takeoutEnabled ?? true}
             updateStore={(patch) => upsertStore({ ...store, ...patch })}
           />
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_460px]">
             <QuickOrder activeCategoryId={activeCategoryId} categories={categories} customerNote={customerNote} mode={mode} posEnabled={posEnabled} products={visibleProducts} setActiveCategoryId={setActiveCategoryId} setChoosingProduct={setChoosingProduct} setCustomerNote={setCustomerNote} setMode={setMode} setTableNo={setTableNo} tableNo={tableNo} />
-            <aside className="hidden space-y-4 xl:sticky xl:top-24 xl:block xl:h-fit">
-              <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />
-              <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
+            <aside className="hidden xl:sticky xl:top-24 xl:block xl:h-fit xl:space-y-2">
+              {/* Right-column tab bar */}
+              <div className="flex gap-1 rounded-2xl bg-stone-100 p-1">
+                <button
+                  onClick={() => setRightTab("cart")}
+                  className={"flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-black transition " + (rightTab === "cart" ? "bg-white text-ink shadow" : "text-steel hover:text-ink")}
+                >
+                  <ShoppingCart className="size-3.5" />
+                  購物車
+                  {cartItemCount > 0 && <span className="inline-flex size-5 items-center justify-center rounded-full bg-tomato text-xs font-black text-white">{cartItemCount}</span>}
+                </button>
+                <button
+                  onClick={() => setRightTab("orders")}
+                  className={"flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-black transition " + (rightTab === "orders" ? "bg-white text-ink shadow" : "text-steel hover:text-ink")}
+                >
+                  <ReceiptText className="size-3.5" />
+                  接單進單
+                  {pendingOrderCount > 0 && <span className="inline-flex size-5 items-center justify-center rounded-full bg-tomato text-xs font-black text-white">{pendingOrderCount}</span>}
+                </button>
+              </div>
+              {rightTab === "cart" && <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />}
+              {rightTab === "orders" && <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} nowTick={nowTick} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />}
             </aside>
           </div>
         </div>
 
-        {/* P1-1+3: 手機版固定底列 + 受控 slide-up cart */}
+        {/* 手機版固定底列 */}
         <div className="fixed inset-x-0 bottom-0 z-40 xl:hidden">
           <div className="border-t border-stone-200 bg-white px-3 py-2 shadow-[0_-8px_24px_rgba(15,23,42,0.10)]">
-            <button
-              onClick={() => setCartOpen(true)}
-              className="flex w-full items-center justify-between rounded-xl bg-[#17202a] px-4 py-3 font-black text-white"
-            >
-              <span className="inline-flex items-center gap-2">
-                <ShoppingCart className="size-5" />
-                購物車
-                {cart.reduce((sum, item) => sum + item.quantity, 0) > 0 && (
-                  <span className="rounded-full bg-tomato px-2 py-0.5 text-xs">{cart.reduce((sum, item) => sum + item.quantity, 0)}</span>
-                )}
-              </span>
-              <span className="text-lg">${finalTotal}</span>
-            </button>
+            <div className="flex gap-2">
+              {pendingOrderCount > 0 && (
+                <button
+                  onClick={() => setOrdersOpen(true)}
+                  className="flex shrink-0 items-center gap-1.5 rounded-xl bg-tomato px-4 py-3 font-black text-white"
+                >
+                  <Bell className="size-5 animate-bounce" />
+                  {pendingOrderCount}
+                </button>
+              )}
+              <button
+                onClick={() => setCartOpen(true)}
+                className="flex flex-1 items-center justify-between rounded-xl bg-[#17202a] px-4 py-3 font-black text-white"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <ShoppingCart className="size-5" />
+                  購物車
+                  {cartItemCount > 0 && <span className="rounded-full bg-tomato px-2 py-0.5 text-xs">{cartItemCount}</span>}
+                </span>
+                <span className="text-lg">${finalTotal}</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -654,16 +695,26 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
                 <button onClick={() => setCartOpen(false)} className="rounded-xl bg-stone-100 px-3 py-2 text-sm font-black text-steel">關閉</button>
               </div>
               <div className="p-4">
-                <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />
+                <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />
               </div>
             </div>
           </div>
         )}
       </div>
-      {toolsOpen && <ToolsDrawer cashFlowEnabled={cashFlowFeature && (canAddCashFlow || canViewReport)} kdsEnabled={Boolean(store.features?.kdsEnabled)} onClose={() => setToolsOpen(false)} onOpenOrders={() => { setToolsOpen(false); setOrdersOpen(true); }} storeId={storeId} />}
+      {toolsOpen && <ToolsDrawer
+        cashFlowEnabled={cashFlowFeature && (canAddCashFlow || canViewReport)}
+        dineInEnabled={store.dineInOrderingEnabled ?? store.dineInEnabled ?? true}
+        kdsEnabled={Boolean(store.features?.kdsEnabled)}
+        onClose={() => setToolsOpen(false)}
+        onOpenOrders={() => { setToolsOpen(false); setOrdersOpen(true); }}
+        onToggleDineIn={() => upsertStore({ ...store, dineInOrderingEnabled: !(store.dineInOrderingEnabled ?? store.dineInEnabled ?? true) })}
+        onToggleTakeout={() => upsertStore({ ...store, takeoutOrderingEnabled: !(store.takeoutOrderingEnabled ?? store.takeoutEnabled ?? true) })}
+        storeId={storeId}
+        takeoutEnabled={store.takeoutOrderingEnabled ?? store.takeoutEnabled ?? true}
+      />}
       {ordersOpen && (
         <SideDrawer title="接單進單" onClose={() => setOrdersOpen(false)}>
-          <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
+          <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} nowTick={nowTick} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
         </SideDrawer>
       )}
       {/* 新訂單 Toast 通知堆疊 */}
@@ -738,23 +789,19 @@ function PosSideRail({ cashFlowEnabled, kdsEnabled, onOpenOrders, storeId }: { c
 
 function PosStatusBar({
   activeOrderCount,
-  dineInEnabled,
   orderCount,
   paused,
   posEnabled,
-  takeoutEnabled,
   updateStore,
 }: {
   activeOrderCount: number;
-  dineInEnabled: boolean;
   orderCount: number;
   paused: boolean;
   posEnabled: boolean;
-  takeoutEnabled: boolean;
   updateStore: (patch: Partial<import("@/lib/types").Store>) => void;
 }) {
   return (
-    <section className="mb-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+    <section className="mb-4 grid grid-cols-3 gap-2">
       <button
         type="button"
         onClick={() => updateStore({ isOpen: paused, orderStatus: paused ? "open" : "closed" })}
@@ -763,35 +810,19 @@ function PosStatusBar({
         <span className="block text-xs opacity-70">接單狀態</span>
         {paused ? "暫停接單" : "正常接單"}
       </button>
-      <button
-        type="button"
-        onClick={() => updateStore({ takeoutOrderingEnabled: !takeoutEnabled })}
-        className={`min-h-12 rounded-2xl px-4 py-3 text-left text-sm font-black shadow-sm transition ${takeoutEnabled ? "bg-white text-slate-800" : "bg-tomato text-white"}`}
-      >
-        <span className="block text-xs opacity-70">外帶 QR</span>
-        {takeoutEnabled ? "開放" : "關閉"}
-      </button>
-      <button
-        type="button"
-        onClick={() => updateStore({ dineInOrderingEnabled: !dineInEnabled })}
-        className={`min-h-12 rounded-2xl px-4 py-3 text-left text-sm font-black shadow-sm transition ${dineInEnabled ? "bg-white text-slate-800" : "bg-tomato text-white"}`}
-      >
-        <span className="block text-xs opacity-70">內用 QR</span>
-        {dineInEnabled ? "開放" : "關閉"}
-      </button>
       <div className="min-h-12 rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-800 shadow-sm">
         <span className="block text-xs text-slate-400">今日訂單數</span>
         {orderCount}
       </div>
       <div className="min-h-12 rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-800 shadow-sm">
-        <span className="block text-xs text-slate-400">目前進行中</span>
+        <span className="block text-xs text-slate-400">製作中</span>
         {posEnabled ? activeOrderCount : "POS 關閉"}
       </div>
     </section>
   );
 }
 
-function ToolsDrawer({ cashFlowEnabled, kdsEnabled, onClose, onOpenOrders, storeId }: { cashFlowEnabled: boolean; kdsEnabled: boolean; onClose: () => void; onOpenOrders: () => void; storeId: string }) {
+function ToolsDrawer({ cashFlowEnabled, dineInEnabled, kdsEnabled, onClose, onOpenOrders, onToggleDineIn, onToggleTakeout, storeId, takeoutEnabled }: { cashFlowEnabled: boolean; dineInEnabled: boolean; kdsEnabled: boolean; onClose: () => void; onOpenOrders: () => void; onToggleDineIn: () => void; onToggleTakeout: () => void; storeId: string; takeoutEnabled: boolean }) {
   return (
     <SideDrawer title="POS 功能" onClose={onClose}>
       <div className="grid gap-2">
@@ -799,6 +830,26 @@ function ToolsDrawer({ cashFlowEnabled, kdsEnabled, onClose, onOpenOrders, store
           <ReceiptText className="size-5 text-slate-500" />
           接單進單
         </button>
+        {/* QR 開關 */}
+        <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+          <p className="mb-2 text-xs font-black text-slate-400">QR 點餐開關</p>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={onToggleTakeout}
+              className={"flex items-center justify-between rounded-lg px-3 py-2.5 font-black transition " + (takeoutEnabled ? "bg-leaf/10 text-leaf" : "bg-tomato/10 text-tomato")}
+            >
+              <span>外帶 QR</span>
+              <span className="text-sm">{takeoutEnabled ? "開放中" : "已關閉"}</span>
+            </button>
+            <button
+              onClick={onToggleDineIn}
+              className={"flex items-center justify-between rounded-lg px-3 py-2.5 font-black transition " + (dineInEnabled ? "bg-leaf/10 text-leaf" : "bg-tomato/10 text-tomato")}
+            >
+              <span>內用 QR</span>
+              <span className="text-sm">{dineInEnabled ? "開放中" : "已關閉"}</span>
+            </button>
+          </div>
+        </div>
         <Link href="/merchant/customers" className="flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-4 font-black text-slate-800">
           <UserPlus className="size-5 text-slate-500" />
           會員
@@ -839,25 +890,24 @@ function SideDrawer({ children, onClose, title }: { children: React.ReactNode; o
   );
 }
 
-function OrderBoard({ activeOrderTab, canCancelOrders, displayedOrders, enablePickupDisplay, pendingCount, setActiveOrderTab, updateOrderStatus }: { activeOrderTab: string; canCancelOrders: boolean; displayedOrders: Order[]; enablePickupDisplay: boolean; pendingCount: number; setActiveOrderTab: (key: (typeof orderTabs)[number]["key"]) => void; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
+function OrderBoard({ activeOrderTab, canCancelOrders, displayedOrders, enablePickupDisplay, nowTick, pendingCount, setActiveOrderTab, updateOrderStatus }: { activeOrderTab: string; canCancelOrders: boolean; displayedOrders: Order[]; enablePickupDisplay: boolean; nowTick: number; pendingCount: number; setActiveOrderTab: (key: (typeof orderTabs)[number]["key"]) => void; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
   return (
     <section className="rounded-lg bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-black">接單進單</h2>
-          <p className="mt-1 text-sm font-bold text-steel">查看新訂單、處理中訂單與已完成訂單。</p>
+          <h2 className="text-xl font-black">接單進單</h2>
         </div>
         {pendingCount > 0 ? (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-tomato px-3 py-1.5 text-sm font-black text-white">
             <Bell className="size-4 animate-bounce" />
             {pendingCount} 待接
           </span>
-        ) : <Clock3 className="size-7 text-tomato" />}
+        ) : <Clock3 className="size-6 text-steel" />}
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {orderTabs.map((tab) => (
           <button key={tab.key} onClick={() => setActiveOrderTab(tab.key)}
-            className={"relative rounded-lg px-3 py-3 font-black " + (activeOrderTab === tab.key ? "bg-ink text-white" : "bg-stone-100 text-steel")}
+            className={"relative rounded-lg px-3 py-2.5 text-sm font-black " + (activeOrderTab === tab.key ? "bg-ink text-white" : "bg-stone-100 text-steel")}
           >
             {tab.label}
             {tab.key === "new" && pendingCount > 0 && (
@@ -866,18 +916,13 @@ function OrderBoard({ activeOrderTab, canCancelOrders, displayedOrders, enablePi
           </button>
         ))}
       </div>
-      <div className="mt-4 space-y-3">
+      <div className="mt-3 space-y-3">
         {displayedOrders.length === 0 ? (
           <p className="rounded-lg bg-stone-50 p-5 text-center font-black text-steel">目前沒有訂單</p>
         ) : (
-          displayedOrders.map((order) => {
-            const isPending = ["pending", "waiting", "unprocessed"].includes(order.status);
-            return (
-              <div key={order.id} className={isPending ? "rounded-xl ring-2 ring-tomato ring-offset-1" : ""}>
-                <OrderWorkCard canCancelOrders={canCancelOrders} enablePickupDisplay={enablePickupDisplay} order={order} updateOrderStatus={updateOrderStatus} />
-              </div>
-            );
-          })
+          displayedOrders.map((order) => (
+            <OrderWorkCard key={order.id} canCancelOrders={canCancelOrders} enablePickupDisplay={enablePickupDisplay} nowTick={nowTick} order={order} updateOrderStatus={updateOrderStatus} />
+          ))
         )}
       </div>
     </section>
@@ -966,37 +1011,44 @@ function TopupModal({ member, onClose, onSubmit }: { member: Customer; onClose: 
 
 function QuickOrder({ activeCategoryId, categories, customerNote, mode, posEnabled, products, setActiveCategoryId, setChoosingProduct, setCustomerNote, setMode, setTableNo, tableNo }: { activeCategoryId: string; categories: { id: string; name: string }[]; customerNote: string; mode: OrderMode; posEnabled: boolean; products: Product[]; setActiveCategoryId: (id: string) => void; setChoosingProduct: (product: Product) => void; setCustomerNote: (value: string) => void; setMode: (mode: OrderMode) => void; setTableNo: (value: string) => void; tableNo: string }) {
   return (
-    <section className="rounded-2xl bg-white p-4 shadow-sm sm:p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><h2 className="text-2xl font-black">快速建立訂單</h2><p className="mt-1 text-sm font-bold text-steel">{posEnabled ? "選擇商品後加入購物車。" : "POS 現場單目前暫停接單。"}</p></div>
-        <div className="flex gap-2">
-          <button onClick={() => setMode("takeout")} className={"rounded-xl px-4 py-3 font-black " + (mode === "takeout" ? "bg-ink text-white" : "bg-stone-100 text-steel")}>外帶</button>
-          <button onClick={() => setMode("dine-in")} className={"rounded-xl px-4 py-3 font-black " + (mode === "dine-in" ? "bg-ink text-white" : "bg-stone-100 text-steel")}>內用</button>
+    <section className="rounded-2xl bg-white shadow-sm">
+      {/* Compact 1-line strip: mode + table + note */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-stone-100 px-3 py-2">
+        <div className="flex rounded-lg bg-stone-100 p-0.5">
+          <button onClick={() => setMode("takeout")} className={"rounded-md px-3 py-1.5 text-sm font-black transition " + (mode === "takeout" ? "bg-white text-ink shadow-sm" : "text-steel")}>外帶</button>
+          <button onClick={() => setMode("dine-in")} className={"rounded-md px-3 py-1.5 text-sm font-black transition " + (mode === "dine-in" ? "bg-white text-ink shadow-sm" : "text-steel")}>內用</button>
         </div>
+        {mode === "dine-in" && (
+          <input value={tableNo} onChange={(e) => setTableNo(e.target.value)} placeholder="桌號" className="w-16 rounded-lg border border-stone-200 px-2 py-1.5 text-sm font-bold" />
+        )}
+        <input value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} placeholder="訂單備註（選填）" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 py-1.5 text-sm font-bold" />
+        {!posEnabled && <span className="shrink-0 text-xs font-black text-tomato">POS 暫停</span>}
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-[180px_1fr]">
-        {mode === "dine-in" && <Field label="桌號" value={tableNo} onChange={setTableNo} />}
-        <Field label="訂單備註" value={customerNote} onChange={setCustomerNote} className={mode === "takeout" ? "sm:col-span-2" : ""} />
-      </div>
-      <div className="sticky top-[86px] z-10 mt-4 flex gap-2 overflow-x-auto bg-white/95 pb-2 pt-1 backdrop-blur">
-        <button onClick={() => setActiveCategoryId("all")} className={"shrink-0 rounded-full px-4 py-2 text-sm font-black " + (activeCategoryId === "all" ? "bg-leaf text-white" : "bg-orange-50 text-steel")}>全部</button>
-        {categories.map((category) => <button key={category.id} onClick={() => setActiveCategoryId(category.id)} className={"shrink-0 rounded-full px-4 py-2 text-sm font-black " + (activeCategoryId === category.id ? "bg-leaf text-white" : "bg-orange-50 text-steel")}>{category.name}</button>)}
-      </div>
-      <div className="mt-3 grid gap-3 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3 xl:max-h-[calc(100vh-260px)] 2xl:grid-cols-4">
-        {products.map((product) => (
-          <button key={product.id} disabled={!posEnabled} onClick={() => setChoosingProduct(product)} className="rounded-2xl border border-stone-200 bg-white p-3 text-left transition hover:border-leaf hover:bg-[#fbfff4] disabled:opacity-50">
-            <div className="flex items-start gap-3">
-              <img src={product.imageUrl} alt={product.name} className="size-16 rounded-xl object-cover sm:size-20" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-base font-black sm:text-lg">{product.name}</p>
-                <p className="mt-1 line-clamp-2 text-xs font-bold text-steel">{product.description}</p>
-                <p className="mt-2 text-xl font-black text-tomato">${productFinalPrice(product)}</p>
-                {productFinalPrice(product) !== product.price && <p className="text-xs font-bold text-stone-400 line-through">${product.price}</p>}
-                {discountLabel(product.discountType, product.discountValue) && <p className="mt-1 text-xs font-black text-tomato">{discountLabel(product.discountType, product.discountValue)}</p>}
-              </div>
-            </div>
-          </button>
+      {/* Category tabs */}
+      <div className="sticky top-[68px] z-10 flex gap-2 overflow-x-auto bg-white/95 px-3 pb-2 pt-2 backdrop-blur">
+        <button onClick={() => setActiveCategoryId("all")} className={"shrink-0 rounded-full px-4 py-1.5 text-sm font-black " + (activeCategoryId === "all" ? "bg-leaf text-white" : "bg-orange-50 text-steel")}>全部</button>
+        {categories.map((category) => (
+          <button key={category.id} onClick={() => setActiveCategoryId(category.id)} className={"shrink-0 rounded-full px-4 py-1.5 text-sm font-black " + (activeCategoryId === category.id ? "bg-leaf text-white" : "bg-orange-50 text-steel")}>{category.name}</button>
         ))}
+      </div>
+      {/* Product grid */}
+      <div className="p-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:max-h-[calc(100vh-200px)] xl:overflow-y-auto xl:pr-1 2xl:grid-cols-4">
+          {products.map((product) => (
+            <button key={product.id} disabled={!posEnabled} onClick={() => setChoosingProduct(product)} className="rounded-2xl border border-stone-200 bg-white p-3 text-left transition hover:border-leaf hover:bg-[#fbfff4] disabled:opacity-50">
+              <div className="flex items-start gap-3">
+                <img src={product.imageUrl} alt={product.name} className="size-16 rounded-xl object-cover sm:size-20" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-base font-black sm:text-lg">{product.name}</p>
+                  <p className="mt-1 line-clamp-2 text-xs font-bold text-steel">{product.description}</p>
+                  <p className="mt-2 text-xl font-black text-tomato">${productFinalPrice(product)}</p>
+                  {productFinalPrice(product) !== product.price && <p className="text-xs font-bold text-stone-400 line-through">${product.price}</p>}
+                  {discountLabel(product.discountType, product.discountValue) && <p className="mt-1 text-xs font-black text-tomato">{discountLabel(product.discountType, product.discountValue)}</p>}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -1033,43 +1085,63 @@ function CenteredNotice({ title, text }: { title: string; text: string }) {
   return <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4"><div className="rounded-lg bg-white p-6 shadow-soft"><h1 className="text-2xl font-black text-ink">{title}</h1>{text && <p className="mt-3 text-steel">{text}</p>}</div></main>;
 }
 
-function OrderWorkCard({ canCancelOrders, enablePickupDisplay, order, updateOrderStatus }: { canCancelOrders: boolean; enablePickupDisplay: boolean; order: Order; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
+function OrderWorkCard({ canCancelOrders, enablePickupDisplay, nowTick, order, updateOrderStatus }: { canCancelOrders: boolean; enablePickupDisplay: boolean; nowTick: number; order: Order; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
   const cancelReason = order.cancelReason ?? order.rejectReason;
+  const isPending = ["pending", "waiting", "unprocessed"].includes(order.status);
   const isPosDirectComplete = order.source === "pos" && !enablePickupDisplay;
-  const sourceLabel = order.source === "qr" ? "QR 進單" : order.source === "pos" ? "POS 現場單" : "其他來源";
-  const modeLabel = order.mode === "takeout" ? "外帶" : `內用 ${order.tableName ?? order.tableNo ?? ""}`.trim();
+  const isTakeout = order.mode === "takeout";
+  const tableLabel = order.tableName ?? order.tableNo ?? "";
+
+  const waitMs = nowTick - new Date(order.createdAt).getTime();
+  const waitMin = Math.max(0, Math.floor(waitMs / 60_000));
+  const isOverdue = isPending && waitMin >= 10;
 
   return (
-    <article className={"rounded-lg border p-4 " + (["pending", "waiting", "unprocessed"].includes(order.status) ? "animate-order-pop border-tomato bg-tomato/5" : "border-stone-200 bg-white")}>
+    <article className={
+      "rounded-xl border p-4 " +
+      (isOverdue
+        ? "animate-pulse border-tomato bg-tomato/5 ring-2 ring-tomato ring-offset-1"
+        : isPending
+        ? "animate-order-pop border-tomato bg-tomato/5"
+        : "border-stone-200 bg-white")
+    }>
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-3xl font-black">#{order.orderNumber}</p>
-          <p className="mt-1 text-sm font-bold text-steel">
-            {sourceLabel} / {modeLabel} / {new Date(order.createdAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-2xl font-black">#{order.orderNumber}</p>
+            {isTakeout
+              ? <span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-black text-orange-700">外帶</span>
+              : <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-black text-blue-700">{tableLabel ? tableLabel + " 桌" : "內用"}</span>
+            }
+            {isOverdue && <span className="rounded-full bg-tomato px-2.5 py-1 text-xs font-black text-white">等待過久</span>}
+          </div>
+          <p className="mt-1 text-xs font-bold text-steel">
+            {new Date(order.createdAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}
+            {isPending && waitMin > 0 && <span className={" · 等待 " + waitMin + " 分" + (isOverdue ? " ⚠️" : "")}></span>}
           </p>
         </div>
         <StatusPill status={order.status} />
       </div>
       {cancelReason && order.status === "cancelled" && <p className="mt-3 rounded-lg bg-tomato/10 px-3 py-2 text-sm font-black text-tomato">取消原因：{cancelReason}</p>}
-      {order.customerNote && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-black text-amber-800">訂單備註：{order.customerNote}</p>}
+      {order.customerNote && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-black text-amber-800">備註：{order.customerNote}</p>}
       <div className="mt-3 space-y-2 text-sm font-bold text-steel">{order.items.map((item) => <OrderItemLine key={item.id} item={item} />)}</div>
-      <p className="mt-3 text-lg font-black text-tomato">總金額 ${order.totalAmount ?? order.total}</p>
+      <p className="mt-3 text-lg font-black text-tomato">$ {order.totalAmount ?? order.total}</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        {["pending", "waiting", "unprocessed"].includes(order.status) && (
-          <button onClick={() => updateOrderStatus(order.id, "accepted")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white">
-            <CheckCircle2 className="size-4" />
+        {isPending && (
+          <button onClick={() => updateOrderStatus(order.id, "accepted")} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-leaf px-4 py-3 font-black text-white">
+            <CheckCircle2 className="size-5" />
             接單
           </button>
         )}
         {["accepted", "cooking", "preparing", "ready"].includes(order.status) && (
-          <button onClick={() => updateOrderStatus(order.id, "completed")} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-3 py-2 font-black text-white">
-            <CheckCircle2 className="size-4" />
+          <button onClick={() => updateOrderStatus(order.id, "completed")} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-leaf px-4 py-3 font-black text-white">
+            <CheckCircle2 className="size-5" />
             {isPosDirectComplete ? "完成訂單" : "餐點完成"}
           </button>
         )}
         {canCancelOrders && !["completed", "cancelled"].includes(order.status) && (
-          <button onClick={() => updateOrderStatus(order.id, "cancelled")} className="inline-flex items-center gap-2 rounded-lg bg-tomato px-3 py-2 font-black text-white">
-            <XCircle className="size-4" />
+          <button onClick={() => updateOrderStatus(order.id, "cancelled")} className="inline-flex items-center justify-center gap-2 rounded-xl bg-stone-100 px-4 py-3 font-black text-steel">
+            <XCircle className="size-5" />
             取消
           </button>
         )}
@@ -1098,12 +1170,13 @@ function OrderItemLine({ item }: { item: OrderItem }) {
   );
 }
 
-function CartPanel({ canApplyDiscounts, cart, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promotionDiscounts, finalTotal, cashDue, storedValueDeduction, orderDiscount, setOrderDiscount, removeLine, submitOrder, updateLine, isSubmitting, posEnabled, memberEnabled, memberStoredValueEnabled, canUseMemberLookup, canUseStoredValue, boundMember, storedValueUsed, onLookupMember, onClearMember, onStoredValueChange, onOpenCreateMember, onOpenTopup }: { canApplyDiscounts: boolean; cart: CartLine[]; itemsSubtotal: number; itemDiscountTotal: number; orderDiscAmt: number; promotionDiscounts: import("@/lib/types").PromotionDiscountLine[]; finalTotal: number; cashDue: number; storedValueDeduction: number; orderDiscount: CartItemDiscount; setOrderDiscount: (d: CartItemDiscount) => void; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean; memberEnabled: boolean; memberStoredValueEnabled: boolean; canUseMemberLookup: boolean; canUseStoredValue: boolean; boundMember: Customer | null; storedValueUsed: number; onLookupMember: (q: string) => Customer | null | undefined; onClearMember: () => void; onStoredValueChange: (amount: number) => void; onOpenCreateMember: () => void; onOpenTopup: () => void }) {
+function CartPanel({ canApplyDiscounts, cart, customerNote, setCustomerNote, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promotionDiscounts, finalTotal, cashDue, storedValueDeduction, orderDiscount, setOrderDiscount, removeLine, submitOrder, updateLine, isSubmitting, posEnabled, memberEnabled, memberStoredValueEnabled, canUseMemberLookup, canUseStoredValue, boundMember, storedValueUsed, onLookupMember, onClearMember, onStoredValueChange, onOpenCreateMember, onOpenTopup }: { canApplyDiscounts: boolean; cart: CartLine[]; customerNote: string; setCustomerNote: (v: string) => void; itemsSubtotal: number; itemDiscountTotal: number; orderDiscAmt: number; promotionDiscounts: import("@/lib/types").PromotionDiscountLine[]; finalTotal: number; cashDue: number; storedValueDeduction: number; orderDiscount: CartItemDiscount; setOrderDiscount: (d: CartItemDiscount) => void; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean; memberEnabled: boolean; memberStoredValueEnabled: boolean; canUseMemberLookup: boolean; canUseStoredValue: boolean; boundMember: Customer | null; storedValueUsed: number; onLookupMember: (q: string) => Customer | null | undefined; onClearMember: () => void; onStoredValueChange: (amount: number) => void; onOpenCreateMember: () => void; onOpenTopup: () => void }) {
   const [showOrderDiscForm, setShowOrderDiscForm] = useState(false);
   const [orderDiscType, setOrderDiscType] = useState<"amount" | "percent">("amount");
   const [orderDiscValue, setOrderDiscValue] = useState("");
   const [memberQuery, setMemberQuery] = useState("");
   const [memberNotFound, setMemberNotFound] = useState(false);
+  const [memberSectionOpen, setMemberSectionOpen] = useState(false);
 
   const promotionDiscountTotal = promotionDiscounts.reduce((sum, p) => sum + p.amount, 0);
   const hasDiscount = itemDiscountTotal > 0 || orderDiscAmt > 0 || promotionDiscountTotal > 0 || storedValueDeduction > 0;
@@ -1124,82 +1197,16 @@ function CartPanel({ canApplyDiscounts, cart, itemsSubtotal, itemDiscountTotal, 
   }
 
   return (
-    <section className="rounded-lg bg-white p-5 shadow-sm">
-      <h2 className="text-2xl font-black">現場訂單購物車</h2>
+    <section className="rounded-lg bg-white p-4 shadow-sm">
+      <h2 className="text-xl font-black text-ink">購物車</h2>
       {!posEnabled && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-sm font-black text-tomato">POS 現場單目前暫停接單</p>}
 
-      {memberEnabled && canUseMemberLookup && (
-        <div className="mt-4">
-          {boundMember ? (
-            <div className="rounded-lg bg-blue-50 p-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm font-black text-blue-800">已綁定會員</p>
-                  <p className="font-black text-ink">{boundMember.name} <span className="text-sm font-bold text-steel">({boundMember.memberNo})</span></p>
-                  <p className="text-sm font-bold text-steel">點數：{boundMember.points} 點 {memberStoredValueEnabled ? "儲值餘額 $" + boundMember.storedValueBalance : ""}</p>
-                </div>
-                <button onClick={onClearMember} className="rounded-lg bg-stone-200 px-2 py-1 text-xs font-black text-steel">清除</button>
-              </div>
-              {memberStoredValueEnabled && canUseStoredValue && boundMember.storedValueBalance > 0 && (
-                <div className="mt-2 flex items-center gap-2">
-                  <label className="text-xs font-black text-blue-700">使用儲值金 $</label>
-                  <input
-                    type="number" min="0" max={boundMember.storedValueBalance}
-                    value={storedValueUsed || ""}
-                    onChange={(e) => onStoredValueChange(Math.min(Number(e.target.value) || 0, boundMember.storedValueBalance))}
-                    placeholder="0"
-                    className="w-24 rounded-lg border border-blue-200 px-2 py-1 text-sm font-bold"
-                  />
-                  <span className="text-xs text-steel">可用餘額 ${boundMember.storedValueBalance}</span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div>
-              <div className="flex gap-2">
-                <input
-                  value={memberQuery}
-                  onChange={(e) => { setMemberQuery(e.target.value); setMemberNotFound(false); }}
-                  onKeyDown={(e) => e.key === "Enter" && handleMemberLookup()}
-                  placeholder="手機 / 會員編號查詢"
-                  className="flex-1 rounded-lg border border-orange-100 px-3 py-2 text-sm font-bold"
-                />
-                <button onClick={handleMemberLookup} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-black text-white">查詢</button>
-              </div>
-              {memberNotFound && <p className="mt-1 text-xs font-black text-tomato">查無會員，可直接新增會員。</p>}
-            </div>
-          )}
-        </div>
-      )}
-      {memberEnabled && canUseMemberLookup && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          <button onClick={onOpenCreateMember} className="inline-flex items-center gap-1 rounded-lg bg-leaf px-3 py-2 text-sm font-black text-white"><UserPlus className="size-4" />新增會員</button>
-          {boundMember && memberStoredValueEnabled && canUseStoredValue && <button onClick={onOpenTopup} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-black text-white">儲值</button>}
-          {boundMember && <span className="rounded-lg bg-stone-100 px-3 py-2 text-sm font-black text-steel">餘額 ${boundMember.balance ?? boundMember.storedValueBalance}</span>}
-        </div>
-      )}
+      {/* 1. Cart items */}
       {cart.length === 0
-        ? <p className="mt-4 rounded-lg bg-orange-50 p-4 text-center text-sm font-black text-steel">尚未加入商品</p>
-        : <div className="mt-4 space-y-4">{cart.map((line, index) => <CartLineCard key={line.product.id + "-" + index} canApplyDiscounts={canApplyDiscounts} index={index} line={line} removeLine={removeLine} updateLine={updateLine} />)}</div>}
+        ? <p className="mt-3 rounded-lg bg-orange-50 p-4 text-center text-sm font-black text-steel">尚未加入商品</p>
+        : <div className="mt-3 space-y-3">{cart.map((line, index) => <CartLineCard key={line.product.id + "-" + index} canApplyDiscounts={canApplyDiscounts} index={index} line={line} removeLine={removeLine} updateLine={updateLine} />)}</div>}
 
-      <div className="mt-6 rounded-lg bg-orange-50 p-4">
-        {hasDiscount ? (
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-sm font-bold text-steel"><span>小計</span><span>${itemsSubtotal}</span></div>
-            {itemDiscountTotal > 0 && <div className="flex justify-between text-sm font-bold text-tomato"><span>單品折扣</span><span>-${itemDiscountTotal}</span></div>}
-            {orderDiscAmt > 0 && <div className="flex justify-between text-sm font-bold text-tomato"><span>整單折扣</span><span>-${orderDiscAmt}</span></div>}
-            {promotionDiscounts.map((p) => (
-              <div key={p.promotionId} className="flex justify-between text-sm font-bold text-leaf"><span>促銷：{p.promotionName}</span><span>-${p.amount}</span></div>
-            ))}
-            <div className="flex justify-between border-t border-orange-200 pt-2 text-xl font-black text-ink"><span>訂單總額</span><span>${finalTotal}</span></div>
-            {storedValueDeduction > 0 && <div className="flex justify-between text-sm font-bold text-blue-600"><span>儲值折抵</span><span>-${storedValueDeduction}</span></div>}
-            {storedValueDeduction > 0 && <div className="flex justify-between text-lg font-black text-ink"><span>應收現金</span><span>${cashDue}</span></div>}
-          </div>
-        ) : (
-          <p className="text-xl font-black text-ink">總計：${finalTotal}</p>
-        )}
-      </div>
-
+      {/* Discount toggle */}
       {canApplyDiscounts && orderDiscount ? (
         <div className="mt-3 flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2">
           <p className="text-sm font-black text-amber-700">整單折扣：{orderDiscount.type === "amount" ? "-$" + orderDiscount.value : orderDiscount.value + "%"}，折抵 -${orderDiscAmt}</p>
@@ -1224,7 +1231,91 @@ function CartPanel({ canApplyDiscounts, cart, itemsSubtotal, itemDiscountTotal, 
         </button>
       ) : null}
 
-      <button onClick={submitOrder} disabled={cart.length === 0 || isSubmitting || !posEnabled} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-leaf px-4 py-4 font-black text-white disabled:opacity-60"><Send className="size-5" />{isSubmitting ? "送出中..." : "送出訂單"}</button>
+      {/* 2. Total */}
+      <div className="mt-4 rounded-lg bg-orange-50 p-4">
+        {hasDiscount ? (
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-sm font-bold text-steel"><span>小計</span><span>${itemsSubtotal}</span></div>
+            {itemDiscountTotal > 0 && <div className="flex justify-between text-sm font-bold text-tomato"><span>單品折扣</span><span>-${itemDiscountTotal}</span></div>}
+            {orderDiscAmt > 0 && <div className="flex justify-between text-sm font-bold text-tomato"><span>整單折扣</span><span>-${orderDiscAmt}</span></div>}
+            {promotionDiscounts.map((p) => (
+              <div key={p.promotionId} className="flex justify-between text-sm font-bold text-leaf"><span>促銷：{p.promotionName}</span><span>-${p.amount}</span></div>
+            ))}
+            <div className="flex justify-between border-t border-orange-200 pt-2 text-xl font-black text-ink"><span>訂單總額</span><span>${finalTotal}</span></div>
+            {storedValueDeduction > 0 && <div className="flex justify-between text-sm font-bold text-blue-600"><span>儲值折抵</span><span>-${storedValueDeduction}</span></div>}
+            {storedValueDeduction > 0 && <div className="flex justify-between text-lg font-black text-ink"><span>應收現金</span><span>${cashDue}</span></div>}
+          </div>
+        ) : (
+          <p className="text-xl font-black text-ink">總計：${finalTotal}</p>
+        )}
+      </div>
+
+      {/* 3. Submit */}
+      <button onClick={submitOrder} disabled={cart.length === 0 || isSubmitting || !posEnabled} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-leaf px-4 py-4 font-black text-white disabled:opacity-60">
+        <Send className="size-5" />
+        {isSubmitting ? "送出中..." : "送出訂單"}
+      </button>
+
+      {/* 4. Member section — collapsed by default */}
+      {memberEnabled && canUseMemberLookup && (
+        <div className="mt-4 border-t border-stone-100 pt-4">
+          <button
+            onClick={() => setMemberSectionOpen((v) => !v)}
+            className="flex w-full items-center justify-between text-sm font-black text-steel"
+          >
+            <span>{boundMember ? `會員：${boundMember.name}` : "綁定會員（選填）"}</span>
+            <span className="text-xs">{memberSectionOpen ? "▲" : "▼"}</span>
+          </button>
+
+          {memberSectionOpen && (
+            <div className="mt-3">
+              {boundMember ? (
+                <div className="rounded-lg bg-blue-50 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-black text-blue-800">已綁定會員</p>
+                      <p className="font-black text-ink">{boundMember.name} <span className="text-sm font-bold text-steel">({boundMember.memberNo})</span></p>
+                      <p className="text-sm font-bold text-steel">點數：{boundMember.points} 點{memberStoredValueEnabled ? " · 儲值 $" + boundMember.storedValueBalance : ""}</p>
+                    </div>
+                    <button onClick={onClearMember} className="rounded-lg bg-stone-200 px-2 py-1 text-xs font-black text-steel">清除</button>
+                  </div>
+                  {memberStoredValueEnabled && canUseStoredValue && boundMember.storedValueBalance > 0 && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <label className="text-xs font-black text-blue-700">使用儲值金 $</label>
+                      <input
+                        type="number" min="0" max={boundMember.storedValueBalance}
+                        value={storedValueUsed || ""}
+                        onChange={(e) => onStoredValueChange(Math.min(Number(e.target.value) || 0, boundMember.storedValueBalance))}
+                        placeholder="0"
+                        className="w-24 rounded-lg border border-blue-200 px-2 py-1 text-sm font-bold"
+                      />
+                      <span className="text-xs text-steel">可用 ${boundMember.storedValueBalance}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <div className="flex gap-2">
+                    <input
+                      value={memberQuery}
+                      onChange={(e) => { setMemberQuery(e.target.value); setMemberNotFound(false); }}
+                      onKeyDown={(e) => e.key === "Enter" && handleMemberLookup()}
+                      placeholder="手機 / 會員編號查詢"
+                      className="flex-1 rounded-lg border border-orange-100 px-3 py-2 text-sm font-bold"
+                    />
+                    <button onClick={handleMemberLookup} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-black text-white">查詢</button>
+                  </div>
+                  {memberNotFound && <p className="mt-1 text-xs font-black text-tomato">查無會員，可直接新增會員。</p>}
+                </div>
+              )}
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button onClick={onOpenCreateMember} className="inline-flex items-center gap-1 rounded-lg bg-leaf px-3 py-2 text-sm font-black text-white"><UserPlus className="size-4" />新增會員</button>
+                {boundMember && memberStoredValueEnabled && canUseStoredValue && <button onClick={onOpenTopup} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-black text-white">儲值</button>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }
