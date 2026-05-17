@@ -8,7 +8,7 @@ import { businessScheduleSummary, defaultBusinessSchedule, normalizeBusinessSche
 import { useDemoStore } from "@/lib/demo-store";
 import { defaultStoreId, isPlatformAdmin } from "@/lib/store-access";
 import { storeRoleFor } from "@/lib/store-access";
-import type { BusinessSchedule, User, WeekdayKey } from "@/lib/types";
+import type { BusinessSchedule, PrintSettings, User, WeekdayKey } from "@/lib/types";
 
 const taiwanDistricts: Record<string, string[]> = {
   "高雄市": ["新興區", "前金區", "苓雅區", "鹽埕區", "鼓山區", "旗津區", "前鎮區", "三民區", "楠梓區", "小港區", "左營區", "仁武區", "大社區", "岡山區", "路竹區", "阿蓮區", "田寮區", "燕巢區", "橋頭區", "梓官區", "彌陀區", "永安區", "湖內區", "鳳山區", "大寮區", "林園區", "鳥松區", "大樹區", "旗山區", "美濃區", "內門區", "杉林區", "甲仙區", "六龜區", "茂林區", "桃源區", "那瑪夏區"],
@@ -41,6 +41,7 @@ type StoreForm = {
   allowPosOutsideBusinessHours: boolean;
   enablePickupDisplay: boolean;
   checkoutMode: "prepaid" | "postpaid";
+  printSettings: PrintSettings;
   reportEmailEnabled: boolean;
   reportEmailRecipients: string;
   reportEmailTime: string;
@@ -54,9 +55,24 @@ export function StoreSettings() {
   );
 }
 
+const DEFAULT_PRINT_SETTINGS: PrintSettings = {
+  printOnAccept: false,
+  kitchenCopies: 1,
+  receiptCopies: 1,
+  labelCopies: 0,
+  fontSize: "medium",
+  showCustomerPhone: true,
+  showCustomerName: true,
+  showPrice: true,
+  emphasizeOrderType: true,
+  tableNoFontSize: "large",
+  layout: "standard",
+};
+
 function StoreSettingsContent({ storeId, profile }: { storeId: string; profile: User | null }) {
   const { db, upsertStore } = useDemoStore({ storeId, skipOrderList: true });
   const canManageCheckoutMode = isPlatformAdmin(profile) || ["owner", "manager"].includes(storeRoleFor(profile, storeId) ?? "");
+  const canManagePrintSettings = canManageCheckoutMode;
   const store = db.stores.find((item) => item.id === storeId);
   const [message, setMessage] = useState("");
   const [closedDateInput, setClosedDateInput] = useState("");
@@ -85,6 +101,7 @@ function StoreSettingsContent({ storeId, profile }: { storeId: string; profile: 
     allowPosOutsideBusinessHours: false,
     enablePickupDisplay: true,
     checkoutMode: "prepaid",
+    printSettings: DEFAULT_PRINT_SETTINGS,
     reportEmailEnabled: false,
     reportEmailRecipients: "",
     reportEmailTime: "23:00"
@@ -117,6 +134,7 @@ function StoreSettingsContent({ storeId, profile }: { storeId: string; profile: 
       allowPosOutsideBusinessHours: store.allowPosOutsideBusinessHours ?? false,
       enablePickupDisplay: store.enablePickupDisplay ?? true,
       checkoutMode: store.checkoutMode ?? "prepaid",
+      printSettings: { ...DEFAULT_PRINT_SETTINGS, ...(store.printSettings ?? {}) },
       reportEmailEnabled: store.reportEmailEnabled ?? false,
       reportEmailRecipients: store.reportEmailRecipients ?? "",
       reportEmailTime: store.reportEmailTime ?? "23:00"
@@ -143,6 +161,10 @@ function StoreSettingsContent({ storeId, profile }: { storeId: string; profile: 
 
   function update<K extends keyof StoreForm>(key: K, value: StoreForm[K]) {
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function updatePrint<K extends keyof PrintSettings>(key: K, value: PrintSettings[K]) {
+    setForm((current) => ({ ...current, printSettings: { ...current.printSettings, [key]: value } }));
   }
 
   function updateAddressCity(city: string) {
@@ -356,6 +378,62 @@ function StoreSettingsContent({ storeId, profile }: { storeId: string; profile: 
                 </label>
               ))}
             </div>
+          </div>
+
+          {/* 列印設定 */}
+          <div className="rounded-lg bg-white p-5 shadow-sm">
+            <h2 className="text-xl font-black text-ink">列印設定</h2>
+            <p className="mt-1 text-sm font-bold text-steel">設定接單後自動列印的格式與張數。</p>
+            {!canManagePrintSettings && (
+              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-bold text-amber-700">
+                僅老闆、店長或系統管理員可修改列印設定
+              </p>
+            )}
+            <fieldset disabled={!canManagePrintSettings} className="mt-3 space-y-3 disabled:opacity-60">
+              <Toggle label="接單後自動列印" checked={form.printSettings.printOnAccept} onChange={(v) => updatePrint("printOnAccept", v)} />
+              <Toggle label="顯示客戶姓名" checked={form.printSettings.showCustomerName} onChange={(v) => updatePrint("showCustomerName", v)} />
+              <Toggle label="顯示客戶電話" checked={form.printSettings.showCustomerPhone} onChange={(v) => updatePrint("showCustomerPhone", v)} />
+              <Toggle label="顯示單價" checked={form.printSettings.showPrice} onChange={(v) => updatePrint("showPrice", v)} />
+              <Toggle label="強調外帶 / 內用" checked={form.printSettings.emphasizeOrderType} onChange={(v) => updatePrint("emphasizeOrderType", v)} />
+              <div className="grid grid-cols-3 gap-2">
+                <label className="grid gap-1 text-xs font-black text-steel">
+                  廚房單張數
+                  <input type="number" min="0" max="5" value={form.printSettings.kitchenCopies} disabled={!canManagePrintSettings} onChange={(e) => updatePrint("kitchenCopies", Math.max(0, Math.min(5, Number(e.target.value))))} className="rounded-lg border border-orange-100 px-3 py-2 font-bold text-ink disabled:bg-stone-100" />
+                </label>
+                <label className="grid gap-1 text-xs font-black text-steel">
+                  收據張數
+                  <input type="number" min="0" max="5" value={form.printSettings.receiptCopies} disabled={!canManagePrintSettings} onChange={(e) => updatePrint("receiptCopies", Math.max(0, Math.min(5, Number(e.target.value))))} className="rounded-lg border border-orange-100 px-3 py-2 font-bold text-ink disabled:bg-stone-100" />
+                </label>
+                <label className="grid gap-1 text-xs font-black text-steel">
+                  標籤張數
+                  <input type="number" min="0" max="5" value={form.printSettings.labelCopies} disabled={!canManagePrintSettings} onChange={(e) => updatePrint("labelCopies", Math.max(0, Math.min(5, Number(e.target.value))))} className="rounded-lg border border-orange-100 px-3 py-2 font-bold text-ink disabled:bg-stone-100" />
+                </label>
+              </div>
+              <label className="grid gap-1 text-xs font-black text-steel">
+                字體大小
+                <select value={form.printSettings.fontSize} disabled={!canManagePrintSettings} onChange={(e) => updatePrint("fontSize", e.target.value as PrintSettings["fontSize"])} className="rounded-lg border border-orange-100 bg-white px-3 py-2 font-bold text-ink disabled:bg-stone-100">
+                  <option value="small">小 (省紙)</option>
+                  <option value="medium">中 (標準)</option>
+                  <option value="large">大 (清晰)</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-xs font-black text-steel">
+                桌號字體大小
+                <select value={form.printSettings.tableNoFontSize} disabled={!canManagePrintSettings} onChange={(e) => updatePrint("tableNoFontSize", e.target.value as PrintSettings["tableNoFontSize"])} className="rounded-lg border border-orange-100 bg-white px-3 py-2 font-bold text-ink disabled:bg-stone-100">
+                  <option value="medium">中</option>
+                  <option value="large">大</option>
+                  <option value="extraLarge">特大</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-xs font-black text-steel">
+                排版方式
+                <select value={form.printSettings.layout} disabled={!canManagePrintSettings} onChange={(e) => updatePrint("layout", e.target.value as PrintSettings["layout"])} className="rounded-lg border border-orange-100 bg-white px-3 py-2 font-bold text-ink disabled:bg-stone-100">
+                  <option value="standard">標準單</option>
+                  <option value="compact">省紙版</option>
+                  <option value="label">標籤版</option>
+                </select>
+              </label>
+            </fieldset>
           </div>
 
           <div className="rounded-lg bg-white p-5 shadow-sm">

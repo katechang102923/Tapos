@@ -19,6 +19,11 @@ const tabs: Array<{ status: OrderStatus; statuses: OrderStatus[]; label: string 
   { status: "ready", statuses: ["ready"], label: "可出餐" }
 ];
 
+function maskPhone(phone: string): string {
+  if (!phone || phone.length < 7) return phone;
+  return phone.slice(0, 4) + "***" + phone.slice(-3);
+}
+
 function isDrinkName(name: string) {
   return /茶|奶|咖啡|豆漿|飲|汁|可樂/.test(name);
 }
@@ -72,6 +77,7 @@ function KitchenBoardContent({ storeId, isPlatformAdmin }: { storeId: string; is
   const [largeMode, setLargeMode] = useState(true);
   const [peakMode, setPeakMode] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
+  const [showPhone, setShowPhone] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -126,6 +132,7 @@ function KitchenBoardContent({ storeId, isPlatformAdmin }: { storeId: string; is
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setPeakMode((value) => !value)} className={`rounded-lg px-4 py-3 font-black ${peakMode ? "bg-amber-400 text-ink" : "bg-white/10 text-white"}`}>尖峰模式</button>
           <button onClick={() => setLargeMode((value) => !value)} className="rounded-lg bg-white/10 px-4 py-3 font-black text-white">{largeMode ? "一般字級" : "大字模式"}</button>
+          <button onClick={() => setShowPhone((value) => !value)} className={`rounded-lg px-4 py-3 font-black ${showPhone ? "bg-blue-500 text-white" : "bg-white/10 text-white"}`}>{showPhone ? "隱藏電話" : "顯示電話"}</button>
           <button onClick={() => setFullscreen((value) => !value)} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 font-black text-white">{fullscreen ? <Minimize2 className="size-5" /> : <Maximize2 className="size-5" />}全螢幕</button>
           <button onClick={() => createMockOrder(storeId)} className="rounded-lg bg-leaf px-4 py-3 font-black text-white">模擬進單</button>
           <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 font-black text-white"><ArrowLeft className="size-5" />後台</Link>
@@ -162,12 +169,16 @@ function KitchenBoardContent({ storeId, isPlatformAdmin }: { storeId: string; is
           const overdue = elapsedMinutes(order.createdAt, now) >= 15 && !["completed", "cancelled"].includes(order.status);
           const items = stationItems(order, station);
           if (items.length === 0) return null;
+          const customerName = order.customerName || order.memberName || "";
+          const customerPhone = order.customerPhone || order.memberPhone || "";
           return (
             <article key={order.id} className={`rounded-lg bg-[#fffaf0] p-5 text-ink shadow-soft ${overdue ? "animate-urgent-pulse border-4 border-amber-400" : ["pending", "waiting", "unprocessed"].includes(order.status) ? "animate-order-pop border-4 border-tomato" : "border border-stone-200"}`}>
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-5xl font-black">#{order.orderNumber}</p>
                   <p className="mt-2 text-xl font-black text-steel">{order.mode === "takeout" ? "外帶" : `桌號 ${order.tableNo}`}</p>
+                  {customerName && <p className="mt-1 text-base font-black text-ink">客戶：{customerName}</p>}
+                  {showPhone && customerPhone && <p className="text-sm font-bold text-steel">電話：{maskPhone(customerPhone)}</p>}
                 </div>
                 <StatusPill status={order.status} />
               </div>

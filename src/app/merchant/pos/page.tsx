@@ -184,6 +184,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const memberStoredValueEnabled = store?.features?.memberStoredValueEnabled ?? false;
   const posEnabled = store?.posOrderingEnabled ?? true;
   const checkoutMode = store?.checkoutMode ?? "prepaid";
+  const printSettings = store?.printSettings ?? null;
   const enablePickupDisplay = store?.enablePickupDisplay ?? true;
   const dailyReportFeature = store?.features?.dailyReportEnabled ?? true;
   const cashFlowFeature = store?.features?.cashFlowEnabled ?? true;
@@ -685,7 +686,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
                 )}
               </div>
               {rightTab === "cart" && <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} checkoutMode={checkoutMode} customerNote={customerNote} setCustomerNote={setCustomerNote} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />}
-              {rightTab === "orders" && <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} nowTick={nowTick} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />}
+              {rightTab === "orders" && <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} nowTick={nowTick} onAcceptPrint={printSettings?.printOnAccept ? (order) => printOrder(order, storeDisplayName, printSettings) : undefined} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />}
               {rightTab === "unpaid" && checkoutMode === "postpaid" && <UnpaidOrderBoard canProcessCheckout={canProcessCheckout} nowTick={nowTick} unpaidOrders={unpaidOrders} updateOrderPayment={updateOrderPayment} updateOrderStatus={updateOrderStatus} onAddMore={(order) => { setTableNo(order.tableNo); setMode("dine-in"); setRightTab("cart"); }} />}
             </aside>
           </div>
@@ -760,7 +761,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
       />}
       {ordersOpen && (
         <SideDrawer title="接單進單" onClose={() => setOrdersOpen(false)}>
-          <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} nowTick={nowTick} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
+          <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} nowTick={nowTick} onAcceptPrint={printSettings?.printOnAccept ? (order) => printOrder(order, storeDisplayName, printSettings) : undefined} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
         </SideDrawer>
       )}
       {/* 新訂單 Toast 通知堆疊 */}
@@ -942,7 +943,7 @@ function SideDrawer({ children, onClose, title }: { children: React.ReactNode; o
   );
 }
 
-function OrderBoard({ activeOrderTab, canCancelOrders, displayedOrders, enablePickupDisplay, nowTick, pendingCount, setActiveOrderTab, updateOrderStatus }: { activeOrderTab: string; canCancelOrders: boolean; displayedOrders: Order[]; enablePickupDisplay: boolean; nowTick: number; pendingCount: number; setActiveOrderTab: (key: (typeof orderTabs)[number]["key"]) => void; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
+function OrderBoard({ activeOrderTab, canCancelOrders, displayedOrders, enablePickupDisplay, nowTick, onAcceptPrint, pendingCount, setActiveOrderTab, updateOrderStatus }: { activeOrderTab: string; canCancelOrders: boolean; displayedOrders: Order[]; enablePickupDisplay: boolean; nowTick: number; onAcceptPrint?: (order: Order) => void; pendingCount: number; setActiveOrderTab: (key: (typeof orderTabs)[number]["key"]) => void; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
   return (
     <section className="rounded-lg bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
@@ -973,7 +974,7 @@ function OrderBoard({ activeOrderTab, canCancelOrders, displayedOrders, enablePi
           <p className="rounded-lg bg-stone-50 p-5 text-center font-black text-steel">目前沒有訂單</p>
         ) : (
           displayedOrders.map((order) => (
-            <OrderWorkCard key={order.id} canCancelOrders={canCancelOrders} enablePickupDisplay={enablePickupDisplay} nowTick={nowTick} order={order} updateOrderStatus={updateOrderStatus} />
+            <OrderWorkCard key={order.id} canCancelOrders={canCancelOrders} enablePickupDisplay={enablePickupDisplay} nowTick={nowTick} onAcceptPrint={onAcceptPrint} order={order} updateOrderStatus={updateOrderStatus} />
           ))
         )}
       </div>
@@ -1290,6 +1291,75 @@ function QuickOrder({ activeCategoryId, categories, checkoutMode, customerNote, 
     </section>
   );
 }
+function maskPhone(phone: string): string {
+  if (!phone || phone.length < 7) return phone;
+  return phone.slice(0, 4) + "***" + phone.slice(-3);
+}
+
+function generateReceiptHtml(order: Order, storeName: string, settings: import("@/lib/types").PrintSettings): string {
+  const isTakeout = order.mode === "takeout";
+  const tableLabel = order.tableName ?? order.tableNo ?? "";
+  const customerName = settings.showCustomerName ? (order.customerName || order.memberName || "") : "";
+  const customerPhone = settings.showCustomerPhone ? maskPhone(order.customerPhone || order.memberPhone || "") : "";
+  const createdAt = new Date(order.createdAt).toLocaleString("zh-TW", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const total = order.totalAmount ?? order.total;
+  const fontSizeMap: Record<string, string> = { small: "11px", medium: "13px", large: "15px" };
+  const tableNoFontMap: Record<string, string> = { medium: "24px", large: "32px", extraLarge: "48px" };
+  const isCompact = settings.layout === "compact";
+
+  const itemsHtml = order.items.map((item) => {
+    const opts = item.selectedOptions?.map((o) => `<p style="margin-left:6px;font-size:0.88em;color:#555">${(o as {groupName?:string;choiceName?:string}).groupName ?? ""}：${(o as {choiceName?:string}).choiceName ?? ""}</p>`).join("") ?? "";
+    const note = (item.itemNote ?? item.note ?? "").trim();
+    return `<div style="margin:${isCompact ? "2px 0" : "5px 0"}">
+      <div style="font-weight:bold">${item.quantity} × ${item.productName}${settings.showPrice ? `  $${item.unitPrice}` : ""}</div>
+      ${opts}
+      ${note ? `<p style="margin-left:6px;font-size:0.88em;color:#b45">[備註：${note}]</p>` : ""}
+    </div>`;
+  }).join("");
+
+  const copies = [
+    ...Array(Math.max(0, settings.kitchenCopies)).fill("廚房單"),
+    ...Array(Math.max(0, settings.receiptCopies)).fill("收據"),
+  ];
+
+  const receiptBody = `
+    <p style="text-align:center;font-weight:bold;font-size:1.05em">${storeName}</p>
+    <p style="text-align:center;font-size:2.2em;font-weight:900;margin:4px 0">#${order.orderNumber}</p>
+    ${settings.emphasizeOrderType ? `<p style="text-align:center;font-weight:bold;font-size:1.1em;padding:2px 8px;display:inline-block;border:2px solid #000;border-radius:4px">${isTakeout ? "外帶" : "內用"}</p>` : ""}
+    <p style="text-align:center;font-size:${tableNoFontMap[settings.tableNoFontSize]};font-weight:900;margin:4px 0">${isTakeout ? `取餐 ${order.pickupNumber ?? order.orderNumber}` : `桌 ${tableLabel}`}</p>
+    ${customerName ? `<p>客戶：${customerName}</p>` : ""}
+    ${customerPhone ? `<p>電話：${customerPhone}</p>` : ""}
+    <p>-------------------------------</p>
+    ${itemsHtml}
+    <p>-------------------------------</p>
+    <p style="font-size:1.2em;font-weight:bold;text-align:right">合計 $${total}</p>
+    ${order.customerNote ? `<p style="margin-top:4px">備註：${order.customerNote}</p>` : ""}
+    <p style="font-size:0.85em;color:#666;margin-top:6px">${createdAt}</p>
+  `;
+
+  const copiesHtml = copies.length === 0
+    ? `<div style="padding:10mm;font-weight:bold">（張數設定為 0，無列印內容）</div>`
+    : copies.map((copyType, i) => `
+      <div${i < copies.length - 1 ? ' style="page-break-after:always"' : ""}>
+        <p style="font-size:0.75em;text-align:right;color:#999">${copyType}</p>
+        ${receiptBody}
+      </div>
+    `).join("");
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>#${order.orderNumber}</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:monospace,"Noto Sans TC",sans-serif;font-size:${fontSizeMap[settings.fontSize]};padding:4mm}@media print{body{padding:0}}</style>
+</head><body>${copiesHtml}</body></html>`;
+}
+
+function printOrder(order: Order, storeName: string, settings: import("@/lib/types").PrintSettings) {
+  const html = generateReceiptHtml(order, storeName, settings);
+  const w = window.open("", "_blank", "width=420,height=600,scrollbars=yes");
+  if (!w) return;
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 300);
+}
+
 function salesRanking(orders: Order[]) {
   const map = new Map<string, { productId: string; productName: string; quantity: number; totalAmount: number }>();
   orders.forEach((order) => order.items.forEach((item) => {
@@ -1322,12 +1392,14 @@ function CenteredNotice({ title, text }: { title: string; text: string }) {
   return <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4"><div className="rounded-lg bg-white p-6 shadow-soft"><h1 className="text-2xl font-black text-ink">{title}</h1>{text && <p className="mt-3 text-steel">{text}</p>}</div></main>;
 }
 
-function OrderWorkCard({ canCancelOrders, enablePickupDisplay, nowTick, order, updateOrderStatus }: { canCancelOrders: boolean; enablePickupDisplay: boolean; nowTick: number; order: Order; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
+function OrderWorkCard({ canCancelOrders, enablePickupDisplay, nowTick, onAcceptPrint, order, updateOrderStatus }: { canCancelOrders: boolean; enablePickupDisplay: boolean; nowTick: number; onAcceptPrint?: (order: Order) => void; order: Order; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
   const cancelReason = order.cancelReason ?? order.rejectReason;
   const isPending = ["pending", "waiting", "unprocessed"].includes(order.status);
   const isPosDirectComplete = order.source === "pos" && !enablePickupDisplay;
   const isTakeout = order.mode === "takeout";
   const tableLabel = order.tableName ?? order.tableNo ?? "";
+  const customerDisplayName = order.customerName || order.memberName || "";
+  const customerDisplayPhone = order.customerPhone || order.memberPhone || "";
 
   const waitMs = nowTick - new Date(order.createdAt).getTime();
   const waitMin = Math.max(0, Math.floor(waitMs / 60_000));
@@ -1360,12 +1432,18 @@ function OrderWorkCard({ canCancelOrders, enablePickupDisplay, nowTick, order, u
         <StatusPill status={order.status} />
       </div>
       {cancelReason && order.status === "cancelled" && <p className="mt-3 rounded-lg bg-tomato/10 px-3 py-2 text-sm font-black text-tomato">取消原因：{cancelReason}</p>}
+      {(customerDisplayName || customerDisplayPhone) && (
+        <div className="mt-2 rounded-lg bg-stone-50 px-3 py-2 text-sm font-bold text-steel">
+          {customerDisplayName && <p>客戶：{customerDisplayName}</p>}
+          {customerDisplayPhone && <p>電話：{maskPhone(customerDisplayPhone)}</p>}
+        </div>
+      )}
       {order.customerNote && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-black text-amber-800">備註：{order.customerNote}</p>}
       <div className="mt-3 space-y-2 text-sm font-bold text-steel">{order.items.map((item) => <OrderItemLine key={item.id} item={item} />)}</div>
       <p className="mt-3 text-lg font-black text-tomato">$ {order.totalAmount ?? order.total}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {isPending && (
-          <button onClick={() => updateOrderStatus(order.id, "accepted")} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-leaf px-4 py-3 font-black text-white">
+          <button onClick={() => { updateOrderStatus(order.id, "accepted"); onAcceptPrint?.(order); }} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-leaf px-4 py-3 font-black text-white">
             <CheckCircle2 className="size-5" />
             接單
           </button>

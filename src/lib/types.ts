@@ -214,6 +214,7 @@ export type Store = {
   dineInOrderingEnabled?: boolean;
   posOrderingEnabled?: boolean;
   checkoutMode?: "prepaid" | "postpaid";
+  printSettings?: PrintSettings;
   enablePickupDisplay?: boolean;
   reportEmailEnabled?: boolean;
   reportEmailRecipients?: string;
@@ -470,6 +471,20 @@ export type Table = {
   sort: number;
   createdAt: string;
   updatedAt: string;
+};
+
+export type PrintSettings = {
+  printOnAccept: boolean;
+  kitchenCopies: number;
+  receiptCopies: number;
+  labelCopies: number;
+  fontSize: "small" | "medium" | "large";
+  showCustomerPhone: boolean;
+  showCustomerName: boolean;
+  showPrice: boolean;
+  emphasizeOrderType: boolean;
+  tableNoFontSize: "medium" | "large" | "extraLarge";
+  layout: "standard" | "compact" | "label";
 };
 
 export type DailySalesSummary = {
