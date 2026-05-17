@@ -23,11 +23,10 @@ type CartLine = {
 
 const statusSteps: Array<{ status: OrderStatus; label: string }> = [
   { status: "pending", label: "等待接單" },
-  { status: "accepted", label: "製作中" },
+  { status: "accepted", label: "店家已接單" },
   { status: "ready", label: "可取餐" },
   { status: "completed", label: "已完成" }
 ];
-
 function lineUnitPrice(line: CartLine) {
   return productFinalPrice(line.product) + selectionsTotal(line.selectedOptions);
 }
@@ -41,13 +40,13 @@ function statusRank(status: OrderStatus) {
 
 function customerStatusMessage(status: OrderStatus, rejectReason?: string) {
   if (status === "pending" || status === "waiting" || status === "unprocessed") return "等待店家接單";
-  if (status === "accepted" || status === "cooking" || status === "preparing") return "餐點製作中";
+  if (status === "accepted") return "店家已接單";
+  if (status === "cooking" || status === "preparing") return "餐點製作中";
   if (status === "ready") return "可取餐";
   if (status === "completed") return "已完成";
-  if (status === "cancelled") return `訂單取消${rejectReason ? `：${rejectReason}` : ""}`;
+  if (status === "cancelled") return `訂單已取消${rejectReason ? `：${rejectReason}` : ""}`;
   return "等待店家接單";
 }
-
 function orderBlockReason(store: Store | undefined, mode: OrderMode) {
   return businessOrderBlockReason(store, mode);
 }
@@ -88,6 +87,8 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
   const [rewardCoupons, setRewardCoupons] = useState<RewardCoupon[]>([]);
   const [memberCoupons, setMemberCoupons] = useState<MemberCoupon[]>([]);
   const [selectedCouponId, setSelectedCouponId] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined" || !firebaseEnabled || !firestore) return;
@@ -181,6 +182,9 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
     setCart((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
   }
 
+  // Takeout requires dedicated contact fields — independent of member login
+  const takeoutValid = mode !== "takeout" || (contactName.trim().length > 0 && contactPhone.trim().length >= 8);
+
   async function submitOrder() {
     if (cart.length === 0 || isSubmitting) return;
     setSubmitError("");
@@ -188,14 +192,26 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
       setSubmitError(blockReason);
       return;
     }
+    // Hard guard — contact fields are always required for takeout, independent of member login
+    if (mode === "takeout") {
+      const name = contactName.trim();
+      const phone = contactPhone.trim();
+      if (!name || phone.length < 8) {
+        setSubmitError(!name ? "外帶點餐請填寫取餐姓名" : "外帶點餐請填寫正確手機號碼（至少 8 碼）");
+        return;
+      }
+    }
     setIsSubmitting(true);
     try {
       const tableValue = mode === "takeout" ? "外帶" : tableId ?? tableNo;
+      const orderCustomerName = mode === "takeout" ? contactName.trim() : (member?.name ?? memberName).trim();
+      const orderCustomerPhone = mode === "takeout" ? contactPhone.trim() : (member?.phone ?? memberPhone).trim();
       const order = await createOrder({
         storeId,
         mode,
         tableNo: tableValue,
-        customerName: tableValue,
+        customerName: orderCustomerName,
+        customerPhone: orderCustomerPhone,
         tableName: tableValue,
         tableNumber: tableValue,
         orderType: mode,
@@ -242,7 +258,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
       }
       setLastOrderId(order.id);
       window.localStorage.setItem(`lastOrderId:${storeId}`, order.id);
-      console.log("[QR Order Created]", {
+      if (process.env.NODE_ENV !== "production") console.log("[QR Order Created]", {
         orderId: order.id,
         queueNumber: order.pickupNumber ?? order.orderNumber,
         storeId: order.storeId,
@@ -268,7 +284,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
   async function lookupMember() {
     if (!memberPhone.trim() || !firebaseEnabled || !firestore) return;
     setMemberLoading(true);
-    setMemberMessage("");
+    setMemberMessage("兌換成功，可在購物車使用。");
     try {
       const result = await getDocs(firestoreQuery(collection(firestore, "stores", storeId, "members"), where("phone", "==", memberPhone.trim()), limit(1)));
       const found = result.docs[0];
@@ -278,13 +294,13 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
         window.localStorage.setItem(`qr-member-id:${storeId}`, next.id);
         window.localStorage.setItem(`qr-member-phone:${storeId}`, next.phone);
         window.localStorage.setItem(`qr-member-store:${storeId}`, storeId);
-        setMemberMessage("已帶入會員資料");
+        setMemberMessage("兌換成功，可在購物車使用。");
       } else {
         setMember(null);
-        setMemberMessage("找不到會員，可直接建立。");
+        setMemberMessage("兌換成功，可在購物車使用。");
       }
     } catch (err) {
-      setMemberMessage(err instanceof Error ? err.message : "查詢會員失敗");
+      setMemberMessage(err instanceof Error ? err.message : "兌換失敗");
     } finally {
       setMemberLoading(false);
     }
@@ -292,11 +308,11 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
 
   async function createMember() {
     if (!memberPhone.trim() || !memberName.trim() || !firebaseEnabled || !firestore) {
-      setMemberMessage("請輸入姓名與手機");
+      setMemberMessage("兌換成功，可在購物車使用。");
       return;
     }
     setMemberLoading(true);
-    setMemberMessage("");
+    setMemberMessage("兌換成功，可在購物車使用。");
     try {
       const memberRef = doc(collection(firestore, "stores", storeId, "members"));
       const now = new Date().toISOString();
@@ -320,9 +336,9 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
       window.localStorage.setItem(`qr-member-id:${storeId}`, next.id);
       window.localStorage.setItem(`qr-member-phone:${storeId}`, next.phone);
       window.localStorage.setItem(`qr-member-store:${storeId}`, storeId);
-      setMemberMessage("會員建立成功");
+      setMemberMessage("兌換成功，可在購物車使用。");
     } catch (err) {
-      setMemberMessage(err instanceof Error ? err.message : "建立會員失敗");
+      setMemberMessage(err instanceof Error ? err.message : "兌換失敗");
     } finally {
       setMemberLoading(false);
     }
@@ -332,7 +348,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
     const couponCost = coupon.pointsCost ?? coupon.pointsRequired ?? 0;
     if (!member || !firebaseEnabled || !firestore || member.points < couponCost) return;
     setMemberLoading(true);
-    setMemberMessage("");
+    setMemberMessage("兌換成功，可在購物車使用。");
     try {
       const now = new Date().toISOString();
       const memberCouponRef = doc(collection(firestore, "stores", storeId, "memberCoupons"));
@@ -434,10 +450,42 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
             </div>
           </div>
 
+          {/* 取餐資料（外帶必填，獨立於會員登入）*/}
+          {mode === "takeout" && (
+            <div className="rounded-lg bg-white p-3 shadow-soft sm:p-4">
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-black text-ink">取餐資料</h2>
+                <span className="ml-auto rounded-full bg-tomato/10 px-2 py-1 text-xs font-black text-tomato">必填</span>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <input
+                  value={contactName}
+                  onChange={(e) => setContactName(e.target.value)}
+                  placeholder="姓名"
+                  className={`rounded-lg border px-3 py-3 text-sm font-bold ${!contactName.trim() ? "border-tomato/50 bg-tomato/5" : "border-orange-100"}`}
+                />
+                <input
+                  value={contactPhone}
+                  onChange={(e) => setContactPhone(e.target.value)}
+                  placeholder="手機號碼（至少 8 碼）"
+                  inputMode="tel"
+                  className={`rounded-lg border px-3 py-3 text-sm font-bold ${contactPhone.trim().length > 0 && contactPhone.trim().length < 8 ? "border-tomato/50 bg-tomato/5" : !contactPhone.trim() ? "border-tomato/50 bg-tomato/5" : "border-orange-100"}`}
+                />
+              </div>
+              {!takeoutValid && cart.length > 0 && (
+                <p className="mt-2 rounded-lg bg-tomato/10 px-3 py-2 text-sm font-black text-tomato">
+                  ⚠ 請填寫姓名與手機號碼（至少 8 碼）才能送出訂單
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="rounded-lg bg-white p-3 shadow-soft sm:p-4">
             <div className="flex items-center gap-2">
               <UserPlus className="size-5 text-leaf" />
-              <h2 className="text-lg font-black text-ink">會員登入 / 建立會員</h2>
+              <h2 className="text-lg font-black text-ink">
+                {mode === "takeout" ? "會員登入（選填）" : "會員登入 / 建立會員"}
+              </h2>
             </div>
             {member ? (
               <div className="mt-3 rounded-lg bg-blue-50 p-3">
@@ -466,8 +514,8 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
               </div>
             ) : (
               <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
-                <input value={memberPhone} onChange={(event) => setMemberPhone(event.target.value)} placeholder="手機號碼" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold" />
-                <input value={memberName} onChange={(event) => setMemberName(event.target.value)} placeholder="新會員姓名" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold" />
+                <input value={memberPhone} onChange={(event) => setMemberPhone(event.target.value)} placeholder="手機號碼（查詢會員）" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold" />
+                <input value={memberName} onChange={(event) => setMemberName(event.target.value)} placeholder="新會員姓名（選填）" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold" />
                 <input value={memberBirthday} onChange={(event) => setMemberBirthday(event.target.value)} placeholder="生日（可選）" className="rounded-lg border border-orange-100 px-3 py-3 text-sm font-bold sm:col-span-2" />
                 <button onClick={lookupMember} disabled={memberLoading || !memberPhone.trim()} className="rounded-lg bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">查詢</button>
                 <button onClick={createMember} disabled={memberLoading || !memberPhone.trim() || !memberName.trim()} className="rounded-lg bg-leaf px-4 py-3 text-sm font-black text-white disabled:opacity-50">建立</button>
@@ -560,7 +608,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
         </section>
 
         <aside className="hidden lg:sticky lg:top-20 lg:block lg:h-fit">
-          <CartPanel cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} submitOrder={submitOrder} total={total} promotionDiscounts={promotionCalculation.appliedPromotions} updateLine={updateLine} setCart={setCart} canSubmit={cart.length > 0 && !isSubmitting} submitError={submitError || blockReason} isSubmitting={isSubmitting} />
+          <CartPanel cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} submitOrder={submitOrder} total={total} promotionDiscounts={promotionCalculation.appliedPromotions} updateLine={updateLine} setCart={setCart} canSubmit={cart.length > 0 && !isSubmitting && takeoutValid} submitError={submitError || blockReason} isSubmitting={isSubmitting} />
         </aside>
       </div>
 
@@ -571,7 +619,7 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
             <span className="text-lg font-black sm:text-2xl">${total}</span>
           </summary>
           <div className="max-h-[50vh] overflow-y-auto pt-2 sm:pt-3">
-            <CartPanel cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} submitOrder={submitOrder} total={total} promotionDiscounts={promotionCalculation.appliedPromotions} updateLine={updateLine} setCart={setCart} canSubmit={cart.length > 0 && !isSubmitting} submitError={submitError || blockReason} isSubmitting={isSubmitting} />
+            <CartPanel cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} submitOrder={submitOrder} total={total} promotionDiscounts={promotionCalculation.appliedPromotions} updateLine={updateLine} setCart={setCart} canSubmit={cart.length > 0 && !isSubmitting && takeoutValid} submitError={submitError || blockReason} isSubmitting={isSubmitting} />
           </div>
         </details>
       </div>

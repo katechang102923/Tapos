@@ -37,7 +37,7 @@ const imagePresets = [
 
 export default function MerchantOptionsPage() {
   return (
-    <LoginGate allowedRoles={["systemAdmin", "owner", "manager"]} title="商品選項管理登入">
+    <LoginGate allowedRoles={["systemAdmin", "owner", "manager"]} title="商品加料管理登入">
       {({ profile }) => <MerchantOptionsContent storeId={defaultStoreId(profile)} />}
     </LoginGate>
   );
@@ -269,7 +269,7 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
     const now = new Date().toISOString();
     return {
       id: `sg-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
-      name: "新調味群組",
+      name: "新調味選項",
       required: false,
       minSelect: 0,
       maxSelect: 1,
@@ -374,7 +374,7 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <div>
             <p className="text-sm font-black text-leaf">店家後台</p>
-            <h1 className="text-3xl font-black text-ink">{store?.name} · 商品選項管理</h1>
+            <h1 className="text-3xl font-black text-ink">{store?.name} · 商品加料管理</h1>
             <p className="mt-1 text-sm font-bold text-steel">為商品新增套餐、調味、飲料選項及多層加購選項。</p>
           </div>
           <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-lg border border-orange-100 bg-white px-4 py-3 font-black text-ink">
@@ -391,14 +391,14 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
             onClick={() => setActiveTab("products")}
             className={`rounded-full px-4 py-2 text-sm font-black transition ${activeTab === "products" ? "bg-leaf text-white" : "bg-white text-steel hover:bg-orange-100"}`}
           >
-            商品選項設定
+            商品加料設定
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("shared")}
             className={`rounded-full px-4 py-2 text-sm font-black transition ${activeTab === "shared" ? "bg-leaf text-white" : "bg-white text-steel hover:bg-orange-100"}`}
           >
-            調味群組管理
+            調味選項庫管理
           </button>
         </div>
       </div>
@@ -408,7 +408,7 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
         <div className="rounded-lg bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between gap-3 border-b border-orange-100 pb-4">
             <div>
-              <h2 className="text-2xl font-black">商品選項設定</h2>
+              <h2 className="text-2xl font-black">商品加料設定</h2>
               <p className="mt-1 text-sm font-bold text-steel">選擇要編輯選項的商品。</p>
             </div>
             <button onClick={startNewProduct} className="inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-3 font-black text-white">
@@ -460,8 +460,8 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
         <div className="rounded-lg bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between gap-3 border-b border-orange-100 pb-4">
             <div>
-              <h2 className="text-2xl font-black">調味群組庫</h2>
-              <p className="mt-1 text-sm font-bold text-steel">可跨商品重複套用的調味群組（如冰量、糖度、加料、套餐選項），可掛到商品或選項的下一層。</p>
+              <h2 className="text-2xl font-black">調味選項庫</h2>
+              <p className="mt-1 text-sm font-bold text-steel">可跨商品重複套用的調味選項（如冰量、糖度、加料、套餐選項），可掛到商品或選項的下一層。</p>
             </div>
             <button
               onClick={() => {
@@ -473,12 +473,12 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
               className="inline-flex items-center gap-2 rounded-lg bg-leaf px-4 py-3 font-black text-white"
             >
               <Plus className="size-4" />
-              新增調味群組
+              新增調味選項
             </button>
           </div>
 
           {sharedGroups.length === 0 ? (
-            <p className="py-4 text-center text-sm font-bold text-steel">尚無調味群組。點擊「新增調味群組」建立可跨商品重複套用的選項（如冰量、糖度）。</p>
+            <p className="py-4 text-center text-sm font-bold text-steel">尚無調味選項。點擊「新增調味選項」建立可跨商品重複套用的選項（如冰量、糖度）。</p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {sharedGroups.map((sg) => {
@@ -489,7 +489,7 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <p className="font-black">{sg.name}</p>
-                          <span className="rounded bg-leaf/15 px-1.5 py-0.5 text-xs font-black text-leaf">調味群組</span>
+                          <span className="rounded bg-leaf/15 px-1.5 py-0.5 text-xs font-black text-leaf">調味選項</span>
                           {totalLinked > 0 && (
                             <span className="flex items-center gap-0.5 rounded bg-leaf/10 px-1.5 py-0.5 text-xs font-bold text-leaf">
                               <Link2 className="size-3" />{totalLinked} 子引用
@@ -500,7 +500,7 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
                       </div>
                       <div className="flex gap-1 shrink-0">
                         <button onClick={() => { setSharedSaveState("idle"); setSharedSaveMessage(""); setEditingSharedGroup({ ...sg }); setSharedGroupPanelOpen(true); }} className="rounded-lg border border-orange-200 bg-white px-3 py-2 text-sm font-black text-steel">編輯</button>
-                        <button onClick={() => { if (window.confirm(`確定刪除調味群組「${sg.name}」？`)) deleteSharedOptionGroup(sg.id); }} className="rounded-lg bg-tomato px-2 py-2 font-black text-white">
+                        <button onClick={() => { if (window.confirm(`確定刪除調味選項「${sg.name}」？`)) deleteSharedOptionGroup(sg.id); }} className="rounded-lg bg-tomato px-2 py-2 font-black text-white">
                           <Trash2 className="size-4" />
                         </button>
                       </div>
@@ -534,7 +534,7 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4">
           <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-5 shadow-2xl">
             <h2 className="mb-4 text-2xl font-black text-ink">
-              {sharedGroups.some((sg) => sg.id === editingSharedGroup.id) ? "編輯調味群組" : "新增調味群組"}
+              {sharedGroups.some((sg) => sg.id === editingSharedGroup.id) ? "編輯調味選項" : "新增調味選項"}
             </h2>
             {sharedSaveMessage ? (
               <p className={`mb-4 text-sm font-black ${sharedSaveState === "error" ? "text-tomato" : sharedSaveState === "saving" ? "text-ink" : "text-leaf"}`}>
@@ -559,8 +559,8 @@ function MerchantOptionsContent({ storeId }: { storeId: string }) {
             {/* Per-option childGroupIds linking — shown in a separate section for clarity */}
             {sharedGroups.filter((sg) => sg.id !== editingSharedGroup.id).length > 0 && editingSharedGroup.options.length > 0 && (
               <div className="mt-4 rounded-lg border border-orange-100 bg-orange-50 p-3">
-                <p className="mb-2 text-sm font-black text-steel">每個選項連結下一層調味群組</p>
-                <p className="mb-3 text-xs font-bold text-steel">點擊按鈕，讓選取該選項時自動展開對應的調味群組（例如選「紅茶」後出現「糖度」「冰量」）。</p>
+                <p className="mb-2 text-sm font-black text-steel">每個選項連結下一層調味選項</p>
+                <p className="mb-3 text-xs font-bold text-steel">點擊按鈕，讓選取該選項時自動展開對應的調味選項（例如選「紅茶」後出現「糖度」「冰量」）。</p>
                 <div className="grid gap-2">
                   {editingSharedGroup.options.map((opt) => {
                     const otherSgs = sharedGroups.filter((sg) => sg.id !== editingSharedGroup.id);

@@ -78,6 +78,7 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
   const [selectedStoreId, setSelectedStoreId] = useState(defaultStoreId(profile));
   const bootstrapStoreId = isAdmin ? selectedStoreId : (authorizedStoreIds.includes(selectedStoreId) ? selectedStoreId : authorizedStoreIds[0] ?? "");
   const { db, upsertStore } = useDemoStore({ storeId: bootstrapStoreId, admin: isAdmin, skipOrderList: true });
+  const { todayOrders, todayCashFlows } = useDemoStore({ storeId: bootstrapStoreId, todayOrdersOnly: true });
   const storeIds = useMemo(
     () => isAdmin
       ? db.stores.filter((store) => !store.isDeleted && store.id !== "demo-store").map((store) => store.id)
@@ -180,7 +181,7 @@ function MerchantDashboardContent({ profile, view, onSignOut }: { profile: User;
             </div>
           </header>
 
-          <DashboardOverview store={store} canManageStore={canManageStore} updateStore={updateStore} />
+          <DashboardOverview store={store} canManageStore={canManageStore} updateStore={updateStore} todayOrders={todayOrders} todayCashFlows={todayCashFlows} />
         </div>
       </section>
     </main>
@@ -247,10 +248,14 @@ function DashboardOverview({
   store,
   canManageStore,
   updateStore,
+  todayOrders = [],
+  todayCashFlows = [],
 }: {
   store?: Store;
   canManageStore: boolean;
   updateStore: (patch: Partial<Store>) => void;
+  todayOrders?: import("@/lib/types").Order[];
+  todayCashFlows?: import("@/lib/types").CashFlow[];
 }) {
   const [notice, setNotice] = useState(store?.temporaryNotice ?? "");
 
@@ -258,14 +263,61 @@ function DashboardOverview({
     setNotice(store?.temporaryNotice ?? "");
   }, [store?.temporaryNotice]);
 
+  const completedOrders = todayOrders.filter((o) => o.status === "completed");
+  const activeOrders = todayOrders.filter((o) => !["completed", "cancelled"].includes(o.status));
+  const todayRevenue = completedOrders.reduce((sum, o) => sum + (o.totalAmount ?? o.total ?? 0), 0);
+  const cashIncome = todayCashFlows.filter((cf) => cf.type === "income").reduce((sum, cf) => sum + cf.amount, 0);
+  const cashExpense = todayCashFlows.filter((cf) => cf.type === "expense").reduce((sum, cf) => sum + cf.amount, 0);
+
   return (
     <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_360px]">
       <section className="space-y-5">
+        {/* 今日概覽 */}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Link href="/merchant/reports" className="group rounded-2xl bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+            <div className="grid size-10 place-items-center rounded-xl bg-emerald-50 text-leaf"><BarChart3 className="size-5" /></div>
+            <p className="mt-3 text-sm font-bold text-slate-500">今日已完成營收</p>
+            <p className="mt-1 text-2xl font-black text-slate-950">${todayRevenue}</p>
+            <p className="mt-0.5 text-xs font-bold text-slate-400">{completedOrders.length} 筆完成訂單</p>
+          </Link>
+          <Link href="/merchant/pos" className="group rounded-2xl bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+            <div className={`grid size-10 place-items-center rounded-xl ${activeOrders.length > 0 ? "bg-amber-50 text-amber-600" : "bg-slate-100 text-slate-500"}`}>
+              <ReceiptText className="size-5" />
+            </div>
+            <p className="mt-3 text-sm font-bold text-slate-500">進行中訂單</p>
+            <p className={`mt-1 text-2xl font-black ${activeOrders.length > 0 ? "text-amber-600" : "text-slate-950"}`}>{activeOrders.length} 筆</p>
+            <p className="mt-0.5 text-xs font-bold text-slate-400">{todayOrders.length} 筆今日合計</p>
+          </Link>
+          <Link href="/merchant/cashflow" className="group rounded-2xl bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+            <div className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><ChevronRight className="size-5" /></div>
+            <p className="mt-3 text-sm font-bold text-slate-500">現金流淨額</p>
+            <p className={`mt-1 text-2xl font-black ${cashIncome - cashExpense >= 0 ? "text-slate-950" : "text-rose-600"}`}>${cashIncome - cashExpense}</p>
+            <p className="mt-0.5 text-xs font-bold text-slate-400">收 ${cashIncome} / 支 ${cashExpense}</p>
+          </Link>
+          <div className={`rounded-2xl p-4 shadow-sm ${store?.isOpen ? "bg-emerald-50" : "bg-rose-50"}`}>
+            <div className={`grid size-10 place-items-center rounded-xl ${store?.isOpen ? "bg-leaf text-white" : "bg-rose-200 text-rose-700"}`}><StoreIcon className="size-5" /></div>
+            <p className="mt-3 text-sm font-bold text-slate-500">店家狀態</p>
+            <p className={`mt-1 text-2xl font-black ${store?.isOpen ? "text-leaf" : "text-rose-600"}`}>{store?.isOpen ? "營業中" : "休息中"}</p>
+            {canManageStore && (
+              <button
+                onClick={() => updateStore({ isOpen: !store?.isOpen, orderStatus: store?.isOpen ? "closed" : "open" })}
+                className={`mt-2 rounded-lg px-3 py-1 text-xs font-black ${store?.isOpen ? "bg-rose-100 text-rose-700 hover:bg-rose-200" : "bg-leaf/20 text-leaf hover:bg-leaf/30"}`}
+              >
+                {store?.isOpen ? "切換休息" : "切換營業"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* 接單開關 */}
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard icon={StoreIcon} title="店家狀態" value={store?.isOpen ? "營業中" : "休息中"} tone={store?.isOpen ? "green" : "red"} />
-          <MetricCard icon={QrCode} title="外帶 QR" value={(store?.takeoutOrderingEnabled ?? store?.takeoutEnabled ?? true) ? "開放" : "關閉"} />
-          <MetricCard icon={ReceiptText} title="內用 QR" value={(store?.dineInOrderingEnabled ?? store?.dineInEnabled ?? true) ? "開放" : "關閉"} />
-          <MetricCard icon={ShoppingCart} title="POS 現場單" value={(store?.posOrderingEnabled ?? true) ? "開放" : "關閉"} />
+          <MetricCard icon={QrCode} title="外帶 QR" value={(store?.takeoutOrderingEnabled ?? store?.takeoutEnabled ?? true) ? "接單中" : "暫停"} tone={(store?.takeoutOrderingEnabled ?? store?.takeoutEnabled ?? true) ? "green" : "slate"} />
+          <MetricCard icon={ReceiptText} title="內用 QR" value={(store?.dineInOrderingEnabled ?? store?.dineInEnabled ?? true) ? "接單中" : "暫停"} tone={(store?.dineInOrderingEnabled ?? store?.dineInEnabled ?? true) ? "green" : "slate"} />
+          <MetricCard icon={ShoppingCart} title="POS 現場單" value={(store?.posOrderingEnabled ?? true) ? "接單中" : "暫停"} tone={(store?.posOrderingEnabled ?? true) ? "green" : "slate"} />
+          <Link href="/merchant/pos" className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+            <ShoppingCart className="size-5" />
+            前往 POS 點餐
+          </Link>
         </div>
 
         <section className="rounded-2xl bg-white p-5 shadow-sm">

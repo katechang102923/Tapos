@@ -121,6 +121,7 @@ function MerchantMenuWorkspace({
   const [productEditorOpen, setProductEditorOpen] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "unsaved" | "saving" | "saved" | "error">("idle");
   const [saveMessage, setSaveMessage] = useState("");
+  const [mobileView, setMobileView] = useState<"categories" | "products" | "settings">("categories");
 
   const store = db.stores.find((item) => item.id === storeId);
   const storeDisplayName = store?.name || stores.find((item) => item.id === storeId)?.name || "未命名店家";
@@ -157,22 +158,6 @@ function MerchantMenuWorkspace({
     );
   }, [categoryFilteredProducts, query]);
 
-  console.log(
-    "[MENU PRODUCTS]",
-    products.map((product) => ({
-      name: product.name,
-      categoryId: product.categoryId,
-      categoryName: product.categoryName,
-      category: (product as Product & { category?: string }).category,
-      optionGroups: product.optionGroups,
-    }))
-  );
-  console.log(
-    "[FILTER]",
-    selectedCategoryId,
-    filteredProducts.map((product) => product.name)
-  );
-
   useEffect(() => {
     setSelectedCategoryId("all");
     setEditingProduct({ ...blankProduct, storeId, categoryId: firstCategoryId });
@@ -190,14 +175,6 @@ function MerchantMenuWorkspace({
     })));
     console.log("[menu] filteredProducts", filteredProducts.map((product) => product.name));
   }, [filteredProducts.length, products.length, selectedCategoryId, selectedCategoryName]);
-
-  useEffect(() => {
-    if (!productEditorOpen) return;
-    console.log(
-      "[EDITOR OPTION GROUPS]",
-      editingProduct.optionGroups
-    );
-  }, [editingProduct.optionGroups, productEditorOpen]);
 
   function setEditingProductDraft(next: Product | ((current: Product) => Product)) {
     setSaveState("unsaved");
@@ -259,6 +236,8 @@ function MerchantMenuWorkspace({
       });
     }
     setSelectedCategoryId(categoryId);
+    // On mobile, automatically advance to the products pane after picking a category
+    setMobileView("products");
   }
 
   function startNewProduct() {
@@ -269,7 +248,6 @@ function MerchantMenuWorkspace({
   }
 
   function productForEditor(product: Product): Product {
-    console.log("[editor] opening product", product.name, product.optionGroups);
     return {
       ...product,
       optionGroups: product.optionGroups ?? [],
@@ -409,7 +387,6 @@ function MerchantMenuWorkspace({
   }
 
   function addOptionGroup() {
-    console.log("[editor] add option group clicked");
     setEditingProductDraft((current) => ({
       ...current,
       optionGroups: [
@@ -420,7 +397,7 @@ function MerchantMenuWorkspace({
   }
 
   function cloneOptionGroup(group: ProductOptionGroup | SharedOptionGroup, sortOrder = 0): ProductOptionGroup {
-    const groupName = group.groupName ?? group.name ?? "調味群組";
+    const groupName = group.groupName ?? group.name ?? "調味選項";
     return {
       id: newClientId("group"),
       name: groupName,
@@ -455,7 +432,6 @@ function MerchantMenuWorkspace({
     const selectedGroups = groupIds
       .map((id) => sharedGroups.find((group) => group.id === id))
       .filter((group): group is SharedOptionGroup => Boolean(group));
-    console.log("[editor] apply flavor groups", selectedGroups);
     setOptionGroups((groups) => {
       const existingIds = new Set(groups.map((group) => group.linkedGroupId ?? group.groupId ?? group.sharedGroupId ?? group.id.replace(/^shared-/, "")));
       const copiedGroups: ProductOptionGroup[] = [];
@@ -559,7 +535,7 @@ function MerchantMenuWorkspace({
           <div>
             <p className="text-sm font-black text-leaf">{adminMode ? "平台代管菜單" : "店家菜單管理"}</p>
             <h1 className="text-3xl font-black tracking-tight text-slate-950">{storeDisplayName}</h1>
-            <p className="mt-1 text-sm font-bold text-slate-500">分類、商品、套餐、加購與調味群組庫集中在同一個工作台。</p>
+            <p className="mt-1 text-sm font-bold text-slate-500">分類、商品、套餐、加購與調味選項庫集中在同一個工作台。</p>
             {canSwitch && storeIds.length > 0 && (
               <label className="mt-3 block text-sm font-black text-slate-500">
                 切換代管店家
@@ -582,8 +558,24 @@ function MerchantMenuWorkspace({
         </div>
       </header>
 
+      {/* Mobile step navigation – hidden on desktop */}
+      <nav className="sticky top-[73px] z-20 flex border-b border-slate-200 bg-white lg:hidden">
+        {(["categories", "products", "settings"] as const).map((tab) => {
+          const labels = { categories: "分類", products: "商品", settings: "設定" } as const;
+          return (
+            <button
+              key={tab}
+              onClick={() => setMobileView(tab)}
+              className={`flex-1 py-3 text-sm font-black transition ${mobileView === tab ? "border-b-2 border-leaf text-leaf" : "text-slate-500"}`}
+            >
+              {labels[tab]}
+            </button>
+          );
+        })}
+      </nav>
+
       <section className="mx-auto grid max-w-7xl gap-4 p-4 lg:grid-cols-[260px_minmax(0,1fr)_340px]">
-        <aside className="lg:sticky lg:top-24 lg:self-start">
+        <aside className={`${mobileView !== "categories" ? "hidden" : ""} lg:block lg:sticky lg:top-24 lg:self-start`}>
           <div className="rounded-2xl bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
@@ -614,7 +606,7 @@ function MerchantMenuWorkspace({
           </div>
         </aside>
 
-        <section className="min-w-0 rounded-2xl bg-white p-4 shadow-sm">
+        <section className={`min-w-0 rounded-2xl bg-white p-4 shadow-sm ${mobileView !== "products" ? "hidden" : ""} lg:block`}>
           <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-2xl font-black text-slate-950">商品列表</h2>
@@ -677,21 +669,21 @@ function MerchantMenuWorkspace({
           </div>
         </section>
 
-        <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
+        <aside className={`space-y-4 ${mobileView !== "settings" ? "hidden" : ""} lg:block lg:sticky lg:top-24 lg:self-start`}>
           <section className="rounded-2xl bg-white p-4 shadow-sm">
             <div className="flex items-center gap-2">
               <Settings className="size-5 text-leaf" />
               <h2 className="text-xl font-black text-slate-950">菜單設定</h2>
             </div>
-            <p className="mt-2 text-sm font-bold leading-6 text-slate-500">調味群組庫集中管理甜度、冰塊、加料、套餐選項等常用設定，商品內可直接套用。</p>
+            <p className="mt-2 text-sm font-bold leading-6 text-slate-500">調味選項庫集中管理甜度、冰塊、加料、套餐選項等常用設定，商品內可直接套用。</p>
             <div className="mt-4 grid gap-2">
               <Link href="/merchant/options" className="inline-flex items-center justify-between rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5">
-                開啟調味群組庫
+                開啟調味選項庫
                 <Layers3 className="size-4" />
               </Link>
               <div className="flex flex-wrap gap-1.5">
                 {sharedGroups.length === 0 ? (
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">尚無調味群組</span>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">尚無調味選項</span>
                 ) : sharedGroups.slice(0, 8).map((group) => (
                   <span key={group.id} className="rounded-full bg-leaf/10 px-3 py-1 text-xs font-black text-leaf">{group.name}</span>
                 ))}

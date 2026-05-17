@@ -1,451 +1,283 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Contact, Plus, Search, X } from "lucide-react";
+import { ArrowLeft, Gift, Search, UserPlus, X } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
-import { resolvePermissions } from "@/lib/permissions";
-import { normalizeSelectedOptions } from "@/lib/product-options";
-import { accessibleStoreIds, defaultStoreId } from "@/lib/store-access";
-import type { Customer, Order, OrderItem, PointLog, StoredValueLog, User } from "@/lib/types";
+import { defaultStoreId } from "@/lib/store-access";
+import type { Customer, User } from "@/lib/types";
 
 export default function MerchantCustomersPage() {
   return (
     <LoginGate allowedRoles={["systemAdmin", "owner", "manager", "staff"]} title="會員管理">
-      {({ profile }) => <CustomersShell profile={profile} />}
+      {({ profile }) => <MerchantCustomersContent storeId={defaultStoreId(profile)} profile={profile} />}
     </LoginGate>
   );
 }
 
-function CustomersShell({ profile }: { profile: User | null }) {
-  const storeIds = accessibleStoreIds(profile);
-  const [selectedStoreId, setSelectedStoreId] = useState(defaultStoreId(profile));
-  const activeStoreId = storeIds.includes(selectedStoreId) ? selectedStoreId : storeIds[0] ?? "";
-  useEffect(() => {
-    if (storeIds.length > 0 && selectedStoreId !== activeStoreId) setSelectedStoreId(activeStoreId);
-  }, [activeStoreId, selectedStoreId, storeIds]);
-  const { db, createCustomer, updateCustomer, adjustCustomerPoints, adjustStoredValue } = useDemoStore({ storeId: activeStoreId, loadCustomers: true });
+function MerchantCustomersContent({ storeId, profile }: { storeId: string; profile: User | null }) {
+  const { db, ready, createCustomer, adjustCustomerPoints, adjustStoredValue } = useDemoStore({ storeId, loadCustomers: true, skipOrderList: true });
+  const store = db.stores.find((s) => s.id === storeId);
+  const memberEnabled = store?.features?.memberEnabled ?? false;
+  const storedValueEnabled = store?.features?.memberStoredValueEnabled ?? false;
+  const customers = (db.customers ?? [])
+    .filter((c) => c.storeId === storeId)
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-TW"));
 
-  const store = db.stores.find((s) => s.id === activeStoreId);
-  const permissions = resolvePermissions(profile, activeStoreId);
-  const isAdmin = profile?.role === "systemAdmin";
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Customer | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [newForm, setNewForm] = useState({ name: "", phone: "", birthday: "", note: "" });
+  const [message, setMessage] = useState("");
+  const [adjustOpen, setAdjustOpen] = useState<"points" | "value" | null>(null);
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustNote, setAdjustNote] = useState("");
 
-  // Always call hooks before any early returns
-  const customers = useMemo(() => (db.customers ?? []).filter((c) => c.storeId === activeStoreId).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [db.customers, activeStoreId]);
-  const pointLogs = useMemo(() => (db.pointLogs ?? []).filter((l) => l.storeId === activeStoreId), [db.pointLogs, activeStoreId]);
-  const storedValueLogs = useMemo(() => (db.storedValueLogs ?? []).filter((l) => l.storeId === activeStoreId), [db.storedValueLogs, activeStoreId]);
-  const memberStoredValueEnabled = store?.features?.memberStoredValueEnabled ?? false;
-
-  if (!store?.features?.memberEnabled && !isAdmin) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4">
-        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-soft">
-          <Contact className="size-10 text-steel" />
-          <h1 className="mt-4 text-2xl font-black text-ink">會員功能尚未開通</h1>
-          <p className="mt-2 text-sm font-bold text-steel">此店家尚未啟用會員功能，請聯絡平台管理員開通。</p>
-        </div>
-      </main>
-    );
-  }
-
-  if (!permissions.canManageMembers && !isAdmin) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-[#f4f4f2] p-4">
-        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-soft">
-          <h1 className="text-2xl font-black text-ink">權限不足</h1>
-          <p className="mt-2 text-sm font-bold text-steel">此帳號沒有會員管理權限。</p>
-        </div>
-      </main>
-    );
-  }
-
-  return (
-    <CustomersContent
-      storeId={activeStoreId}
-      storeIds={storeIds}
-      db={db}
-      profile={profile}
-      permissions={permissions}
-      isAdmin={isAdmin}
-      customers={customers}
-      pointLogs={pointLogs}
-      storedValueLogs={storedValueLogs}
-      memberStoredValueEnabled={memberStoredValueEnabled}
-      createCustomer={createCustomer}
-      updateCustomer={updateCustomer}
-      adjustCustomerPoints={adjustCustomerPoints}
-      adjustStoredValue={adjustStoredValue}
-      onStoreChange={setSelectedStoreId}
-    />
+  const filtered = customers.filter((c) =>
+    !query.trim() ||
+    c.name.includes(query) ||
+    c.phone.includes(query) ||
+    (c.memberNo ?? "").includes(query)
   );
-}
 
-type ContentProps = {
-  storeId: string;
-  storeIds: string[];
-  db: ReturnType<typeof useDemoStore>["db"];
-  profile: User | null;
-  permissions: ReturnType<typeof resolvePermissions>;
-  isAdmin: boolean;
-  customers: Customer[];
-  pointLogs: PointLog[];
-  storedValueLogs: StoredValueLog[];
-  memberStoredValueEnabled: boolean;
-  createCustomer: ReturnType<typeof useDemoStore>["createCustomer"];
-  updateCustomer: ReturnType<typeof useDemoStore>["updateCustomer"];
-  adjustCustomerPoints: ReturnType<typeof useDemoStore>["adjustCustomerPoints"];
-  adjustStoredValue: ReturnType<typeof useDemoStore>["adjustStoredValue"];
-  onStoreChange: (id: string) => void;
-};
+  function showMsg(msg: string) {
+    setMessage(msg);
+    setTimeout(() => setMessage(""), 3000);
+  }
 
-function CustomersContent({ storeId, storeIds, db, profile, permissions, isAdmin, customers, pointLogs, storedValueLogs, memberStoredValueEnabled, createCustomer, updateCustomer, adjustCustomerPoints, adjustStoredValue, onStoreChange }: ContentProps) {
-  const [search, setSearch] = useState("");
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [addForm, setAddForm] = useState({ name: "", phone: "", email: "", birthday: "" });
-  const [addError, setAddError] = useState("");
-  const [addLoading, setAddLoading] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [editForm, setEditForm] = useState({ name: "", phone: "", email: "", birthday: "" });
-  const [pointAdjAmount, setPointAdjAmount] = useState("");
-  const [pointAdjNote, setPointAdjNote] = useState("");
-  const [pointAdjMsg, setPointAdjMsg] = useState("");
-  const [svAdjAmount, setSvAdjAmount] = useState("");
-  const [svAdjNote, setSvAdjNote] = useState("");
-  const [svAdjType, setSvAdjType] = useState<"topup" | "adjust">("topup");
-  const [svAdjMsg, setSvAdjMsg] = useState("");
+  async function handleCreate() {
+    if (!newForm.name.trim() || !newForm.phone.trim()) return;
+    const name = newForm.name.trim();
+    const phone = newForm.phone.trim();
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return customers;
-    return customers.filter((c) =>
-      c.name.toLowerCase().includes(q) ||
-      c.phone.includes(q) ||
-      c.memberNo.toLowerCase().includes(q)
-    );
-  }, [customers, search]);
-
-  const selectedPointLogs = useMemo(() => pointLogs.filter((l) => l.customerId === selectedCustomer?.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 20), [pointLogs, selectedCustomer]);
-  const selectedSvLogs = useMemo(() => storedValueLogs.filter((l) => l.customerId === selectedCustomer?.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 20), [storedValueLogs, selectedCustomer]);
-  const selectedOrders = useMemo(() => db.orders.filter((o) => o.customer?.customerId === selectedCustomer?.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10), [db.orders, selectedCustomer]);
-
-  async function handleAddCustomer() {
-    if (!addForm.name.trim() || !addForm.phone.trim()) {
-      setAddError("姓名與手機為必填");
+    // Exact duplicate: same name + same phone
+    const exactDupe = customers.find((c) => c.phone === phone && c.name === name);
+    if (exactDupe) {
+      showMsg("此會員已存在（姓名與電話相同）");
       return;
     }
-    setAddLoading(true);
-    setAddError("");
-    try {
-      await createCustomer({ storeId, name: addForm.name.trim(), phone: addForm.phone.trim(), email: addForm.email.trim() || undefined, birthday: addForm.birthday || undefined, createdBy: profile?.email ?? "" });
-      setAddForm({ name: "", phone: "", email: "", birthday: "" });
-      setShowAddForm(false);
-    } catch (err) {
-      setAddError(err instanceof Error ? err.message : "新增失敗");
-    } finally {
-      setAddLoading(false);
-    }
-  }
 
-  async function handleUpdateCustomer() {
-    if (!selectedCustomer) return;
-    await updateCustomer(selectedCustomer.id, { name: editForm.name.trim(), phone: editForm.phone.trim(), email: editForm.email.trim() || undefined, birthday: editForm.birthday || undefined });
-    setEditMode(false);
+    // Phone-only duplicate: same phone, different name — ask for confirmation
+    const phoneDupe = customers.find((c) => c.phone === phone);
+    if (phoneDupe) {
+      if (!window.confirm(`電話 ${phone} 已有會員「${phoneDupe.name}」，確定要再新增一位嗎？`)) return;
+    }
+
+    const member = await createCustomer({ storeId, ...newForm, createdBy: profile?.email ?? "" });
+    setNewForm({ name: "", phone: "", birthday: "", note: "" });
+    setFormOpen(false);
+    setSelected(member);
+    showMsg("會員已建立");
   }
 
   async function handleAdjustPoints() {
-    if (!selectedCustomer) return;
-    const amount = parseInt(pointAdjAmount, 10);
-    if (!Number.isFinite(amount) || amount === 0) return;
-    await adjustCustomerPoints({ customerId: selectedCustomer.id, storeId, type: "adjust", points: amount, note: pointAdjNote, createdBy: profile?.email ?? "" });
-    setPointAdjAmount("");
-    setPointAdjNote("");
-    setPointAdjMsg(`點數已調整 ${amount > 0 ? "+" : ""}${amount}`);
-    setTimeout(() => setPointAdjMsg(""), 3000);
+    if (!selected) return;
+    const pts = Number(adjustAmount);
+    if (!Number.isFinite(pts) || pts === 0) return;
+    await adjustCustomerPoints({ customerId: selected.id, storeId, type: pts > 0 ? "earn" : "adjust", points: Math.abs(pts), note: adjustNote || "後台調整", createdBy: profile?.email ?? "" });
+    setSelected((prev) => prev ? { ...prev, points: (prev.points ?? 0) + pts } : prev);
+    setAdjustAmount("");
+    setAdjustNote("");
+    setAdjustOpen(null);
+    showMsg(`點數已調整 ${pts > 0 ? "+" : ""}${pts}`);
   }
 
-  async function handleAdjustStoredValue() {
-    if (!selectedCustomer) return;
-    const amount = parseFloat(svAdjAmount);
-    if (!Number.isFinite(amount) || amount === 0) return;
-    const signedAmount = svAdjType === "topup" ? Math.abs(amount) : amount;
-    await adjustStoredValue({ customerId: selectedCustomer.id, storeId, type: svAdjType, amount: signedAmount, note: svAdjNote, createdBy: profile?.email ?? "" });
-    setSvAdjAmount("");
-    setSvAdjNote("");
-    setSvAdjMsg(`儲值已調整 ${signedAmount > 0 ? "+" : ""}${signedAmount}`);
-    setTimeout(() => setSvAdjMsg(""), 3000);
-  }
-
-  function startEdit(customer: Customer) {
-    setEditForm({ name: customer.name, phone: customer.phone, email: customer.email ?? "", birthday: customer.birthday ?? "" });
-    setEditMode(true);
-  }
-
-  function selectCustomer(customer: Customer) {
-    setSelectedCustomer(customer);
-    setEditMode(false);
-    setPointAdjAmount("");
-    setPointAdjNote("");
-    setPointAdjMsg("");
-    setSvAdjAmount("");
-    setSvAdjNote("");
-    setSvAdjMsg("");
+  async function handleAdjustValue() {
+    if (!selected) return;
+    const val = Number(adjustAmount);
+    if (!Number.isFinite(val) || val === 0) return;
+    await adjustStoredValue({ customerId: selected.id, storeId, type: val > 0 ? "topup" : "payment", amount: val, note: adjustNote || "後台調整", createdBy: profile?.email ?? "" });
+    setSelected((prev) => prev ? { ...prev, storedValueBalance: (prev.storedValueBalance ?? 0) + val } : prev);
+    setAdjustAmount("");
+    setAdjustNote("");
+    setAdjustOpen(null);
+    showMsg(`儲值已調整 ${val > 0 ? "+" : ""}$${val}`);
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f4f2] p-4 text-ink sm:p-6">
-      <div className="mx-auto max-w-[1600px]">
-        <header className="mb-5 flex flex-col gap-3 rounded-lg bg-[#171717] p-5 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between">
+    <main className="min-h-screen bg-[#fff7e8]">
+      <header className="border-b border-orange-100 bg-white p-4 shadow-sm">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-black text-white/55">會員管理</p>
-            <h1 className="mt-1 text-3xl font-black">會員列表</h1>
+            <p className="text-sm font-black text-leaf">店家後台</p>
+            <h1 className="text-3xl font-black text-ink">{store?.name} · 會員管理</h1>
+            <p className="mt-1 text-sm font-bold text-steel">查詢、新增會員，管理點數與儲值餘額。</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {storeIds.length > 1 && (
-              <select value={storeId} onChange={(e) => onStoreChange(e.target.value)} className="rounded-lg border border-white/20 bg-white px-4 py-3 font-black text-ink">
-                {storeIds.map((id) => <option key={id} value={id}>{db.stores.find((s) => s.id === id)?.name ?? id}</option>)}
-              </select>
-            )}
-            <button onClick={() => setShowAddForm(true)} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-4 py-3 font-black text-white"><Plus className="size-5" />新增會員</button>
-            <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 font-black text-white hover:bg-white/20"><ArrowLeft className="size-4" />返回後台</Link>
-          </div>
-        </header>
+          <Link href="/merchant/dashboard" className="inline-flex items-center gap-2 rounded-lg border border-orange-100 bg-white px-4 py-3 font-black text-ink">
+            <ArrowLeft className="size-5" />
+            回上一層
+          </Link>
+        </div>
+      </header>
 
-        {/* Add form */}
-        {showAddForm && (
-          <div className="mb-5 rounded-lg bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-black">新增會員</h2>
-              <button onClick={() => setShowAddForm(false)}><X className="size-5 text-steel" /></button>
-            </div>
-            {addError && <p className="mt-3 rounded-lg bg-tomato/10 p-3 text-sm font-black text-tomato">{addError}</p>}
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-1 text-sm font-black text-steel">姓名 *<input value={addForm.name} onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))} className="rounded-lg border border-orange-100 px-3 py-2 font-bold text-ink" placeholder="王小明" /></label>
-              <label className="grid gap-1 text-sm font-black text-steel">手機 *<input value={addForm.phone} onChange={(e) => setAddForm((f) => ({ ...f, phone: e.target.value }))} className="rounded-lg border border-orange-100 px-3 py-2 font-bold text-ink" placeholder="0912-345-678" /></label>
-              <label className="grid gap-1 text-sm font-black text-steel">Email<input value={addForm.email} onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))} className="rounded-lg border border-orange-100 px-3 py-2 font-bold text-ink" placeholder="（選填）" /></label>
-              <label className="grid gap-1 text-sm font-black text-steel">生日<input type="date" value={addForm.birthday} onChange={(e) => setAddForm((f) => ({ ...f, birthday: e.target.value }))} className="rounded-lg border border-orange-100 px-3 py-2 font-bold text-ink" /></label>
-            </div>
-            <button onClick={handleAddCustomer} disabled={addLoading} className="mt-4 rounded-lg bg-leaf px-5 py-3 font-black text-white disabled:opacity-60">{addLoading ? "新增中..." : "確認新增"}</button>
+      <div className="mx-auto max-w-5xl p-4">
+        {!memberEnabled && (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <p className="font-black text-amber-800">會員功能尚未開啟</p>
+            <p className="mt-1 text-sm font-bold text-steel">
+              請至 <Link href="/merchant/settings" className="text-leaf underline">店家設定</Link> 開啟會員功能後，才能累積點數與管理儲值。
+            </p>
           </div>
         )}
 
-        <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
-          {/* Customer list */}
-          <section className="rounded-lg bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-2 rounded-lg border border-orange-100 px-3 py-2">
-              <Search className="size-4 text-steel" />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜尋姓名 / 手機 / 會員編號" className="flex-1 text-sm font-bold text-ink outline-none" />
+        {message && <div className="mb-4 rounded-lg bg-leaf/10 p-4 font-black text-leaf">{message}</div>}
+
+        {/* 搜尋列 + 新增按鈕 */}
+        <div className="mb-4 flex flex-wrap gap-3">
+          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-orange-100 bg-white px-3 py-3">
+            <Search className="size-5 shrink-0 text-steel" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜尋姓名、手機、會員編號" className="min-w-0 flex-1 bg-transparent font-bold outline-none" />
+          </label>
+          <button onClick={() => { setFormOpen(true); setSelected(null); }} className="inline-flex items-center gap-2 rounded-lg bg-leaf px-4 py-3 font-black text-white">
+            <UserPlus className="size-5" />
+            新增會員
+          </button>
+        </div>
+
+        {/* 新增會員表單 */}
+        {formOpen && (
+          <div className="mb-4 rounded-lg bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-black">新增會員</h2>
+              <button onClick={() => setFormOpen(false)} className="rounded-lg bg-stone-100 p-2 text-steel"><X className="size-4" /></button>
             </div>
-            <p className="mt-3 text-xs font-black text-steel">共 {filtered.length} 位會員</p>
-            <div className="mt-3 space-y-2 max-h-[600px] overflow-y-auto pr-1">
-              {filtered.length === 0 ? (
-                <p className="rounded-lg bg-stone-50 p-4 text-center text-sm font-black text-steel">尚無會員資料</p>
-              ) : filtered.map((customer) => (
-                <button key={customer.id} onClick={() => selectCustomer(customer)} className={`w-full rounded-lg p-3 text-left transition ${selectedCustomer?.id === customer.id ? "bg-blue-50 border border-blue-200" : "bg-stone-50 hover:bg-orange-50"}`}>
-                  <p className="font-black text-ink">{customer.name}</p>
-                  <p className="text-sm font-bold text-steel">{customer.memberNo} ｜ {customer.phone}</p>
-                  <div className="mt-1 flex gap-3 text-xs font-bold text-steel">
-                    <span>點數 {customer.points}</span>
-                    {memberStoredValueEnabled && <span>儲值 ${customer.storedValueBalance}</span>}
-                    <span>消費 {customer.totalOrders} 次</span>
-                  </div>
-                </button>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {[
+                { label: "姓名 *", key: "name", placeholder: "王小明" },
+                { label: "手機 *", key: "phone", placeholder: "0912345678" },
+                { label: "生日", key: "birthday", placeholder: "YYYY-MM-DD" },
+                { label: "備註", key: "note", placeholder: "備忘事項" },
+              ].map(({ label, key, placeholder }) => (
+                <label key={key} className="grid gap-1 text-sm font-black text-steel">
+                  {label}
+                  <input
+                    value={newForm[key as keyof typeof newForm]}
+                    onChange={(e) => setNewForm((f) => ({ ...f, [key]: e.target.value }))}
+                    placeholder={placeholder}
+                    type={key === "birthday" ? "date" : "text"}
+                    className="rounded-lg border border-orange-100 px-3 py-3 font-bold"
+                  />
+                </label>
               ))}
             </div>
-          </section>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setFormOpen(false)} className="rounded-lg border border-orange-100 px-4 py-3 font-black text-steel">取消</button>
+              <button onClick={handleCreate} disabled={!newForm.name.trim() || !newForm.phone.trim()} className="rounded-lg bg-leaf px-4 py-3 font-black text-white disabled:opacity-50">建立會員</button>
+            </div>
+          </div>
+        )}
 
-          {/* Customer detail */}
-          {selectedCustomer ? (
-            <section className="space-y-5">
-              {/* Basic info */}
+        <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
+          {/* 會員列表 */}
+          <div className="overflow-hidden rounded-lg bg-white shadow-sm">
+            <div className="border-b border-orange-100 px-4 py-3">
+              <p className="font-black text-ink">{ready ? `共 ${filtered.length} 位會員` : "載入中..."}</p>
+            </div>
+            {!ready ? (
+              <div className="space-y-2 p-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-16 animate-pulse rounded-lg bg-orange-50" />
+                ))}
+              </div>
+            ) : filtered.length === 0 ? (
+              <p className="p-8 text-center text-sm font-bold text-steel">
+                {customers.length === 0 ? "尚無會員資料，點擊「新增會員」開始建立" : "尚無符合條件的會員"}
+              </p>
+            ) : (
+              <div className="divide-y divide-orange-50">
+                {filtered.map((customer) => (
+                  <button
+                    key={customer.id}
+                    onClick={() => { setSelected(customer.id === selected?.id ? null : customer); setAdjustOpen(null); setFormOpen(false); }}
+                    className={`w-full p-4 text-left transition ${selected?.id === customer.id ? "bg-leaf/5 ring-inset ring-1 ring-leaf" : "hover:bg-orange-50"}`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-black text-ink">{customer.name}</p>
+                        <p className="text-sm font-bold text-steel">{customer.phone}{customer.memberNo ? ` · ${customer.memberNo}` : ""}</p>
+                      </div>
+                      <div className="text-right">
+                        {memberEnabled && <p className="text-sm font-black text-amber-600"><Gift className="mb-0.5 inline size-3" /> {customer.points ?? 0} 點</p>}
+                        {storedValueEnabled && <p className="text-sm font-black text-blue-600">儲值 ${customer.storedValueBalance ?? 0}</p>}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 選中會員詳情 */}
+          {selected && (
+            <div className="space-y-4">
               <div className="rounded-lg bg-white p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h2 className="text-2xl font-black">{selectedCustomer.name}</h2>
-                    <p className="mt-1 text-sm font-bold text-steel">{selectedCustomer.memberNo} ｜ {selectedCustomer.phone}</p>
-                    {selectedCustomer.email && <p className="text-sm font-bold text-steel">{selectedCustomer.email}</p>}
-                    {selectedCustomer.birthday && <p className="text-sm font-bold text-steel">生日：{selectedCustomer.birthday}</p>}
-                    <p className="mt-1 text-sm font-bold text-steel">加入：{new Date(selectedCustomer.createdAt).toLocaleDateString("zh-TW")}</p>
+                    <p className="text-2xl font-black text-ink">{selected.name}</p>
+                    <p className="mt-1 text-sm font-bold text-steel">{selected.phone}</p>
+                    {selected.memberNo && <p className="text-sm font-bold text-steel">會員編號：{selected.memberNo}</p>}
                   </div>
-                  <button onClick={() => startEdit(selectedCustomer)} className="rounded-lg bg-stone-100 px-3 py-2 text-sm font-black text-steel">編輯資料</button>
+                  <button onClick={() => setSelected(null)} className="rounded-lg bg-stone-100 p-2 text-steel"><X className="size-4" /></button>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <StatBox label="點數" value={selectedCustomer.points.toString()} color="text-blue-600" />
-                  {memberStoredValueEnabled && <StatBox label="儲值餘額" value={`$${selectedCustomer.storedValueBalance}`} color="text-leaf" />}
-                  <StatBox label="累計消費" value={`$${selectedCustomer.totalSpent}`} />
-                  <StatBox label="消費次數" value={selectedCustomer.totalOrders.toString()} />
+
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  {memberEnabled && (
+                    <div className="rounded-lg bg-amber-50 p-3 text-center">
+                      <p className="text-sm font-black text-amber-700">點數</p>
+                      <p className="text-2xl font-black text-amber-600">{selected.points ?? 0}</p>
+                    </div>
+                  )}
+                  {storedValueEnabled && (
+                    <div className="rounded-lg bg-blue-50 p-3 text-center">
+                      <p className="text-sm font-black text-blue-700">儲值餘額</p>
+                      <p className="text-2xl font-black text-blue-600">${selected.storedValueBalance ?? 0}</p>
+                    </div>
+                  )}
+                  <div className="rounded-lg bg-stone-50 p-3 text-center">
+                    <p className="text-sm font-black text-steel">累計消費</p>
+                    <p className="text-2xl font-black">${selected.totalSpent ?? 0}</p>
+                  </div>
+                  <div className="rounded-lg bg-stone-50 p-3 text-center">
+                    <p className="text-sm font-black text-steel">消費次數</p>
+                    <p className="text-2xl font-black">{selected.totalOrders ?? 0} 次</p>
+                  </div>
                 </div>
-                {editMode && (
-                  <div className="mt-4 grid gap-3 rounded-lg bg-stone-50 p-4 sm:grid-cols-2">
-                    <label className="grid gap-1 text-sm font-black text-steel">姓名<input value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} className="rounded-lg border border-orange-100 px-3 py-2 font-bold" /></label>
-                    <label className="grid gap-1 text-sm font-black text-steel">手機<input value={editForm.phone} onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))} className="rounded-lg border border-orange-100 px-3 py-2 font-bold" /></label>
-                    <label className="grid gap-1 text-sm font-black text-steel">Email<input value={editForm.email} onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))} className="rounded-lg border border-orange-100 px-3 py-2 font-bold" /></label>
-                    <label className="grid gap-1 text-sm font-black text-steel">生日<input type="date" value={editForm.birthday} onChange={(e) => setEditForm((f) => ({ ...f, birthday: e.target.value }))} className="rounded-lg border border-orange-100 px-3 py-2 font-bold" /></label>
-                    <div className="flex gap-2 sm:col-span-2">
-                      <button onClick={handleUpdateCustomer} className="rounded-lg bg-leaf px-4 py-2 font-black text-white">儲存</button>
-                      <button onClick={() => setEditMode(false)} className="rounded-lg bg-stone-200 px-4 py-2 font-black text-steel">取消</button>
+
+                {(selected.birthday || selected.note) && (
+                  <div className="mt-4 space-y-1 border-t border-orange-100 pt-4 text-sm font-bold text-steel">
+                    {selected.birthday && <p>生日：{selected.birthday}</p>}
+                    {selected.note && <p>備註：{selected.note}</p>}
+                  </div>
+                )}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {memberEnabled && (
+                    <button onClick={() => setAdjustOpen(adjustOpen === "points" ? null : "points")} className="rounded-lg border border-orange-200 px-3 py-2 text-sm font-black text-steel">調整點數</button>
+                  )}
+                  {storedValueEnabled && (
+                    <button onClick={() => setAdjustOpen(adjustOpen === "value" ? null : "value")} className="rounded-lg border border-orange-200 px-3 py-2 text-sm font-black text-steel">調整儲值</button>
+                  )}
+                </div>
+
+                {adjustOpen && (
+                  <div className="mt-3 rounded-lg bg-orange-50 p-4">
+                    <p className="text-sm font-black text-ink">{adjustOpen === "points" ? "調整點數（正數加點，負數扣點）" : "調整儲值（正數加值，負數扣值）"}</p>
+                    <div className="mt-2 grid gap-2">
+                      <input value={adjustAmount} onChange={(e) => setAdjustAmount(e.target.value)} type="number" placeholder={adjustOpen === "points" ? "+50 或 -10" : "+200 或 -100"} className="rounded-lg border border-orange-100 px-3 py-2 font-bold" />
+                      <input value={adjustNote} onChange={(e) => setAdjustNote(e.target.value)} placeholder="備註（選填）" className="rounded-lg border border-orange-100 px-3 py-2 font-bold" />
+                      <div className="flex gap-2">
+                        <button onClick={() => { setAdjustOpen(null); setAdjustAmount(""); setAdjustNote(""); }} className="flex-1 rounded-lg border border-orange-200 px-3 py-2 text-sm font-black text-steel">取消</button>
+                        <button onClick={adjustOpen === "points" ? handleAdjustPoints : handleAdjustValue} className="flex-1 rounded-lg bg-leaf px-3 py-2 text-sm font-black text-white">確認</button>
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
-
-              {/* Points management */}
-              {permissions.canAdjustMemberPoints && (
-                <div className="rounded-lg bg-white p-5 shadow-sm">
-                  <h3 className="text-xl font-black">點數調整</h3>
-                  {pointAdjMsg && <p className="mt-2 text-sm font-black text-leaf">{pointAdjMsg}</p>}
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <input type="number" value={pointAdjAmount} onChange={(e) => setPointAdjAmount(e.target.value)} placeholder="點數（負數為扣除）" className="rounded-lg border border-orange-100 px-3 py-2 text-sm font-bold w-48" />
-                    <input value={pointAdjNote} onChange={(e) => setPointAdjNote(e.target.value)} placeholder="備註（選填）" className="rounded-lg border border-orange-100 px-3 py-2 text-sm font-bold flex-1 min-w-32" />
-                    <button onClick={handleAdjustPoints} disabled={!pointAdjAmount} className="rounded-lg bg-blue-600 px-4 py-2 font-black text-white disabled:opacity-50">調整點數</button>
-                  </div>
-                  {selectedPointLogs.length > 0 && (
-                    <div className="mt-4 space-y-2 max-h-48 overflow-y-auto">
-                      <p className="text-xs font-black text-steel">近期點數記錄</p>
-                      {selectedPointLogs.map((log) => (
-                        <div key={log.id} className="flex items-center justify-between rounded-lg bg-stone-50 px-3 py-2 text-sm">
-                          <div><p className="font-black">{pointLogTypeLabel(log.type)}{log.note ? ` — ${log.note}` : ""}</p><p className="text-xs text-steel">{new Date(log.createdAt).toLocaleString("zh-TW")}</p></div>
-                          <span className={`font-black ${log.points >= 0 ? "text-leaf" : "text-tomato"}`}>{log.points >= 0 ? "+" : ""}{log.points}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Stored value management */}
-              {memberStoredValueEnabled && permissions.canUseStoredValue && (
-                <div className="rounded-lg bg-white p-5 shadow-sm">
-                  <h3 className="text-xl font-black">儲值管理</h3>
-                  {svAdjMsg && <p className="mt-2 text-sm font-black text-leaf">{svAdjMsg}</p>}
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <select value={svAdjType} onChange={(e) => setSvAdjType(e.target.value as "topup" | "adjust")} className="rounded-lg border border-orange-100 px-3 py-2 text-sm font-bold">
-                      <option value="topup">儲值加值</option>
-                      <option value="adjust">手動調整</option>
-                    </select>
-                    <input type="number" value={svAdjAmount} onChange={(e) => setSvAdjAmount(e.target.value)} placeholder={svAdjType === "topup" ? "加值金額" : "金額（負為扣除）"} className="rounded-lg border border-orange-100 px-3 py-2 text-sm font-bold w-40" />
-                    <input value={svAdjNote} onChange={(e) => setSvAdjNote(e.target.value)} placeholder="備註（選填）" className="rounded-lg border border-orange-100 px-3 py-2 text-sm font-bold flex-1 min-w-32" />
-                    <button onClick={handleAdjustStoredValue} disabled={!svAdjAmount} className="rounded-lg bg-leaf px-4 py-2 font-black text-white disabled:opacity-50">確認</button>
-                  </div>
-                  {selectedSvLogs.length > 0 && (
-                    <div className="mt-4 space-y-2 max-h-48 overflow-y-auto">
-                      <p className="text-xs font-black text-steel">近期儲值記錄</p>
-                      {selectedSvLogs.map((log) => (
-                        <div key={log.id} className="flex items-center justify-between rounded-lg bg-stone-50 px-3 py-2 text-sm">
-                          <div><p className="font-black">{svLogTypeLabel(log.type)}{log.note ? ` — ${log.note}` : ""}</p><p className="text-xs text-steel">{new Date(log.createdAt).toLocaleString("zh-TW")} ｜ 餘額 ${log.afterBalance}</p></div>
-                          <span className={`font-black ${log.amount >= 0 ? "text-leaf" : "text-tomato"}`}>{log.amount >= 0 ? "+" : ""}${log.amount}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Recent orders */}
-              {selectedOrders.length > 0 && (
-                <div className="rounded-lg bg-white p-5 shadow-sm">
-                  <h3 className="text-xl font-black">近期消費記錄</h3>
-                  <div className="mt-3 space-y-3">
-                    {selectedOrders.map((order) => (
-                      <MemberOrderHistoryCard key={order.id} order={order} />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </section>
-          ) : (
-            <div className="flex items-center justify-center rounded-lg bg-white p-12 shadow-sm">
-              <p className="text-xl font-black text-steel">選擇左側會員以查看詳情</p>
             </div>
           )}
         </div>
       </div>
     </main>
   );
-}
-
-function MemberOrderHistoryCard({ order }: { order: Order }) {
-  const items = order.items ?? [];
-  return (
-    <div className="rounded-lg bg-stone-50 px-4 py-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-black">#{order.orderNumber} — {order.mode === "takeout" ? "外帶" : `內用 ${order.tableName ?? order.tableNo}`}</p>
-          <p className="text-sm font-bold text-steel">{new Date(order.createdAt).toLocaleString("zh-TW")}</p>
-          {order.pointsEarned ? <p className="text-xs font-bold text-blue-600">+{order.pointsEarned} 點</p> : null}
-        </div>
-        <p className="font-black text-tomato">合計：${order.totalAmount ?? order.total}</p>
-      </div>
-
-      <div className="mt-3 rounded-lg bg-white p-3">
-        <p className="text-sm font-black text-steel">商品：</p>
-        {items.length === 0 ? (
-          <p className="mt-2 text-sm font-bold text-steel">此筆訂單沒有完整明細</p>
-        ) : (
-          <div className="mt-2 space-y-3">
-            {items.map((item, index) => <MemberOrderItemDetail key={item.id || `${order.id}-${index}`} item={item} />)}
-          </div>
-        )}
-      </div>
-
-      <div className="mt-3 grid gap-2 text-sm font-bold text-steel sm:grid-cols-2">
-        <p>付款方式：{paymentMethodLabel(order.paymentMethod)}</p>
-        {(order.discountSummary?.totalDiscount || order.couponDiscountAmount) ? <p>折扣：${(order.discountSummary?.totalDiscount ?? 0) + (order.couponDiscountAmount ?? 0)}</p> : null}
-      </div>
-    </div>
-  );
-}
-
-function MemberOrderItemDetail({ item }: { item: OrderItem }) {
-  const options = normalizeSelectedOptions(item.selectedOptions);
-  const unitPrice = item.finalPrice ?? item.price ?? item.unitPrice ?? 0;
-  return (
-    <div className="border-b border-stone-100 pb-3 last:border-0 last:pb-0">
-      <p className="font-black text-ink">{item.productName || item.name} x{item.quantity} ${unitPrice}</p>
-      {options.length > 0 && (
-        <div className="mt-1 pl-3 text-sm font-bold text-steel">
-          <p>選項：</p>
-          <ul className="mt-1 space-y-0.5">
-            {options.map((option, index) => (
-              <li key={`${option.groupId}-${option.choiceId}-${index}`}>- {option.choiceName}{option.priceDelta ? ` +${option.priceDelta}` : ""}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {(item.itemNote || item.note) && <p className="mt-1 pl-3 text-sm font-bold text-steel">備註：{item.itemNote || item.note}</p>}
-      {item.discount && <p className="mt-1 pl-3 text-sm font-bold text-tomato">單品折扣：-${item.discount.amount}</p>}
-    </div>
-  );
-}
-
-function paymentMethodLabel(method?: string) {
-  const labels: Record<string, string> = {
-    cash: "現金",
-    stored_value: "儲值金",
-    linepay: "Line Pay",
-    card: "信用卡",
-    jkopay: "街口支付",
-    other: "其他"
-  };
-  return labels[method ?? ""] ?? "未紀錄";
-}
-
-function StatBox({ label, value, color = "text-ink" }: { label: string; value: string; color?: string }) {
-  return (
-    <div className="rounded-lg bg-stone-50 p-3 text-center">
-      <p className="text-xs font-black text-steel">{label}</p>
-      <p className={`mt-1 text-2xl font-black ${color}`}>{value}</p>
-    </div>
-  );
-}
-
-function pointLogTypeLabel(type: PointLog["type"]): string {
-  const labels: Partial<Record<PointLog["type"], string>> = { earn: "消費獲點", redeem: "點數兌換", adjust: "手動調整", rollback: "點數回滾", points_add: "點數增加", points_use: "點數使用" };
-  return labels[type] ?? type;
-}
-
-function svLogTypeLabel(type: StoredValueLog["type"]): string {
-  const labels: Partial<Record<StoredValueLog["type"], string>> = { topup: "儲值加值", payment: "儲值付款", spend: "儲值消費", adjust: "手動調整", refund: "退款" };
-  return labels[type] ?? type;
 }

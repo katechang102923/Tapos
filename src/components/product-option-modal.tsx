@@ -75,7 +75,7 @@ export function ProductOptionModal({
       <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-5 shadow-soft">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-black text-leaf">選擇商品選項</p>
+            <p className="text-sm font-black text-leaf">選擇商品加料</p>
             <h2 className="mt-1 text-3xl font-black text-ink">{product.name}</h2>
             <p className="mt-2 font-bold text-tomato">${productFinalPrice(product) + totalDelta}</p>
           </div>

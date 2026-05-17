@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, BarChart3, ChefHat, CheckCircle2, Clock3, FileText, MenuIcon, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, UserPlus, WalletCards, XCircle } from "lucide-react";
-import { doc, getDoc } from "firebase/firestore";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, BarChart3, Bell, BellOff, ChefHat, CheckCircle2, Clock3, FileText, MenuIcon, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, UserPlus, WalletCards, XCircle } from "lucide-react";
+import { collection, doc, getDoc, onSnapshot, query as firestoreQuery, where } from "firebase/firestore";
 import { LoginGate } from "@/components/auth/login-gate";
 import { ProductOptionModal } from "@/components/product-option-modal";
 import { StatusPill } from "@/components/status-pill";
@@ -50,7 +50,6 @@ const orderTabs: Array<{ key: "new" | "processing" | "completed" | "cancelled"; 
   { key: "completed", label: "已完成", statuses: ["completed"] },
   { key: "cancelled", label: "已取消", statuses: ["cancelled"] }
 ];
-
 const posAccessRoles: StoreMemberRole[] = ["owner", "manager", "staff"];
 
 export default function MerchantPosPage() {
@@ -60,7 +59,6 @@ export default function MerchantPosPage() {
     </LoginGate>
   );
 }
-
 /**
  * Per-user localStorage key used to persist the last POS store selection.
  * The value is validated against the allowed list on every mount; if it is no
@@ -158,25 +156,16 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
   const storeRole = storeRoleFor(profile, selectedStoreId);
   const hasStoreAccess = Boolean(selectedStoreId && storeRole && posAccessRoles.includes(storeRole));
 
-  useEffect(() => {
-    console.log("[POS] auth/store access", {
-      currentUserUid: userId || null,
-      role: profile?.role ?? null,
-      storeRole,
-      allowedStoreIds: storeIds,
-      currentStoreId: selectedStoreId
-    });
-  }, [userId, profile?.role, selectedStoreId, storeIds, storeRole]);
 
   if (selectedStoreId && !hasStoreAccess && !isAdmin) {
-    return <CenteredNotice title="沒有 POS 權限" text="請確認此帳號已被授權為 owner、manager 或 staff。" />;
+    return <CenteredNotice title="沒有 POS 權限" text="請確認此帳號是否已被授權為 owner、manager 或 staff。" />;
   }
 
   return <MerchantPosContent profile={profile} storeId={selectedStoreId} storeIds={storeIds} storeNames={storeNames} activeStoreId={selectedStoreId} activeStoreRole={storeRole} onStoreChange={handleStoreChange} />;
 }
 
 function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activeStoreId, activeStoreRole, onStoreChange }: { profile: User | null; storeId: string; storeIds: string[]; storeNames?: Record<string, string>; activeStoreId: string; activeStoreRole: StoreMemberRole | null; onStoreChange: (storeId: string) => void }) {
-  const { db, createCashFlow, createCustomer, createOrder, todayCashFlows, todayOrders, updateOrderStatus, upsertCashFlowItem, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned, loadMemberRules } = useDemoStore({ storeId, loadCustomers: true, todayOrdersOnly: true });
+  const { db, createCashFlow, createCustomer, createOrder, todayCashFlows, todayOrders, updateOrderStatus, upsertCashFlowItem, upsertStore, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned, loadMemberRules } = useDemoStore({ storeId, loadCustomers: true, todayOrdersOnly: true });
   const store = db.stores.find((item) => item.id === storeId);
   const categories = useMemo(() => db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort), [db.categories, storeId]);
   const products = useMemo(() => db.products.filter((item) => item.storeId === storeId && productIsAvailable(item)).sort((a, b) => a.sort - b.sort), [db.products, storeId]);
@@ -219,6 +208,122 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const [topupModalOpen, setTopupModalOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [ordersOpen, setOrdersOpen] = useState(false);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [successOrderNumber, setSuccessOrderNumber] = useState("");
+
+  // P0-3: 成功/失敗通知 3 秒後自動消失
+  useEffect(() => {
+    if (!orderSuccess && !orderError) return;
+    const t = setTimeout(() => { setOrderSuccess(""); setOrderError(""); }, 3000);
+    return () => clearTimeout(t);
+  }, [orderSuccess, orderError]);
+
+  // 大型送單成功 Toast 3 秒後自動消失
+  useEffect(() => {
+    if (!successOrderNumber) return;
+    const t = setTimeout(() => setSuccessOrderNumber(""), 3000);
+    return () => clearTimeout(t);
+  }, [successOrderNumber]);
+
+  // ── 新訂單通知系統 ────────────────────────────────────────────────────────
+  type NewOrderToast = { key: string; text: string };
+  const [newOrderToasts, setNewOrderToasts] = useState<NewOrderToast[]>([]);
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("pos:soundEnabled") === "1";
+  });
+  const soundEnabledRef = useRef(soundEnabled);
+  const knownOrderIds = useRef<Set<string>>(new Set());
+  const initializedRef = useRef(false);
+
+  // Keep ref in sync with state
+  useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
+
+  function toggleSound() {
+    setSoundEnabled((prev) => {
+      const next = !prev;
+      soundEnabledRef.current = next;
+      if (typeof window !== "undefined") window.localStorage.setItem("pos:soundEnabled", next ? "1" : "0");
+      return next;
+    });
+  }
+
+  function playBeep() {
+    try {
+      const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.6, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+    } catch {
+      // Browser may block audio without user gesture
+    }
+  }
+
+  function addNewOrderToast(text: string) {
+    const key = `nt-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+    setNewOrderToasts((prev) => [...prev, { key, text }]);
+    setTimeout(() => setNewOrderToasts((prev) => prev.filter((t) => t.key !== key)), 4500);
+  }
+
+  // ── Dedicated Firestore onSnapshot for new-order notifications ───────────
+  // Independent of useDemoStore — fires the moment Firestore pushes an update.
+  // On first snapshot: seed knownOrderIds (no toast). On subsequent snapshots:
+  // any unseen order that is pending + not from POS triggers a toast + beep.
+  useEffect(() => {
+    if (!firebaseEnabled || !firestore || !storeId) return;
+    // Reset per storeId so switching stores doesn't leak old IDs
+    initializedRef.current = false;
+    knownOrderIds.current = new Set();
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const unsubscribe = onSnapshot(
+      firestoreQuery(
+        collection(firestore, "stores", storeId, "orders"),
+        where("createdAt", ">=", todayStart.toISOString())
+      ),
+      (snapshot) => {
+        if (!initializedRef.current) {
+          // First snapshot: record existing order IDs so we don't notify for them
+          initializedRef.current = true;
+          snapshot.docs.forEach((d) => knownOrderIds.current.add(d.id));
+          return;
+        }
+        const newPending = snapshot.docs.filter(
+          (d) =>
+            !knownOrderIds.current.has(d.id) &&
+            d.data().source !== "pos" &&
+            ["pending", "waiting", "unprocessed"].includes(d.data().status as string)
+        );
+        snapshot.docs.forEach((d) => knownOrderIds.current.add(d.id));
+        if (newPending.length === 0) return;
+        if (soundEnabledRef.current) playBeep();
+        newPending.forEach((d) => {
+          const data = d.data();
+          const num = (data.orderNumber ?? d.id.slice(-4)) as string;
+          const tableText =
+            data.tableNo && data.tableNo !== "外帶"
+              ? `${data.tableNo} 桌新訂單 #${num}`
+              : `新訂單 #${num} 已進單`;
+          addNewOrderToast(tableText);
+        });
+      }
+    );
+
+    return unsubscribe;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeId]);
+  // ── 新訂單通知系統結束 ────────────────────────────────────────────────────
 
   const visibleProducts = activeCategoryId === "all" ? products : products.filter((product) => product.categoryId === activeCategoryId);
   const completedOrders = todayOrders.filter((order) => order.status === "completed");
@@ -229,6 +334,8 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const averageOrderValue = completedOrders.length ? Math.round(completedRevenue / completedOrders.length) : 0;
   const selectedOrderTab = orderTabs.find((tab) => tab.key === activeOrderTab) ?? orderTabs[0];
   const displayedOrders = todayOrders.filter((order) => selectedOrderTab.statuses.includes(order.status)).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const processingOrderCount = todayOrders.filter((order) => ["pending", "waiting", "unprocessed", "accepted", "cooking", "preparing", "ready"].includes(order.status)).length;
+  const pendingOrderCount = todayOrders.filter((order) => ["pending", "waiting", "unprocessed"].includes(order.status)).length;
   const ranking = useMemo(() => salesRanking(completedOrders).slice(0, 10), [completedOrders]);
   const itemsSubtotal = cart.reduce((sum, line) => sum + lineSubtotal(line), 0);
   const itemDiscountTotal = cart.reduce((sum, line) => sum + lineDiscountAmount(line), 0);
@@ -331,16 +438,10 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
       setCart([]);
       setCustomerNote("");
       setOrderDiscount(null);
-      console.log("[POS Order Created]", {
-        orderId: order.id,
-        storeId: order.storeId,
-        source: order.source,
-        status: order.status,
-        orderType: order.orderType,
-        memberId: order.memberId,
-        memberPhone: order.memberPhone,
-        memberName: order.memberName
-      });
+      setMode("takeout");
+      setTableNo("1");
+      setCartOpen(false);
+      setSuccessOrderNumber(order.orderNumber ?? "");
       setOrderSuccess("POS 訂單已建立：" + order.orderNumber);
       if (boundMember) {
         await updateCustomerOrderStats(boundMember.id, finalTotal);
@@ -432,10 +533,27 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
       <div className="mx-auto flex min-h-screen max-w-[1800px] flex-col">
         <header className="sticky top-0 z-30 border-b border-stone-200 bg-[#f5f3ee]/95 px-3 py-3 backdrop-blur sm:px-5">
           <div className="flex items-center justify-between gap-3 rounded-2xl bg-[#17202a] px-4 py-3 text-white shadow-sm">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="truncate text-lg font-black sm:text-2xl">{storeDisplayName}</p>
               <p className="text-xs font-bold text-white/55 sm:text-sm">POS 點餐 / 接單中心{effectiveRole ? " / " + effectiveRole : ""}</p>
             </div>
+            {/* P0-5 接單開關 */}
+            {store && (
+              <button
+                onClick={() => upsertStore({ ...store, isOpen: !store.isOpen, orderStatus: store.isOpen ? "closed" : "open" })}
+                className={`shrink-0 rounded-xl px-3 py-2 text-sm font-black transition ${store.isOpen ? "bg-leaf/80 text-white hover:bg-leaf" : "bg-tomato/80 text-white hover:bg-tomato"}`}
+              >
+                {store.isOpen ? "●  營業中" : "○  休息中"}
+              </button>
+            )}
+            {/* 提示音開關 */}
+            <button
+              onClick={toggleSound}
+              title={soundEnabled ? "提示音已啟用（點擊關閉）" : "點擊啟用新訂單提示音"}
+              className={`shrink-0 rounded-xl px-3 py-2 text-sm font-black transition ${soundEnabled ? "bg-amber-500/80 text-white hover:bg-amber-500" : "bg-white/10 text-white/60 hover:bg-white/15"}`}
+            >
+              {soundEnabled ? <Bell className="size-4" /> : <BellOff className="size-4" />}
+            </button>
             <button onClick={() => setToolsOpen(true)} className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 font-black text-white hover:bg-white/15">
               <MenuIcon className="size-5" />
               功能
@@ -443,34 +561,115 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
           </div>
         </header>
 
-        <div className="flex-1 p-3 pb-28 sm:p-5 lg:pb-5">
+        <div className="flex-1 p-3 pb-24 sm:p-5 xl:pb-5">
           {orderSuccess && <div className="mb-4 rounded-xl border border-leaf/30 bg-leaf/10 p-4 font-black text-leaf">{orderSuccess}</div>}
           {orderError && <div className="mb-4 rounded-xl border border-tomato/30 bg-tomato/10 p-4 font-black text-tomato">{orderError}</div>}
 
-          <div className="grid gap-4 xl:grid-cols-[190px_minmax(0,1fr)_430px]">
-            <PosSideRail cashFlowEnabled={cashFlowFeature && (canAddCashFlow || canViewReport)} kdsEnabled={Boolean(store.features?.kdsEnabled)} onOpenOrders={() => setOrdersOpen(true)} storeId={storeId} />
+          {/* 待接單提醒 */}
+          {pendingOrderCount > 0 && (
+            <div className="mb-4 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm">
+              <Bell className="size-5 shrink-0 animate-bounce text-amber-600" />
+              <p className="font-black text-amber-800">
+                目前有 <span className="text-2xl text-tomato">{pendingOrderCount}</span> 筆待接單！請盡快處理。
+              </p>
+              <button onClick={() => setOrdersOpen(true)} className="ml-auto rounded-lg bg-amber-600 px-3 py-2 text-sm font-black text-white">
+                查看
+              </button>
+            </div>
+          )}
+
+          <PosStatusBar
+            activeOrderCount={processingOrderCount}
+            dineInEnabled={store.dineInOrderingEnabled ?? store.dineInEnabled ?? true}
+            orderCount={todayOrders.length}
+            paused={!store.isOpen || store.orderStatus === "closed"}
+            posEnabled={posEnabled}
+            takeoutEnabled={store.takeoutOrderingEnabled ?? store.takeoutEnabled ?? true}
+            updateStore={(patch) => upsertStore({ ...store, ...patch })}
+          />
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_460px]">
             <QuickOrder activeCategoryId={activeCategoryId} categories={categories} customerNote={customerNote} mode={mode} posEnabled={posEnabled} products={visibleProducts} setActiveCategoryId={setActiveCategoryId} setChoosingProduct={setChoosingProduct} setCustomerNote={setCustomerNote} setMode={setMode} setTableNo={setTableNo} tableNo={tableNo} />
-            <aside className="hidden xl:block xl:sticky xl:top-24 xl:h-fit">
+            <aside className="hidden space-y-4 xl:sticky xl:top-24 xl:block xl:h-fit">
               <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />
+              <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
             </aside>
           </div>
         </div>
 
-        <details className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200 bg-white p-3 shadow-[0_-12px_32px_rgba(15,23,42,0.14)] xl:hidden">
-          <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl bg-[#17202a] px-4 py-3 font-black text-white">
-            <span className="inline-flex items-center gap-2"><ShoppingCart className="size-5" />購物車 {cart.reduce((sum, item) => sum + item.quantity, 0)}</span>
-            <span>${finalTotal}</span>
-          </summary>
-          <div className="max-h-[72vh] overflow-y-auto pt-3">
-            <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />
+        {/* P1-1+3: 手機版固定底列 + 受控 slide-up cart */}
+        <div className="fixed inset-x-0 bottom-0 z-40 xl:hidden">
+          <div className="border-t border-stone-200 bg-white px-3 py-2 shadow-[0_-8px_24px_rgba(15,23,42,0.10)]">
+            <button
+              onClick={() => setCartOpen(true)}
+              className="flex w-full items-center justify-between rounded-xl bg-[#17202a] px-4 py-3 font-black text-white"
+            >
+              <span className="inline-flex items-center gap-2">
+                <ShoppingCart className="size-5" />
+                購物車
+                {cart.reduce((sum, item) => sum + item.quantity, 0) > 0 && (
+                  <span className="rounded-full bg-tomato px-2 py-0.5 text-xs">{cart.reduce((sum, item) => sum + item.quantity, 0)}</span>
+                )}
+              </span>
+              <span className="text-lg">${finalTotal}</span>
+            </button>
           </div>
-        </details>
+        </div>
+
+        {/* P1-3: 受控 slide-up sheet */}
+        {cartOpen && (
+          <div className="fixed inset-0 z-50 xl:hidden" onClick={() => setCartOpen(false)}>
+            <div className="absolute inset-0 bg-black/40" />
+            <div
+              className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto rounded-t-2xl bg-white shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="sticky top-0 flex items-center justify-between border-b border-orange-100 bg-white px-5 py-4">
+                <h2 className="text-xl font-black text-ink">購物車</h2>
+                <button onClick={() => setCartOpen(false)} className="rounded-xl bg-stone-100 px-3 py-2 text-sm font-black text-steel">關閉</button>
+              </div>
+              <div className="p-4">
+                <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       {toolsOpen && <ToolsDrawer cashFlowEnabled={cashFlowFeature && (canAddCashFlow || canViewReport)} kdsEnabled={Boolean(store.features?.kdsEnabled)} onClose={() => setToolsOpen(false)} onOpenOrders={() => { setToolsOpen(false); setOrdersOpen(true); }} storeId={storeId} />}
       {ordersOpen && (
         <SideDrawer title="接單進單" onClose={() => setOrdersOpen(false)}>
-          <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
+          <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
         </SideDrawer>
+      )}
+      {/* 新訂單 Toast 通知堆疊 */}
+      {newOrderToasts.length > 0 && (
+        <div className="fixed right-4 top-20 z-[55] flex flex-col gap-2">
+          {newOrderToasts.map((toast) => (
+            <div
+              key={toast.key}
+              onClick={() => setNewOrderToasts((prev) => prev.filter((t) => t.key !== toast.key))}
+              className="flex cursor-pointer items-center gap-3 rounded-2xl bg-[#17202a] px-5 py-4 text-white shadow-2xl"
+            >
+              <Bell className="size-5 shrink-0 text-amber-400" />
+              <span className="font-black">{toast.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* P1-4: 大型送單成功 Toast */}
+      {successOrderNumber && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
+          onClick={() => setSuccessOrderNumber("")}
+        >
+          <div className="mx-4 rounded-3xl bg-leaf px-10 py-10 text-center shadow-2xl">
+            <CheckCircle2 className="mx-auto size-16 text-white" />
+            <p className="mt-4 text-6xl font-black tracking-tight text-white">#{successOrderNumber}</p>
+            <p className="mt-3 text-xl font-black text-white/80">訂單已送出</p>
+            <p className="mt-4 text-sm font-bold text-white/50">點擊任意處關閉</p>
+          </div>
+        </div>
       )}
       {choosingProduct && <ProductOptionModal product={choosingProduct} sharedGroups={db.sharedOptionGroups} onClose={() => setChoosingProduct(null)} onConfirm={confirmProductOptions} />}
       {memberModalOpen && <MemberModal onClose={() => setMemberModalOpen(false)} onSubmit={createMember} />}
@@ -509,6 +708,61 @@ function PosSideRail({ cashFlowEnabled, kdsEnabled, onOpenOrders, storeId }: { c
         </Link>
       </div>
     </aside>
+  );
+}
+
+function PosStatusBar({
+  activeOrderCount,
+  dineInEnabled,
+  orderCount,
+  paused,
+  posEnabled,
+  takeoutEnabled,
+  updateStore,
+}: {
+  activeOrderCount: number;
+  dineInEnabled: boolean;
+  orderCount: number;
+  paused: boolean;
+  posEnabled: boolean;
+  takeoutEnabled: boolean;
+  updateStore: (patch: Partial<import("@/lib/types").Store>) => void;
+}) {
+  return (
+    <section className="mb-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+      <button
+        type="button"
+        onClick={() => updateStore({ isOpen: paused, orderStatus: paused ? "open" : "closed" })}
+        className={`min-h-12 rounded-2xl px-4 py-3 text-left text-sm font-black shadow-sm transition ${paused ? "bg-tomato text-white" : "bg-white text-slate-800"}`}
+      >
+        <span className="block text-xs opacity-70">接單狀態</span>
+        {paused ? "暫停接單" : "正常接單"}
+      </button>
+      <button
+        type="button"
+        onClick={() => updateStore({ takeoutOrderingEnabled: !takeoutEnabled })}
+        className={`min-h-12 rounded-2xl px-4 py-3 text-left text-sm font-black shadow-sm transition ${takeoutEnabled ? "bg-white text-slate-800" : "bg-tomato text-white"}`}
+      >
+        <span className="block text-xs opacity-70">外帶 QR</span>
+        {takeoutEnabled ? "開放" : "關閉"}
+      </button>
+      <button
+        type="button"
+        onClick={() => updateStore({ dineInOrderingEnabled: !dineInEnabled })}
+        className={`min-h-12 rounded-2xl px-4 py-3 text-left text-sm font-black shadow-sm transition ${dineInEnabled ? "bg-white text-slate-800" : "bg-tomato text-white"}`}
+      >
+        <span className="block text-xs opacity-70">內用 QR</span>
+        {dineInEnabled ? "開放" : "關閉"}
+      </button>
+      <div className="min-h-12 rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-800 shadow-sm">
+        <span className="block text-xs text-slate-400">今日訂單數</span>
+        {orderCount}
+      </div>
+      <div className="min-h-12 rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-800 shadow-sm">
+        <span className="block text-xs text-slate-400">目前進行中</span>
+        {posEnabled ? activeOrderCount : "POS 關閉"}
+      </div>
+    </section>
   );
 }
 
@@ -560,23 +814,50 @@ function SideDrawer({ children, onClose, title }: { children: React.ReactNode; o
   );
 }
 
-function OrderBoard({ activeOrderTab, canCancelOrders, displayedOrders, enablePickupDisplay, setActiveOrderTab, updateOrderStatus }: { activeOrderTab: string; canCancelOrders: boolean; displayedOrders: Order[]; enablePickupDisplay: boolean; setActiveOrderTab: (key: (typeof orderTabs)[number]["key"]) => void; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
+function OrderBoard({ activeOrderTab, canCancelOrders, displayedOrders, enablePickupDisplay, pendingCount, setActiveOrderTab, updateOrderStatus }: { activeOrderTab: string; canCancelOrders: boolean; displayedOrders: Order[]; enablePickupDisplay: boolean; pendingCount: number; setActiveOrderTab: (key: (typeof orderTabs)[number]["key"]) => void; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
   return (
     <section className="rounded-lg bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
-        <div><h2 className="text-2xl font-black">接單進單</h2><p className="mt-1 text-sm font-bold text-steel">查看新訂單、處理中訂單與已完成訂單。</p></div>
-        <Clock3 className="size-7 text-tomato" />
+        <div>
+          <h2 className="text-2xl font-black">接單進單</h2>
+          <p className="mt-1 text-sm font-bold text-steel">查看新訂單、處理中訂單與已完成訂單。</p>
+        </div>
+        {pendingCount > 0 ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-tomato px-3 py-1.5 text-sm font-black text-white">
+            <Bell className="size-4 animate-bounce" />
+            {pendingCount} 待接
+          </span>
+        ) : <Clock3 className="size-7 text-tomato" />}
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {orderTabs.map((tab) => <button key={tab.key} onClick={() => setActiveOrderTab(tab.key)} className={"rounded-lg px-3 py-3 font-black " + (activeOrderTab === tab.key ? "bg-ink text-white" : "bg-stone-100 text-steel")}>{tab.label}</button>)}
+        {orderTabs.map((tab) => (
+          <button key={tab.key} onClick={() => setActiveOrderTab(tab.key)}
+            className={"relative rounded-lg px-3 py-3 font-black " + (activeOrderTab === tab.key ? "bg-ink text-white" : "bg-stone-100 text-steel")}
+          >
+            {tab.label}
+            {tab.key === "new" && pendingCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-tomato text-xs font-black text-white">{pendingCount}</span>
+            )}
+          </button>
+        ))}
       </div>
       <div className="mt-4 space-y-3">
-        {displayedOrders.length === 0 ? <p className="rounded-lg bg-stone-50 p-5 text-center font-black text-steel">目前沒有訂單</p> : displayedOrders.map((order) => <OrderWorkCard key={order.id} canCancelOrders={canCancelOrders} enablePickupDisplay={enablePickupDisplay} order={order} updateOrderStatus={updateOrderStatus} />)}
+        {displayedOrders.length === 0 ? (
+          <p className="rounded-lg bg-stone-50 p-5 text-center font-black text-steel">目前沒有訂單</p>
+        ) : (
+          displayedOrders.map((order) => {
+            const isPending = ["pending", "waiting", "unprocessed"].includes(order.status);
+            return (
+              <div key={order.id} className={isPending ? "rounded-xl ring-2 ring-tomato ring-offset-1" : ""}>
+                <OrderWorkCard canCancelOrders={canCancelOrders} enablePickupDisplay={enablePickupDisplay} order={order} updateOrderStatus={updateOrderStatus} />
+              </div>
+            );
+          })
+        )}
       </div>
     </section>
   );
 }
-
 function MemberModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (form: { name: string; phone: string; birthday?: string; note?: string }) => Promise<void> }) {
   const [form, setForm] = useState({ name: "", phone: "", birthday: "", note: "" });
   const [error, setError] = useState("");
@@ -1009,7 +1290,7 @@ function CartLineCard({ canApplyDiscounts, index, line, removeLine, updateLine }
         <span className="text-xl font-black">{line.quantity}</span>
         <button onClick={() => updateLine(index, { quantity: line.quantity + 1 })} className="grid h-10 w-10 place-items-center rounded-lg bg-orange-50"><Plus className="size-4" /></button>
       </div>
-      <textarea value={line.note} onChange={(e) => updateLine(index, { note: e.target.value })} placeholder="品項備註" className="mt-3 w-full rounded-lg border border-orange-100 px-3 py-3 text-sm" />
+      <input value={line.note} onChange={(e) => updateLine(index, { note: e.target.value })} placeholder="品項備註（如：不加洋蔥）" className="mt-3 w-full rounded-lg border border-orange-100 px-3 py-2 text-sm font-bold" />
     </div>
   );
 }

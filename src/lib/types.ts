@@ -544,6 +544,7 @@ export type Order = {
   archiveEligible?: boolean;
   archivedAt?: string | null;
   customerName?: string;
+  customerPhone?: string;
   customerSessionId?: string;
   orderType?: OrderMode;
   tableName?: string;

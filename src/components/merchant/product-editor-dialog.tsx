@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import { ChevronDown, ChevronRight, Link2, Plus, Search, X } from "lucide-react";
+import { useRef, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { ChevronDown, ChevronRight, Link2, Plus, Search, Upload, X } from "lucide-react";
 import type { Category, Product, ProductOptionChoice, ProductOptionGroup, ProductScheduledChange, SharedOptionGroup } from "@/lib/types";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
 
@@ -63,14 +63,20 @@ export function ProductEditorDialog({
     if (!keyword) return true;
     return group.name.toLowerCase().includes(keyword) || (group.groupName ?? "").toLowerCase().includes(keyword);
   });
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    console.log(
-      "[EDITOR OPTION GROUPS]",
-      editingProduct,
-      form.optionGroups
-    );
-  }, [editingProduct, form.optionGroups]);
+  function handleLocalImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      if (dataUrl) setEditingProduct((current) => ({ ...current, imageUrl: dataUrl }));
+    };
+    reader.readAsDataURL(file);
+    // Reset so the same file can be re-selected if needed
+    event.target.value = "";
+  }
 
   function addScheduledChange() {
     const now = new Date().toISOString();
@@ -164,6 +170,11 @@ export function ProductEditorDialog({
                 </label>
                 <div className="sm:col-span-2">
                   <LabeledInput label="商品圖片網址" value={editingProduct.imageUrl} onChange={(value) => setEditingProduct((current) => ({ ...current, imageUrl: value }))} />
+                  <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleLocalImageUpload} />
+                  <button type="button" onClick={() => imageInputRef.current?.click()} className="mt-2 inline-flex items-center gap-2 rounded-lg border border-orange-200 px-3 py-2 text-sm font-black text-steel transition hover:bg-orange-50">
+                    <Upload className="size-4" />
+                    上傳本地圖片
+                  </button>
                 </div>
               </div>
             </div>
@@ -260,8 +271,7 @@ export function ProductEditorDialog({
             <div className="flex flex-col gap-3 border-b border-orange-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-xl font-black">多層菜單選項設定</h3>
-                <p className="mt-1 text-sm font-bold text-steel">設定調味、加料、套餐與調味群組。調味群組適合甜度、冰塊、加料等跨商品重複使用的選項。</p>
-                <p className="mt-2 inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-black text-steel">optionGroups count: {optionGroups.length}</p>
+                <p className="mt-1 text-sm font-bold text-steel">設定調味、加料、套餐與調味選項。調味選項適合甜度、冰塊、加料等跨商品重複使用的選項。</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={addOptionGroup} className="inline-flex items-center justify-center gap-2 rounded-lg bg-leaf px-4 py-3 font-black text-white">
@@ -270,7 +280,7 @@ export function ProductEditorDialog({
                 </button>
                 <button type="button" onClick={() => { setSelectedSharedIds([]); setSharedPickerOpen(true); }} className="inline-flex items-center justify-center gap-2 rounded-lg border border-leaf bg-white px-4 py-3 font-black text-leaf">
                   <Link2 className="size-4" />
-                  套用調味群組
+                  套用調味選項
                 </button>
               </div>
             </div>
@@ -281,9 +291,9 @@ export function ProductEditorDialog({
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="text-sm font-black text-ink">已套用群組</p>
-                      <p className="text-xs font-bold text-steel">商品只保存調味群組 ID，群組內容會跟著調味群組設定同步。</p>
+                      <p className="text-xs font-bold text-steel">商品只保存調味選項 ID，群組內容會跟著調味選項設定同步。</p>
                     </div>
-                    <button type="button" onClick={() => setSharedPickerOpen(true)} className="rounded-lg bg-white px-3 py-2 text-sm font-black text-leaf ring-1 ring-leaf/30">+ 套用調味群組</button>
+                    <button type="button" onClick={() => setSharedPickerOpen(true)} className="rounded-lg bg-white px-3 py-2 text-sm font-black text-leaf ring-1 ring-leaf/30">+ 套用調味選項</button>
                   </div>
                   <div className="mt-3 grid gap-2">
                     {sharedRefs.map((group) => {
@@ -308,10 +318,10 @@ export function ProductEditorDialog({
               {optionGroups.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-orange-200 bg-orange-50 p-6 text-center">
                   <p className="font-black text-ink">尚未設定選項群組</p>
-                  <p className="mt-1 text-sm font-bold text-steel">可以新增商品專屬群組，或直接套用甜度、冰塊、加料等調味群組。</p>
+                  <p className="mt-1 text-sm font-bold text-steel">可以新增商品專屬群組，或直接套用甜度、冰塊、加料等調味選項。</p>
                   <div className="mt-4 flex flex-wrap justify-center gap-2">
                     <button type="button" onClick={addOptionGroup} className="rounded-lg bg-ink px-5 py-3 font-black text-white">新增商品專屬群組</button>
-                    <button type="button" onClick={() => setSharedPickerOpen(true)} className="rounded-lg border border-leaf bg-white px-5 py-3 font-black text-leaf">套用調味群組</button>
+                    <button type="button" onClick={() => setSharedPickerOpen(true)} className="rounded-lg border border-leaf bg-white px-5 py-3 font-black text-leaf">套用調味選項</button>
                   </div>
                 </div>
               ) : optionGroups.map((group) => (
@@ -339,8 +349,8 @@ export function ProductEditorDialog({
           <div className="max-h-[86vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-2xl font-black text-ink">套用調味群組</h3>
-                <p className="mt-1 text-sm font-bold text-steel">勾選後直接加入商品，商品只會保存調味群組 ID。</p>
+                <h3 className="text-2xl font-black text-ink">套用調味選項</h3>
+                <p className="mt-1 text-sm font-bold text-steel">勾選後直接加入商品，商品只會保存調味選項 ID。</p>
               </div>
               <button type="button" onClick={() => setSharedPickerOpen(false)} className="rounded-lg p-2 text-steel hover:bg-orange-50">
                 <X className="size-5" />
@@ -352,7 +362,7 @@ export function ProductEditorDialog({
             </label>
             <div className="mt-4 grid gap-2">
               {filteredSharedGroups.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-orange-200 p-5 text-center text-sm font-bold text-steel">目前沒有可套用的調味群組，請先到「調味群組庫」建立。</div>
+                <div className="rounded-lg border border-dashed border-orange-200 p-5 text-center text-sm font-bold text-steel">目前沒有可套用的調味選項，請先到「調味選項庫」建立。</div>
               ) : filteredSharedGroups.map((group) => {
                 const alreadyApplied = appliedSharedIds.has(group.id);
                 const selected = selectedSharedIds.includes(group.id);
@@ -446,7 +456,7 @@ function AppliedSharedGroupCard({ groupRef, sharedGroup, canMoveUp, canMoveDown,
   onRemove: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const groupName = sharedGroup?.name ?? groupRef.name ?? "調味群組";
+  const groupName = sharedGroup?.name ?? groupRef.name ?? "調味選項";
   const options = sharedGroup?.options ?? [];
 
   return (
@@ -456,7 +466,7 @@ function AppliedSharedGroupCard({ groupRef, sharedGroup, canMoveUp, canMoveDown,
           {expanded ? <ChevronDown className="size-4 text-steel" /> : <ChevronRight className="size-4 text-steel" />}
           <span className="rounded-lg bg-leaf px-3 py-1 text-sm font-black text-white">{groupName}</span>
           <span className="text-xs font-bold text-steel">{options.length} 個選項</span>
-          <span className="rounded bg-leaf/10 px-2 py-0.5 text-xs font-black text-leaf">調味群組</span>
+          <span className="rounded bg-leaf/10 px-2 py-0.5 text-xs font-black text-leaf">調味選項</span>
         </button>
         <div className="flex items-center gap-1">
           <button type="button" disabled={!canMoveUp} onClick={() => onMove(-1)} className="rounded border border-orange-100 px-2 py-1 text-xs font-black text-steel disabled:opacity-40">上移</button>
@@ -467,7 +477,7 @@ function AppliedSharedGroupCard({ groupRef, sharedGroup, canMoveUp, canMoveDown,
       {expanded && (
         <div className="border-t border-orange-100 p-3">
           {!sharedGroup ? (
-            <p className="text-sm font-bold text-tomato">找不到此調味群組，請移除後重新套用。</p>
+            <p className="text-sm font-bold text-tomato">找不到此調味選項，請移除後重新套用。</p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {options.map((option) => (
@@ -514,9 +524,9 @@ export function OptionGroupEditor({
           {expanded ? <ChevronDown className="size-4 shrink-0 text-steel" /> : <ChevronRight className="size-4 shrink-0 text-steel" />}
           <span className="font-black text-ink">{(group.groupName ?? group.name) || "未命名群組"}</span>
           <span className="text-xs font-bold text-steel">{group.required ? "必選" : "選填"} / {group.maxSelect <= 1 ? "單選" : `最多 ${group.maxSelect} 項`} / {(group.options ?? []).length} 個選項</span>
-          {isShared && <span className="rounded bg-leaf/15 px-1.5 py-0.5 text-xs font-black text-leaf">調味群組</span>}
+          {isShared && <span className="rounded bg-leaf/15 px-1.5 py-0.5 text-xs font-black text-leaf">調味選項</span>}
           {!isShared && depth === 0 && <span className="rounded bg-orange-100 px-1.5 py-0.5 text-xs font-black text-steel">商品群組</span>}
-          {linkedGroupCount > 0 && <span className="flex items-center gap-0.5 rounded bg-leaf/10 px-1.5 py-0.5 text-xs font-bold text-leaf"><Link2 className="size-3" />{linkedGroupCount} 調味群組</span>}
+          {linkedGroupCount > 0 && <span className="flex items-center gap-0.5 rounded bg-leaf/10 px-1.5 py-0.5 text-xs font-bold text-leaf"><Link2 className="size-3" />{linkedGroupCount} 調味選項</span>}
         </button>
         <button type="button" onClick={() => removeOptionGroup(group.id)} className="shrink-0 rounded px-2 py-1 text-xs font-black text-tomato hover:bg-red-50">刪除群組</button>
       </div>
@@ -638,11 +648,11 @@ function OptionRow({
 
       {sharedGroups.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 border-t border-orange-50 px-2 py-1.5">
-          <span className="shrink-0 text-xs font-black text-steel">下一層調味群組：</span>
+          <span className="shrink-0 text-xs font-black text-steel">下一層調味選項：</span>
           {sharedGroups.map((sg) => {
             const linked = linkedIds.includes(sg.id);
             return (
-              <button key={sg.id} type="button" onClick={() => updateGroupOption(groupId, option.id, { childGroupIds: linked ? linkedIds.filter((id) => id !== sg.id) : [...linkedIds, sg.id] })} className={`rounded px-2 py-0.5 text-xs font-black transition ${linked ? "bg-leaf text-white" : "bg-orange-50 text-steel hover:bg-orange-100"}`} title={linked ? "點擊移除此條件調味群組" : "點擊加入此條件調味群組"}>
+              <button key={sg.id} type="button" onClick={() => updateGroupOption(groupId, option.id, { childGroupIds: linked ? linkedIds.filter((id) => id !== sg.id) : [...linkedIds, sg.id] })} className={`rounded px-2 py-0.5 text-xs font-black transition ${linked ? "bg-leaf text-white" : "bg-orange-50 text-steel hover:bg-orange-100"}`} title={linked ? "點擊移除此條件調味選項" : "點擊加入此條件調味選項"}>
                 {linked ? "移除 " : "+ "}{sg.name}
               </button>
             );
