@@ -466,6 +466,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
         source: "pos",
         status: "accepted",
         paymentStatus: checkoutMode === "postpaid" ? "unpaid" : "paid",
+        createdBy: profile?.id ?? "",
         memberId: boundMember?.id,
         memberPhone: boundMember?.phone,
         memberName: boundMember?.name,
@@ -521,7 +522,11 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
       }
     } catch (writeError) {
       console.error("submitOrder failed", writeError);
-      setOrderError(writeError instanceof Error ? writeError.message : "訂單建立失敗");
+      const msg = writeError instanceof Error ? writeError.message : String(writeError);
+      const isPermissionError = /permission|PERMISSION_DENIED|insufficient/i.test(msg);
+      setOrderError(isPermissionError
+        ? "現場單建立失敗：權限不足，請檢查店家帳號綁定與 Firestore 規則"
+        : msg || "訂單建立失敗");
     } finally {
       setIsSubmitting(false);
     }

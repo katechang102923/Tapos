@@ -162,6 +162,12 @@ service cloud.firestore {
         && request.resource.data.status in ["pending", "waiting", "unprocessed", "accepted", "cooking", "preparing", "ready", "completed", "cancelled"];
     }
 
+    function validPaymentUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["paymentStatus", "paymentMethod", "paidAt", "updatedAt"])
+        && request.resource.data.paymentStatus in ["paid", "unpaid"]
+        && request.resource.data.updatedAt is string;
+    }
+
     function validOwnerUserCreate(userId) {
       return signedIn()
         && request.auth.uid == userId
@@ -280,8 +286,11 @@ service cloud.firestore {
           "couponTitle",
           "couponDiscountAmount",
           "paymentMethod",
+          "paymentStatus",
+          "paidAt",
           "cancelReason",
-          "rejectReason"
+          "rejectReason",
+          "createdBy"
         ]);
     }
 
@@ -393,7 +402,9 @@ service cloud.firestore {
       allow get: if isAdmin() || canViewStoreData(storeId) || resource.data.source == "qr";
       allow list: if isAdmin() || canViewStoreData(storeId);
       allow create: if validNestedQrOrderCreate(storeId) || validNestedPosOrderCreate(storeId) || isAdmin();
-      allow update: if isAdmin() || (canHandleOrders(storeId) && validOrderStatusUpdate());
+      allow update: if isAdmin()
+        || (canHandleOrders(storeId) && validOrderStatusUpdate())
+        || (canHandleOrders(storeId) && validPaymentUpdate());
       allow delete: if isAdmin();
     }
 

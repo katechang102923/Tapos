@@ -590,6 +590,7 @@ export type Order = {
   couponId?: string;
   couponTitle?: string;
   couponDiscountAmount?: number;
+  createdBy?: string;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];
@@ -602,6 +603,7 @@ export type OrderPayload = Omit<Order, "id" | "orderNumber" | "pickupNumber" | "
   memberId?: string;
   memberPhone?: string;
   memberName?: string;
+  createdBy?: string;
 };
 
 export type DailyReportProduct = {
