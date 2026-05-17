@@ -235,6 +235,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const soundEnabledRef = useRef(soundEnabled);
   const knownOrderIds = useRef<Set<string>>(new Set());
   const initializedRef = useRef(false);
+  const alertIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Keep ref in sync with state
   useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
@@ -252,17 +253,22 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
     try {
       const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const ctx = new AudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(880, ctx.currentTime);
-      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.6, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.4);
+      // 叮咚兩音：C6 (叮) → G5 (咚)，模擬超商進店提示音
+      function chime(freq: number, startAt: number, vol: number) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, ctx.currentTime + startAt);
+        gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + startAt + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startAt + 0.65);
+        osc.start(ctx.currentTime + startAt);
+        osc.stop(ctx.currentTime + startAt + 0.7);
+      }
+      chime(1047, 0,    0.30); // 叮 — C6
+      chime(784,  0.32, 0.25); // 咚 — G5
     } catch {
       // Browser may block audio without user gesture
     }
@@ -355,6 +361,25 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const cashNet = cashIncome - cashExpense;
   const estimatedCashBalance = completedRevenue + cashNet;
   const selectedCashItem = cashFlowItems.find((item) => item.id === cashForm.itemId) ?? null;
+
+  // ── 持續響鈴：有待接單時每 5 秒播一次叮咚，接單 / 取消後停止 ────────────
+  useEffect(() => {
+    // Clear any previous interval before (re)evaluating
+    if (alertIntervalRef.current) {
+      clearInterval(alertIntervalRef.current);
+      alertIntervalRef.current = null;
+    }
+    if (pendingOrderCount > 0 && soundEnabled) {
+      alertIntervalRef.current = setInterval(playBeep, 5000);
+    }
+    return () => {
+      if (alertIntervalRef.current) {
+        clearInterval(alertIntervalRef.current);
+        alertIntervalRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingOrderCount, soundEnabled]);
 
   if (!storeId) return <CenteredNotice title="請先完成店家設定" text="POS 前台需要有效的店家授權。" />;
   if (!store) return <CenteredNotice title="載入店家資料中..." text="" />;
