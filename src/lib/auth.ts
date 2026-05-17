@@ -67,9 +67,36 @@ function profileFromSnapshot(snapshot: DocumentSnapshot): User | null {
 }
 
 function missingProfileMessage(uid: string) {
-  return `找不到 Firestore users/${uid} 使用者資料，請先在 users collection 建立該使用者文件。`;
+  return `Missing Firestore users/${uid}. A pending profile was created; please ask the platform admin to bind a store.`;
 }
 
+async function ensureDefaultProfile(user: FirebaseUser) {
+  if (!firestore) throw new Error("Firebase is not configured");
+  const now = new Date().toISOString();
+  const email = user.email?.trim().toLowerCase() ?? "";
+  const userRef = doc(firestore, "users", user.uid);
+  const snapshot = await getDocFromServer(userRef);
+  if (snapshot.exists()) return profileFromSnapshot(snapshot);
+
+  const profile: User = {
+    id: user.uid,
+    email,
+    name: user.displayName || email || "Pending User",
+    role: "viewer",
+    storeId: null,
+    storeIds: [],
+    memberships: {},
+    storeRoles: {},
+    status: "pending",
+    approved: false,
+    pending: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await setDoc(userRef, profile);
+  return profile;
+}
 function adminProfile(uid: string, email = platformAdminEmail, data?: Record<string, unknown>): User {
   const now = new Date().toISOString();
   const memberships = normalizeMemberships(data?.memberships);
@@ -220,7 +247,7 @@ function syncCurrentStoreCache(nextProfile: User | null) {
 }
 
 async function ensureFixedAdminUser(uid: string, email: string) {
-  if (!firestore) throw new Error("Firebase 尚未設定");
+  if (!firestore) throw new Error("Firebase ?蹎批雓謘??");
   const userRef = doc(firestore, "users", uid);
   const snapshot = await getDocFromServer(userRef);
   const existingData = snapshot.exists() ? snapshot.data() : {};
@@ -335,11 +362,12 @@ export function useAuthState(): AuthState {
         .then(async (snapshot) => {
           if (!active) return;
           if (isFixedAdmin) return;
-          const nextProfile = await profileWithFreshStoreBindings(profileFromSnapshot(snapshot));
+          const baseProfile = profileFromSnapshot(snapshot) ?? await ensureDefaultProfile(user);
+          const nextProfile = await profileWithFreshStoreBindings(baseProfile);
           if (!active) return;
           setProfile(nextProfile);
           syncCurrentStoreCache(nextProfile);
-          setError(nextProfile ? "" : missingProfileMessage(user.uid));
+          setError(nextProfile?.status === "pending" ? missingProfileMessage(user.uid) : "");
           setLoading(false);
         })
         .catch((snapshotError) => {
@@ -367,12 +395,13 @@ export function useAuthState(): AuthState {
             setLoading(false);
             return;
           }
-          profileWithFreshStoreBindings(profileFromSnapshot(snapshot))
+          Promise.resolve(profileFromSnapshot(snapshot) ?? ensureDefaultProfile(user))
+            .then((baseProfile) => profileWithFreshStoreBindings(baseProfile))
             .then((nextProfile) => {
               if (!active) return;
               setProfile(nextProfile);
               syncCurrentStoreCache(nextProfile);
-              setError(nextProfile ? "" : missingProfileMessage(user.uid));
+              setError(nextProfile?.status === "pending" ? missingProfileMessage(user.uid) : "");
               setLoading(false);
             })
             .catch((snapshotError) => {
@@ -397,7 +426,7 @@ export function useAuthState(): AuthState {
   }, []);
 
   async function signIn(email: string, password: string) {
-    if (!auth) throw new Error("Firebase Auth 尚未設定");
+    if (!auth) throw new Error("Firebase Auth ?蹎批雓謘??");
     setError("");
     clearStoreRuntimeCache();
     const credential = await signInWithEmailAndPassword(auth, email, password);
@@ -405,7 +434,7 @@ export function useAuthState(): AuthState {
   }
 
   async function registerOwner(email: string, password: string, name: string) {
-    if (!auth || !firestore) throw new Error("Firebase 尚未設定");
+    if (!auth || !firestore) throw new Error("Firebase ?蹎批雓謘??");
     const credential = await createUserWithEmailAndPassword(auth, email, password);
     const pendingSnapshot = await getDocs(query(collection(firestore, "users"), where("email", "==", email), where("pending", "==", true)));
     const pendingData = pendingSnapshot.docs[0]?.data();
@@ -436,7 +465,7 @@ export function useAuthState(): AuthState {
   }
 
   async function resetPassword(email: string) {
-    if (!auth) throw new Error("Firebase Auth 尚未設定");
+    if (!auth) throw new Error("Firebase Auth ?蹎批雓謘??");
     await sendPasswordResetEmail(auth, email);
   }
 
