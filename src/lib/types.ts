@@ -561,6 +561,7 @@ export type Order = {
   totalAmount?: number;
   paymentMethod?: PaymentMethod;
   paymentStatus?: "paid" | "unpaid";
+  paidAt?: string;
   orderDiscount?: OrderDiscount;
   discountSummary?: DiscountSummary;
   promotionDiscounts?: PromotionDiscountLine[];

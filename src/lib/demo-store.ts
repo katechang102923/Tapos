@@ -678,7 +678,10 @@ export function useDemoStore(options: StoreOptions = {}) {
 
   function updateOrderPayment(orderId: string, paymentStatus: "paid" | "unpaid", paymentMethod?: import("./types").PaymentMethod) {
     const updatedAt = new Date().toISOString();
-    const patch = paymentMethod ? { paymentStatus, paymentMethod, updatedAt } : { paymentStatus, updatedAt };
+    const paidAt = paymentStatus === "paid" ? updatedAt : undefined;
+    const patch = paymentMethod
+      ? { paymentStatus, paymentMethod, updatedAt, ...(paidAt ? { paidAt } : {}) }
+      : { paymentStatus, updatedAt, ...(paidAt ? { paidAt } : {}) };
     if (useFirestore && firestore) {
       const targetStoreId = db.orders.find((order) => order.id === orderId)?.storeId ?? storeId;
       if (!targetStoreId) { setError("找不到訂單所屬店家，無法更新付款狀態。"); return; }

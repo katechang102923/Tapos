@@ -16,7 +16,7 @@ import { resolvePermissions } from "@/lib/permissions";
 import { defaultStoreId, isPlatformAdmin, selectorStoreIds, storeRoleFor } from "@/lib/store-access";
 import { checkStoreAccess, checkUserAccess } from "@/lib/subscription";
 import { businessOrderBlockReason } from "@/lib/business-hours";
-import type { CashFlow, CashFlowAmountMode, CashFlowItem, CashFlowType, Customer, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, StoreMemberRole, User } from "@/lib/types";
+import type { CashFlow, CashFlowAmountMode, CashFlowItem, CashFlowType, Customer, Order, OrderItem, OrderItemOption, OrderMode, OrderStatus, Product, StoreMemberRole, Table, User } from "@/lib/types";
 
 type CartItemDiscount = { type: "amount" | "percent"; value: number } | null;
 type CartLine = { product: Product; quantity: number; note: string; selectedOptions: OrderItemOption[]; discount: CartItemDiscount };
@@ -373,10 +373,21 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const selectedCashItem = cashFlowItems.find((item) => item.id === cashForm.itemId) ?? null;
   const cartItemCount = cart.reduce((sum, line) => sum + line.quantity, 0);
   // 後結帳：未付款訂單（已進廚房但尚未結帳）
-  const unpaidOrders = checkoutMode === "postpaid"
-    ? todayOrders.filter((order) => order.paymentStatus === "unpaid" && order.status !== "cancelled").sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-    : [];
+  const unpaidOrders = useMemo(
+    () => checkoutMode === "postpaid"
+      ? todayOrders.filter((o) => o.paymentStatus === "unpaid" && o.status !== "cancelled").sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      : [],
+    [checkoutMode, todayOrders]
+  );
   const unpaidOrderCount = unpaidOrders.length;
+  const tables = useMemo(() => (db.tables ?? []).filter((t) => t.storeId === storeId && t.enabled !== false).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0)), [db.tables, storeId]);
+  const tableUnpaidCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    unpaidOrders.forEach((o) => {
+      if (o.tableNo && o.tableNo !== "外帶") map.set(o.tableNo, (map.get(o.tableNo) ?? 0) + 1);
+    });
+    return map;
+  }, [unpaidOrders]);
 
   // 有新待接單且購物車空的 → 自動切換到接單 tab（不打斷正在結帳的操作）
   useEffect(() => {
@@ -457,10 +468,10 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
         memberId: boundMember?.id,
         memberPhone: boundMember?.phone,
         memberName: boundMember?.name,
-        ...(storedValueDeduction > 0 ? { paymentMethod: "stored_value" as const } : {}),
+        ...(storedValueDeduction > 0 && checkoutMode === "prepaid" ? { paymentMethod: "stored_value" as const } : {}),
         ...(boundMember ? { customer: { customerId: boundMember.id, memberNo: boundMember.memberNo, name: boundMember.name, phone: boundMember.phone } } : {}),
         ...(pointsEarned > 0 ? { pointsEarned } : {}),
-        ...(storedValueDeduction > 0 ? { storedValueUsed: storedValueDeduction } : {}),
+        ...(storedValueDeduction > 0 && checkoutMode === "prepaid" ? { storedValueUsed: storedValueDeduction } : {}),
         items: cart.map<OrderItem>((line) => {
           const unitPrice = lineBasePrice(line);
           const discAmt = lineDiscountAmount(line);
@@ -501,13 +512,14 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
         if (pointsEarned > 0) {
           await adjustCustomerPoints({ customerId: boundMember.id, storeId, type: "earn", points: pointsEarned, orderId: order.id, note: "訂單 " + order.orderNumber + " 消費贈點", createdBy: profile?.email ?? "" });
         }
-        if (storedValueDeduction > 0) {
+        if (storedValueDeduction > 0 && checkoutMode === "prepaid") {
           await adjustStoredValue({ customerId: boundMember.id, storeId, type: "payment", amount: -storedValueDeduction, orderId: order.id, note: "訂單 " + order.orderNumber + " 儲值金付款", createdBy: profile?.email ?? "" });
         }
         setBoundMember(null);
         setStoredValueUsed(0);
       }
     } catch (writeError) {
+      console.error("submitOrder failed", writeError);
       setOrderError(writeError instanceof Error ? writeError.message : "訂單建立失敗");
     } finally {
       setIsSubmitting(false);
@@ -641,7 +653,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
           />
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_460px]">
-            <QuickOrder activeCategoryId={activeCategoryId} categories={categories} customerNote={customerNote} mode={mode} posEnabled={posEnabled} products={visibleProducts} setActiveCategoryId={setActiveCategoryId} setChoosingProduct={setChoosingProduct} setCustomerNote={setCustomerNote} setMode={setMode} setTableNo={setTableNo} tableNo={tableNo} />
+            <QuickOrder activeCategoryId={activeCategoryId} categories={categories} checkoutMode={checkoutMode} customerNote={customerNote} mode={mode} posEnabled={posEnabled} products={visibleProducts} setActiveCategoryId={setActiveCategoryId} setChoosingProduct={setChoosingProduct} setCustomerNote={setCustomerNote} setMode={setMode} setTableNo={setTableNo} tableNo={tableNo} tables={tables} tableUnpaidCounts={tableUnpaidCounts} onViewUnpaidTable={() => setRightTab("unpaid")} />
             <aside className="hidden xl:sticky xl:top-24 xl:block xl:h-fit xl:space-y-2">
               {/* Right-column tab bar */}
               <div className="flex gap-1 rounded-2xl bg-stone-100 p-1">
@@ -674,7 +686,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
               </div>
               {rightTab === "cart" && <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} checkoutMode={checkoutMode} customerNote={customerNote} setCustomerNote={setCustomerNote} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />}
               {rightTab === "orders" && <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} nowTick={nowTick} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />}
-              {rightTab === "unpaid" && checkoutMode === "postpaid" && <UnpaidOrderBoard canProcessCheckout={canProcessCheckout} nowTick={nowTick} unpaidOrders={unpaidOrders} updateOrderPayment={updateOrderPayment} />}
+              {rightTab === "unpaid" && checkoutMode === "postpaid" && <UnpaidOrderBoard canProcessCheckout={canProcessCheckout} nowTick={nowTick} unpaidOrders={unpaidOrders} updateOrderPayment={updateOrderPayment} updateOrderStatus={updateOrderStatus} onAddMore={(order) => { setTableNo(order.tableNo); setMode("dine-in"); setRightTab("cart"); }} />}
             </aside>
           </div>
         </div>
@@ -968,7 +980,17 @@ function OrderBoard({ activeOrderTab, canCancelOrders, displayedOrders, enablePi
     </section>
   );
 }
-function UnpaidOrderBoard({ canProcessCheckout, nowTick, unpaidOrders, updateOrderPayment }: { canProcessCheckout: boolean; nowTick: number; unpaidOrders: Order[]; updateOrderPayment: (orderId: string, paymentStatus: "paid" | "unpaid", paymentMethod?: import("@/lib/types").PaymentMethod) => void }) {
+function UnpaidOrderBoard({ canProcessCheckout, nowTick, onAddMore, unpaidOrders, updateOrderPayment, updateOrderStatus }: { canProcessCheckout: boolean; nowTick: number; onAddMore: (order: Order) => void; unpaidOrders: Order[]; updateOrderPayment: (orderId: string, paymentStatus: "paid" | "unpaid", paymentMethod?: import("@/lib/types").PaymentMethod) => void; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
+  type CheckoutTarget = { orderId: string; total: number; orderNumber: string };
+  const [checkoutTarget, setCheckoutTarget] = useState<CheckoutTarget | null>(null);
+  const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
+
+  function pay(method: import("@/lib/types").PaymentMethod) {
+    if (!checkoutTarget) return;
+    updateOrderPayment(checkoutTarget.orderId, "paid", method);
+    setCheckoutTarget(null);
+  }
+
   return (
     <section className="rounded-lg bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
@@ -989,6 +1011,7 @@ function UnpaidOrderBoard({ canProcessCheckout, nowTick, unpaidOrders, updateOrd
             const tableLabel = order.tableName ?? order.tableNo ?? "";
             const waitMs = nowTick - new Date(order.createdAt).getTime();
             const waitMin = Math.max(0, Math.floor(waitMs / 60_000));
+            const isCancelConfirm = cancelConfirmId === order.id;
             return (
               <article key={order.id} className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -1013,29 +1036,68 @@ function UnpaidOrderBoard({ canProcessCheckout, nowTick, unpaidOrders, updateOrd
                     <p key={item.id}>{item.quantity} × {item.productName}</p>
                   ))}
                 </div>
-                <div className="mt-3 flex gap-2">
-                  <button
-                    disabled={!canProcessCheckout}
-                    onClick={() => updateOrderPayment(order.id, "paid", "cash")}
-                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 font-black text-white disabled:opacity-40"
-                  >
-                    <WalletCards className="size-4" />
-                    現金結帳
-                  </button>
-                  <button
-                    disabled={!canProcessCheckout}
-                    onClick={() => updateOrderPayment(order.id, "paid", "card")}
-                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 font-black text-white disabled:opacity-40"
-                  >
-                    <WalletCards className="size-4" />
-                    刷卡結帳
-                  </button>
-                </div>
+                {/* Action buttons */}
+                {isCancelConfirm ? (
+                  <div className="mt-3 rounded-xl bg-tomato/10 p-3">
+                    <p className="mb-2 text-sm font-black text-tomato">確定要作廢這筆訂單？</p>
+                    <div className="flex gap-2">
+                      <button onClick={() => { updateOrderStatus(order.id, "cancelled"); setCancelConfirmId(null); }} className="flex-1 rounded-xl bg-tomato px-3 py-2.5 font-black text-white">確定作廢</button>
+                      <button onClick={() => setCancelConfirmId(null)} className="rounded-xl bg-stone-200 px-3 py-2.5 font-black text-steel">取消</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      disabled={!canProcessCheckout}
+                      onClick={() => setCheckoutTarget({ orderId: order.id, total: order.totalAmount ?? order.total, orderNumber: order.orderNumber })}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 font-black text-white disabled:opacity-40"
+                    >
+                      <WalletCards className="size-4" />
+                      結帳
+                    </button>
+                    <button
+                      onClick={() => onAddMore(order)}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-3 font-black text-white"
+                    >
+                      <Plus className="size-4" />
+                      加點
+                    </button>
+                    <button
+                      disabled={!canProcessCheckout}
+                      onClick={() => setCancelConfirmId(order.id)}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-stone-200 px-3 py-3 font-black text-steel disabled:opacity-40"
+                    >
+                      <XCircle className="size-4" />
+                      作廢
+                    </button>
+                  </div>
+                )}
               </article>
             );
           })
         )}
       </div>
+
+      {/* Payment method modal */}
+      {checkoutTarget && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setCheckoutTarget(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-black text-ink">選擇付款方式</h3>
+            <p className="mt-1 text-sm font-bold text-steel">訂單 #{checkoutTarget.orderNumber} · 總計 ${checkoutTarget.total}</p>
+            <div className="mt-5 grid gap-3">
+              <button onClick={() => pay("cash")} className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-4 font-black text-white">
+                <WalletCards className="size-5" />
+                現金結帳
+              </button>
+              <button onClick={() => pay("card")} className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-4 font-black text-white">
+                <WalletCards className="size-5" />
+                刷卡結帳
+              </button>
+            </div>
+            <button onClick={() => setCheckoutTarget(null)} className="mt-4 w-full rounded-xl bg-stone-100 py-3 font-black text-steel">取消</button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1121,21 +1183,84 @@ function TopupModal({ member, onClose, onSubmit }: { member: Customer; onClose: 
   );
 }
 
-function QuickOrder({ activeCategoryId, categories, customerNote, mode, posEnabled, products, setActiveCategoryId, setChoosingProduct, setCustomerNote, setMode, setTableNo, tableNo }: { activeCategoryId: string; categories: { id: string; name: string }[]; customerNote: string; mode: OrderMode; posEnabled: boolean; products: Product[]; setActiveCategoryId: (id: string) => void; setChoosingProduct: (product: Product) => void; setCustomerNote: (value: string) => void; setMode: (mode: OrderMode) => void; setTableNo: (value: string) => void; tableNo: string }) {
+function QuickOrder({ activeCategoryId, categories, checkoutMode, customerNote, mode, posEnabled, products, setActiveCategoryId, setChoosingProduct, setCustomerNote, setMode, setTableNo, tableNo, tables, tableUnpaidCounts, onViewUnpaidTable }: { activeCategoryId: string; categories: { id: string; name: string }[]; checkoutMode: "prepaid" | "postpaid"; customerNote: string; mode: OrderMode; posEnabled: boolean; products: Product[]; setActiveCategoryId: (id: string) => void; setChoosingProduct: (product: Product) => void; setCustomerNote: (value: string) => void; setMode: (mode: OrderMode) => void; setTableNo: (value: string) => void; tableNo: string; tables: Table[]; tableUnpaidCounts: Map<string, number>; onViewUnpaidTable: (tableNo: string) => void }) {
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const isPostpaid = checkoutMode === "postpaid";
+
+  function handleModeChange(next: OrderMode) {
+    setMode(next);
+    if (next === "takeout") setTablePickerOpen(false);
+  }
+
   return (
     <section className="rounded-2xl bg-white shadow-sm">
       {/* Compact 1-line strip: mode + table + note */}
       <div className="flex flex-wrap items-center gap-2 border-b border-stone-100 px-3 py-2">
         <div className="flex rounded-lg bg-stone-100 p-0.5">
-          <button onClick={() => setMode("takeout")} className={"rounded-md px-3 py-1.5 text-sm font-black transition " + (mode === "takeout" ? "bg-white text-ink shadow-sm" : "text-steel")}>外帶</button>
-          <button onClick={() => setMode("dine-in")} className={"rounded-md px-3 py-1.5 text-sm font-black transition " + (mode === "dine-in" ? "bg-white text-ink shadow-sm" : "text-steel")}>內用</button>
+          <button onClick={() => handleModeChange("takeout")} className={"rounded-md px-3 py-1.5 text-sm font-black transition " + (mode === "takeout" ? "bg-white text-ink shadow-sm" : "text-steel")}>外帶</button>
+          <button onClick={() => handleModeChange("dine-in")} className={"rounded-md px-3 py-1.5 text-sm font-black transition " + (mode === "dine-in" ? "bg-white text-ink shadow-sm" : "text-steel")}>內用</button>
         </div>
-        {mode === "dine-in" && (
+        {mode === "dine-in" && !isPostpaid && (
           <input value={tableNo} onChange={(e) => setTableNo(e.target.value)} placeholder="桌號" className="w-16 rounded-lg border border-stone-200 px-2 py-1.5 text-sm font-bold" />
+        )}
+        {mode === "dine-in" && isPostpaid && (
+          <button
+            onClick={() => setTablePickerOpen((v) => !v)}
+            className={"flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-black transition " + (tableNo ? "border-blue-200 bg-blue-50 text-blue-700" : "border-stone-200 text-steel hover:border-stone-400")}
+          >
+            <Table2 className="size-3.5" />
+            {tableNo ? `${tableNo} 桌` : "選擇桌號"}
+            <span className="text-xs opacity-60">{tablePickerOpen ? "▲" : "▾"}</span>
+          </button>
         )}
         <input value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} placeholder="訂單備註（選填）" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 py-1.5 text-sm font-bold" />
         {!posEnabled && <span className="shrink-0 text-xs font-black text-tomato">POS 暫停</span>}
       </div>
+      {/* Table picker — postpaid dine-in only */}
+      {mode === "dine-in" && isPostpaid && tablePickerOpen && (
+        <div className="border-b border-stone-100 p-3">
+          {tables.length === 0 ? (
+            <p className="py-3 text-center text-sm font-bold text-steel">尚未設定桌位，請至設定中心新增桌位</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-4 2xl:grid-cols-5">
+              {tables.map((table) => {
+                const key = table.tableName;
+                const unpaidCount = tableUnpaidCounts.get(key) ?? 0;
+                const isOccupied = unpaidCount > 0;
+                const isSelected = tableNo === key;
+                return (
+                  <button
+                    key={table.id}
+                    onClick={() => {
+                      if (isOccupied) {
+                        setTableNo(key);
+                        setTablePickerOpen(false);
+                        onViewUnpaidTable(key);
+                      } else {
+                        setTableNo(key);
+                        setTablePickerOpen(false);
+                      }
+                    }}
+                    className={
+                      "rounded-xl border-2 px-2 py-3 text-center text-sm font-black transition " +
+                      (isSelected
+                        ? "border-blue-500 bg-blue-100 text-blue-700"
+                        : isOccupied
+                        ? "border-orange-300 bg-orange-50 text-orange-700 hover:border-orange-400"
+                        : "border-stone-200 bg-white text-ink hover:border-leaf hover:bg-[#fbfff4]")
+                    }
+                  >
+                    <p className="truncate">{table.tableName}</p>
+                    <p className={"mt-0.5 text-xs font-bold " + (isOccupied ? "text-orange-500" : "text-steel")}>
+                      {isOccupied ? `${unpaidCount} 筆待結帳` : "空桌"}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
       {/* Category tabs */}
       <div className="sticky top-[68px] z-10 flex gap-2 overflow-x-auto bg-white/95 px-3 pb-2 pt-2 backdrop-blur">
         <button onClick={() => setActiveCategoryId("all")} className={"shrink-0 rounded-full px-4 py-1.5 text-sm font-black " + (activeCategoryId === "all" ? "bg-leaf text-white" : "bg-orange-50 text-steel")}>全部</button>
