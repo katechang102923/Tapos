@@ -39,6 +39,8 @@ export type UserPermissions = {
   canUseMemberLookup: boolean;
   canAdjustMemberPoints: boolean;
   canUseStoredValue: boolean;
+  // Checkout
+  canProcessCheckout: boolean;
 };
 
 export type PointLogType = "earn" | "redeem" | "adjust" | "rollback" | "points_add" | "points_use";
@@ -211,6 +213,7 @@ export type Store = {
   takeoutOrderingEnabled?: boolean;
   dineInOrderingEnabled?: boolean;
   posOrderingEnabled?: boolean;
+  checkoutMode?: "prepaid" | "postpaid";
   enablePickupDisplay?: boolean;
   reportEmailEnabled?: boolean;
   reportEmailRecipients?: string;
@@ -557,6 +560,7 @@ export type Order = {
   total: number;
   totalAmount?: number;
   paymentMethod?: PaymentMethod;
+  paymentStatus?: "paid" | "unpaid";
   orderDiscount?: OrderDiscount;
   discountSummary?: DiscountSummary;
   promotionDiscounts?: PromotionDiscountLine[];

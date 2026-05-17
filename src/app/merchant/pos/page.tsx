@@ -165,7 +165,7 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
 }
 
 function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activeStoreId, activeStoreRole, onStoreChange }: { profile: User | null; storeId: string; storeIds: string[]; storeNames?: Record<string, string>; activeStoreId: string; activeStoreRole: StoreMemberRole | null; onStoreChange: (storeId: string) => void }) {
-  const { db, createCashFlow, createCustomer, createOrder, todayCashFlows, todayOrders, updateOrderStatus, upsertCashFlowItem, upsertStore, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned, loadMemberRules } = useDemoStore({ storeId, loadCustomers: true, todayOrdersOnly: true });
+  const { db, createCashFlow, createCustomer, createOrder, todayCashFlows, todayOrders, updateOrderStatus, updateOrderPayment, upsertCashFlowItem, upsertStore, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned, loadMemberRules } = useDemoStore({ storeId, loadCustomers: true, todayOrdersOnly: true });
   const store = db.stores.find((item) => item.id === storeId);
   const categories = useMemo(() => db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort), [db.categories, storeId]);
   const products = useMemo(() => db.products.filter((item) => item.storeId === storeId && productIsAvailable(item)).sort((a, b) => a.sort - b.sort), [db.products, storeId]);
@@ -179,9 +179,11 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const canCancelOrders = permissions.canCancelOrders;
   const canUseMemberLookup = permissions.canUseMemberLookup;
   const canUseStoredValue = permissions.canUseStoredValue;
+  const canProcessCheckout = permissions.canProcessCheckout;
   const memberEnabled = store?.features?.memberEnabled ?? false;
   const memberStoredValueEnabled = store?.features?.memberStoredValueEnabled ?? false;
   const posEnabled = store?.posOrderingEnabled ?? true;
+  const checkoutMode = store?.checkoutMode ?? "prepaid";
   const enablePickupDisplay = store?.enablePickupDisplay ?? true;
   const dailyReportFeature = store?.features?.dailyReportEnabled ?? true;
   const cashFlowFeature = store?.features?.cashFlowEnabled ?? true;
@@ -210,7 +212,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const [ordersOpen, setOrdersOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [successOrderNumber, setSuccessOrderNumber] = useState("");
-  const [rightTab, setRightTab] = useState<"cart" | "orders">("cart");
+  const [rightTab, setRightTab] = useState<"cart" | "orders" | "unpaid">("cart");
   const [nowTick, setNowTick] = useState(Date.now());
 
   // P0-3: 成功/失敗通知 3 秒後自動消失
@@ -370,6 +372,11 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const estimatedCashBalance = completedRevenue + cashNet;
   const selectedCashItem = cashFlowItems.find((item) => item.id === cashForm.itemId) ?? null;
   const cartItemCount = cart.reduce((sum, line) => sum + line.quantity, 0);
+  // 後結帳：未付款訂單（已進廚房但尚未結帳）
+  const unpaidOrders = checkoutMode === "postpaid"
+    ? todayOrders.filter((order) => order.paymentStatus === "unpaid" && order.status !== "cancelled").sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    : [];
+  const unpaidOrderCount = unpaidOrders.length;
 
   // 有新待接單且購物車空的 → 自動切換到接單 tab（不打斷正在結帳的操作）
   useEffect(() => {
@@ -422,6 +429,11 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
       setOrderError("POS 現場單目前暫停接單");
       return;
     }
+    // 後結帳：內用必須填桌號
+    if (checkoutMode === "postpaid" && mode === "dine-in" && !tableNo.trim()) {
+      setOrderError("後結帳模式：內用訂單必須填寫桌號");
+      return;
+    }
     const businessBlockReason = businessOrderBlockReason(store, "pos");
     if (businessBlockReason) {
       setOrderError(businessBlockReason);
@@ -441,6 +453,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
         total: finalTotal,
         source: "pos",
         status: "accepted",
+        paymentStatus: checkoutMode === "postpaid" ? "unpaid" : "paid",
         memberId: boundMember?.id,
         memberPhone: boundMember?.phone,
         memberName: boundMember?.name,
@@ -620,6 +633,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
 
           <PosStatusBar
             activeOrderCount={processingOrderCount}
+            checkoutMode={checkoutMode}
             orderCount={todayOrders.length}
             paused={!store.isOpen || store.orderStatus === "closed"}
             posEnabled={posEnabled}
@@ -644,12 +658,23 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
                   className={"flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-black transition " + (rightTab === "orders" ? "bg-white text-ink shadow" : "text-steel hover:text-ink")}
                 >
                   <ReceiptText className="size-3.5" />
-                  接單進單
+                  接單
                   {pendingOrderCount > 0 && <span className="inline-flex size-5 items-center justify-center rounded-full bg-tomato text-xs font-black text-white">{pendingOrderCount}</span>}
                 </button>
+                {checkoutMode === "postpaid" && (
+                  <button
+                    onClick={() => setRightTab("unpaid")}
+                    className={"flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-black transition " + (rightTab === "unpaid" ? "bg-white text-ink shadow" : "text-steel hover:text-ink")}
+                  >
+                    <WalletCards className="size-3.5" />
+                    待結帳
+                    {unpaidOrderCount > 0 && <span className="inline-flex size-5 items-center justify-center rounded-full bg-amber-500 text-xs font-black text-white">{unpaidOrderCount}</span>}
+                  </button>
+                )}
               </div>
-              {rightTab === "cart" && <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />}
+              {rightTab === "cart" && <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} checkoutMode={checkoutMode} customerNote={customerNote} setCustomerNote={setCustomerNote} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />}
               {rightTab === "orders" && <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} nowTick={nowTick} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />}
+              {rightTab === "unpaid" && checkoutMode === "postpaid" && <UnpaidOrderBoard canProcessCheckout={canProcessCheckout} nowTick={nowTick} unpaidOrders={unpaidOrders} updateOrderPayment={updateOrderPayment} />}
             </aside>
           </div>
         </div>
@@ -665,6 +690,15 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
                 >
                   <Bell className="size-5 animate-bounce" />
                   {pendingOrderCount}
+                </button>
+              )}
+              {checkoutMode === "postpaid" && unpaidOrderCount > 0 && (
+                <button
+                  onClick={() => { setCartOpen(false); setOrdersOpen(true); }}
+                  className="flex shrink-0 items-center gap-1.5 rounded-xl bg-amber-500 px-4 py-3 font-black text-white"
+                >
+                  <WalletCards className="size-5" />
+                  {unpaidOrderCount}
                 </button>
               )}
               <button
@@ -695,7 +729,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
                 <button onClick={() => setCartOpen(false)} className="rounded-xl bg-stone-100 px-3 py-2 text-sm font-black text-steel">關閉</button>
               </div>
               <div className="p-4">
-                <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} customerNote={customerNote} setCustomerNote={setCustomerNote} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />
+                <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} checkoutMode={checkoutMode} customerNote={customerNote} setCustomerNote={setCustomerNote} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />
               </div>
             </div>
           </div>
@@ -789,19 +823,21 @@ function PosSideRail({ cashFlowEnabled, kdsEnabled, onOpenOrders, storeId }: { c
 
 function PosStatusBar({
   activeOrderCount,
+  checkoutMode,
   orderCount,
   paused,
   posEnabled,
   updateStore,
 }: {
   activeOrderCount: number;
+  checkoutMode: "prepaid" | "postpaid";
   orderCount: number;
   paused: boolean;
   posEnabled: boolean;
   updateStore: (patch: Partial<import("@/lib/types").Store>) => void;
 }) {
   return (
-    <section className="mb-4 grid grid-cols-3 gap-2">
+    <section className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
       <button
         type="button"
         onClick={() => updateStore({ isOpen: paused, orderStatus: paused ? "open" : "closed" })}
@@ -817,6 +853,10 @@ function PosStatusBar({
       <div className="min-h-12 rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-800 shadow-sm">
         <span className="block text-xs text-slate-400">製作中</span>
         {posEnabled ? activeOrderCount : "POS 關閉"}
+      </div>
+      <div className="min-h-12 rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-800 shadow-sm">
+        <span className="block text-xs text-slate-400">結帳模式</span>
+        {checkoutMode === "postpaid" ? "後結帳" : "先結帳"}
       </div>
     </section>
   );
@@ -928,6 +968,78 @@ function OrderBoard({ activeOrderTab, canCancelOrders, displayedOrders, enablePi
     </section>
   );
 }
+function UnpaidOrderBoard({ canProcessCheckout, nowTick, unpaidOrders, updateOrderPayment }: { canProcessCheckout: boolean; nowTick: number; unpaidOrders: Order[]; updateOrderPayment: (orderId: string, paymentStatus: "paid" | "unpaid", paymentMethod?: import("@/lib/types").PaymentMethod) => void }) {
+  return (
+    <section className="rounded-lg bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xl font-black">待結帳訂單</h2>
+        {unpaidOrders.length > 0 && (
+          <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-black text-amber-700">{unpaidOrders.length} 筆</span>
+        )}
+      </div>
+      {!canProcessCheckout && (
+        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-bold text-amber-700">僅老闆或店長可執行結帳操作</p>
+      )}
+      <div className="mt-3 space-y-3">
+        {unpaidOrders.length === 0 ? (
+          <p className="rounded-lg bg-stone-50 p-5 text-center font-black text-steel">目前沒有待結帳訂單</p>
+        ) : (
+          unpaidOrders.map((order) => {
+            const isTakeout = order.mode === "takeout";
+            const tableLabel = order.tableName ?? order.tableNo ?? "";
+            const waitMs = nowTick - new Date(order.createdAt).getTime();
+            const waitMin = Math.max(0, Math.floor(waitMs / 60_000));
+            return (
+              <article key={order.id} className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-2xl font-black">#{order.orderNumber}</p>
+                      {isTakeout
+                        ? <span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-black text-orange-700">外帶</span>
+                        : <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-black text-blue-700">{tableLabel ? tableLabel + " 桌" : "內用"}</span>
+                      }
+                    </div>
+                    <p className="mt-1 text-xs font-bold text-steel">
+                      {new Date(order.createdAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}
+                      {waitMin > 0 && ` · ${waitMin} 分`}
+                    </p>
+                  </div>
+                  <p className="text-lg font-black text-ink">$ {order.totalAmount ?? order.total}</p>
+                </div>
+                {order.customerNote && <p className="mt-2 rounded-lg bg-white px-3 py-2 text-sm font-bold text-steel">備註：{order.customerNote}</p>}
+                <div className="mt-2 space-y-1 text-sm font-bold text-steel">
+                  {order.items.map((item) => (
+                    <p key={item.id}>{item.quantity} × {item.productName}</p>
+                  ))}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    disabled={!canProcessCheckout}
+                    onClick={() => updateOrderPayment(order.id, "paid", "cash")}
+                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 font-black text-white disabled:opacity-40"
+                  >
+                    <WalletCards className="size-4" />
+                    現金結帳
+                  </button>
+                  <button
+                    disabled={!canProcessCheckout}
+                    onClick={() => updateOrderPayment(order.id, "paid", "card")}
+                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 font-black text-white disabled:opacity-40"
+                  >
+                    <WalletCards className="size-4" />
+                    刷卡結帳
+                  </button>
+                </div>
+              </article>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
+}
+
 function MemberModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (form: { name: string; phone: string; birthday?: string; note?: string }) => Promise<void> }) {
   const [form, setForm] = useState({ name: "", phone: "", birthday: "", note: "" });
   const [error, setError] = useState("");
@@ -1170,7 +1282,7 @@ function OrderItemLine({ item }: { item: OrderItem }) {
   );
 }
 
-function CartPanel({ canApplyDiscounts, cart, customerNote, setCustomerNote, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promotionDiscounts, finalTotal, cashDue, storedValueDeduction, orderDiscount, setOrderDiscount, removeLine, submitOrder, updateLine, isSubmitting, posEnabled, memberEnabled, memberStoredValueEnabled, canUseMemberLookup, canUseStoredValue, boundMember, storedValueUsed, onLookupMember, onClearMember, onStoredValueChange, onOpenCreateMember, onOpenTopup }: { canApplyDiscounts: boolean; cart: CartLine[]; customerNote: string; setCustomerNote: (v: string) => void; itemsSubtotal: number; itemDiscountTotal: number; orderDiscAmt: number; promotionDiscounts: import("@/lib/types").PromotionDiscountLine[]; finalTotal: number; cashDue: number; storedValueDeduction: number; orderDiscount: CartItemDiscount; setOrderDiscount: (d: CartItemDiscount) => void; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean; memberEnabled: boolean; memberStoredValueEnabled: boolean; canUseMemberLookup: boolean; canUseStoredValue: boolean; boundMember: Customer | null; storedValueUsed: number; onLookupMember: (q: string) => Customer | null | undefined; onClearMember: () => void; onStoredValueChange: (amount: number) => void; onOpenCreateMember: () => void; onOpenTopup: () => void }) {
+function CartPanel({ canApplyDiscounts, cart, checkoutMode, customerNote, setCustomerNote, itemsSubtotal, itemDiscountTotal, orderDiscAmt, promotionDiscounts, finalTotal, cashDue, storedValueDeduction, orderDiscount, setOrderDiscount, removeLine, submitOrder, updateLine, isSubmitting, posEnabled, memberEnabled, memberStoredValueEnabled, canUseMemberLookup, canUseStoredValue, boundMember, storedValueUsed, onLookupMember, onClearMember, onStoredValueChange, onOpenCreateMember, onOpenTopup }: { canApplyDiscounts: boolean; cart: CartLine[]; checkoutMode: "prepaid" | "postpaid"; customerNote: string; setCustomerNote: (v: string) => void; itemsSubtotal: number; itemDiscountTotal: number; orderDiscAmt: number; promotionDiscounts: import("@/lib/types").PromotionDiscountLine[]; finalTotal: number; cashDue: number; storedValueDeduction: number; orderDiscount: CartItemDiscount; setOrderDiscount: (d: CartItemDiscount) => void; removeLine: (index: number) => void; submitOrder: () => void; updateLine: (index: number, patch: Partial<CartLine>) => void; isSubmitting: boolean; posEnabled: boolean; memberEnabled: boolean; memberStoredValueEnabled: boolean; canUseMemberLookup: boolean; canUseStoredValue: boolean; boundMember: Customer | null; storedValueUsed: number; onLookupMember: (q: string) => Customer | null | undefined; onClearMember: () => void; onStoredValueChange: (amount: number) => void; onOpenCreateMember: () => void; onOpenTopup: () => void }) {
   const [showOrderDiscForm, setShowOrderDiscForm] = useState(false);
   const [orderDiscType, setOrderDiscType] = useState<"amount" | "percent">("amount");
   const [orderDiscValue, setOrderDiscValue] = useState("");
@@ -1253,7 +1365,7 @@ function CartPanel({ canApplyDiscounts, cart, customerNote, setCustomerNote, ite
       {/* 3. Submit */}
       <button onClick={submitOrder} disabled={cart.length === 0 || isSubmitting || !posEnabled} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-leaf px-4 py-4 font-black text-white disabled:opacity-60">
         <Send className="size-5" />
-        {isSubmitting ? "送出中..." : "送出訂單"}
+        {isSubmitting ? "送出中..." : checkoutMode === "postpaid" ? "建立訂單" : "送出並結帳"}
       </button>
 
       {/* 4. Member section — collapsed by default */}

@@ -17,6 +17,7 @@ export const ALL_PERMISSIONS: UserPermissions = {
   canUseMemberLookup: true,
   canAdjustMemberPoints: true,
   canUseStoredValue: true,
+  canProcessCheckout: true,
 };
 
 export const NO_PERMISSIONS: UserPermissions = {
@@ -34,6 +35,7 @@ export const NO_PERMISSIONS: UserPermissions = {
   canUseMemberLookup: false,
   canAdjustMemberPoints: false,
   canUseStoredValue: false,
+  canProcessCheckout: false,
 };
 
 export const ROLE_DEFAULT_PERMISSIONS: Record<StoreMemberRole, UserPermissions> = {
@@ -52,6 +54,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<StoreMemberRole, UserPermissions> 
     canUseMemberLookup: true,
     canAdjustMemberPoints: true,
     canUseStoredValue: true,
+    canProcessCheckout: true,
   },
   manager: {
     canViewDailyReport: true,
@@ -68,6 +71,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<StoreMemberRole, UserPermissions> 
     canUseMemberLookup: true,
     canAdjustMemberPoints: true,
     canUseStoredValue: false,
+    canProcessCheckout: true,
   },
   staff: {
     canViewDailyReport: false,
@@ -84,6 +88,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<StoreMemberRole, UserPermissions> 
     canUseMemberLookup: true,
     canAdjustMemberPoints: false,
     canUseStoredValue: false,
+    canProcessCheckout: false,
   },
   viewer: {
     canViewDailyReport: true,
@@ -100,6 +105,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<StoreMemberRole, UserPermissions> 
     canUseMemberLookup: false,
     canAdjustMemberPoints: false,
     canUseStoredValue: false,
+    canProcessCheckout: false,
   },
 };
 
@@ -132,6 +138,7 @@ export const PERMISSION_LABELS: Record<keyof UserPermissions, string> = {
   canUseMemberLookup: "會員查詢",
   canAdjustMemberPoints: "調整會員點數",
   canUseStoredValue: "儲值金",
+  canProcessCheckout: "結帳操作",
 };
 
 export const STORE_PERMISSION_KEYS: Array<keyof UserPermissions> = [

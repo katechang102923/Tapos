@@ -676,6 +676,25 @@ export function useDemoStore(options: StoreOptions = {}) {
     }));
   }
 
+  function updateOrderPayment(orderId: string, paymentStatus: "paid" | "unpaid", paymentMethod?: import("./types").PaymentMethod) {
+    const updatedAt = new Date().toISOString();
+    const patch = paymentMethod ? { paymentStatus, paymentMethod, updatedAt } : { paymentStatus, updatedAt };
+    if (useFirestore && firestore) {
+      const targetStoreId = db.orders.find((order) => order.id === orderId)?.storeId ?? storeId;
+      if (!targetStoreId) { setError("找不到訂單所屬店家，無法更新付款狀態。"); return; }
+      setDb((current) => ({
+        ...current,
+        orders: current.orders.map((order) => order.id === orderId ? { ...order, ...patch } : order)
+      }));
+      updateDoc(doc(firestore, "stores", targetStoreId, "orders", orderId), patch).catch((writeError: Error) => setError(writeError.message));
+      return;
+    }
+    setDb((current) => ({
+      ...current,
+      orders: current.orders.map((order) => order.id === orderId ? { ...order, ...patch } : order)
+    }));
+  }
+
   function rejectOrder(orderId: string, rejectReason: string) {
     if (useFirestore && firestore) {
       const targetStoreId = db.orders.find((order) => order.id === orderId)?.storeId ?? storeId;
@@ -1785,6 +1804,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     deleteTable,
     unbindStoreUser,
     updateOrderStatus,
+    updateOrderPayment,
     rejectOrder,
     upsertCategory,
     upsertProduct,

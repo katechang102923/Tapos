@@ -6,8 +6,9 @@ import { useEffect, useMemo, useState } from "react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { businessScheduleSummary, defaultBusinessSchedule, normalizeBusinessSchedule, weekdayKeys, weekdayLabels } from "@/lib/business-hours";
 import { useDemoStore } from "@/lib/demo-store";
-import { defaultStoreId } from "@/lib/store-access";
-import type { BusinessSchedule, WeekdayKey } from "@/lib/types";
+import { defaultStoreId, isPlatformAdmin } from "@/lib/store-access";
+import { storeRoleFor } from "@/lib/store-access";
+import type { BusinessSchedule, User, WeekdayKey } from "@/lib/types";
 
 const taiwanDistricts: Record<string, string[]> = {
   "高雄市": ["新興區", "前金區", "苓雅區", "鹽埕區", "鼓山區", "旗津區", "前鎮區", "三民區", "楠梓區", "小港區", "左營區", "仁武區", "大社區", "岡山區", "路竹區", "阿蓮區", "田寮區", "燕巢區", "橋頭區", "梓官區", "彌陀區", "永安區", "湖內區", "鳳山區", "大寮區", "林園區", "鳥松區", "大樹區", "旗山區", "美濃區", "內門區", "杉林區", "甲仙區", "六龜區", "茂林區", "桃源區", "那瑪夏區"],
@@ -39,6 +40,7 @@ type StoreForm = {
   posOrderingEnabled: boolean;
   allowPosOutsideBusinessHours: boolean;
   enablePickupDisplay: boolean;
+  checkoutMode: "prepaid" | "postpaid";
   reportEmailEnabled: boolean;
   reportEmailRecipients: string;
   reportEmailTime: string;
@@ -47,13 +49,14 @@ type StoreForm = {
 export function StoreSettings() {
   return (
     <LoginGate allowedRoles={["systemAdmin", "owner", "manager"]} title="店家設定">
-      {({ profile }) => <StoreSettingsContent storeId={defaultStoreId(profile)} />}
+      {({ profile }) => <StoreSettingsContent storeId={defaultStoreId(profile)} profile={profile} />}
     </LoginGate>
   );
 }
 
-function StoreSettingsContent({ storeId }: { storeId: string }) {
+function StoreSettingsContent({ storeId, profile }: { storeId: string; profile: User | null }) {
   const { db, upsertStore } = useDemoStore({ storeId, skipOrderList: true });
+  const canManageCheckoutMode = isPlatformAdmin(profile) || ["owner", "manager"].includes(storeRoleFor(profile, storeId) ?? "");
   const store = db.stores.find((item) => item.id === storeId);
   const [message, setMessage] = useState("");
   const [closedDateInput, setClosedDateInput] = useState("");
@@ -81,6 +84,7 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
     posOrderingEnabled: true,
     allowPosOutsideBusinessHours: false,
     enablePickupDisplay: true,
+    checkoutMode: "prepaid",
     reportEmailEnabled: false,
     reportEmailRecipients: "",
     reportEmailTime: "23:00"
@@ -112,6 +116,7 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
       posOrderingEnabled: store.posOrderingEnabled ?? true,
       allowPosOutsideBusinessHours: store.allowPosOutsideBusinessHours ?? false,
       enablePickupDisplay: store.enablePickupDisplay ?? true,
+      checkoutMode: store.checkoutMode ?? "prepaid",
       reportEmailEnabled: store.reportEmailEnabled ?? false,
       reportEmailRecipients: store.reportEmailRecipients ?? "",
       reportEmailTime: store.reportEmailTime ?? "23:00"
@@ -310,6 +315,46 @@ function StoreSettingsContent({ storeId }: { storeId: string }) {
               <Toggle label="開放 POS 現場單" checked={form.posOrderingEnabled} onChange={(value) => update("posOrderingEnabled", value)} />
               <Toggle label="POS 可在非營業時間建立現場單" checked={form.allowPosOutsideBusinessHours} onChange={(value) => update("allowPosOutsideBusinessHours", value)} />
               <Toggle label="啟用取餐號顯示" checked={form.enablePickupDisplay} onChange={(value) => update("enablePickupDisplay", value)} />
+            </div>
+          </div>
+
+          {/* 結帳模式 */}
+          <div className="rounded-lg bg-white p-5 shadow-sm">
+            <h2 className="text-xl font-black text-ink">結帳模式</h2>
+            <p className="mt-1 text-sm font-bold text-steel">決定 POS 送出訂單時的結帳流程。</p>
+            {!canManageCheckoutMode && (
+              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-bold text-amber-700">
+                僅老闆、店長或系統管理員可修改結帳模式
+              </p>
+            )}
+            <div className="mt-3 grid gap-2">
+              {([
+                { value: "prepaid", label: "先結帳", desc: "按下送出時立即完成付款，再建立訂單進廚房。" },
+                { value: "postpaid", label: "後結帳", desc: "先建立訂單進廚房，用餐/取餐後再統一結帳。" },
+              ] as const).map(({ value, label, desc }) => (
+                <label
+                  key={value}
+                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition ${
+                    form.checkoutMode === value
+                      ? "border-leaf bg-leaf/5"
+                      : "border-orange-100 bg-orange-50"
+                  } ${!canManageCheckoutMode ? "cursor-not-allowed opacity-60" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name="checkoutMode"
+                    value={value}
+                    checked={form.checkoutMode === value}
+                    disabled={!canManageCheckoutMode}
+                    onChange={() => update("checkoutMode", value)}
+                    className="mt-0.5 size-4 shrink-0 accent-leaf"
+                  />
+                  <div>
+                    <p className="font-black text-ink">{label}</p>
+                    <p className="text-xs font-bold text-steel">{desc}</p>
+                  </div>
+                </label>
+              ))}
             </div>
           </div>
 
