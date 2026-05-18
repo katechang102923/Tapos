@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "seed:staging": "node scripts/seed-staging.mjs"
+    "seed:staging": "node scripts/seed-staging.mjs",
+    "seed:staging-from-prod": "node scripts/seed-staging-from-prod.mjs"
   },
   "dependencies": {
     "firebase": "^11.0.2",

@@ -293,6 +293,60 @@ $env:SEED_STORE_NAME="測試早餐店"
 
 The script is safe to run more than once; it uses merge writes and stable document IDs.
 
+### Copy One Production Store To Staging
+
+Use `scripts/seed-staging-from-prod.mjs` to copy a single production store into `tapos-staging` for realistic QA.
+
+It copies only non-sensitive setup data:
+
+- `stores/{storeId}`
+- top-level `categories`, `products`, `optionGroups`, `sharedOptionGroups`
+- nested `stores/{storeId}/categories`, `products`, `optionGroups`, `sharedOptionGroups`, `tables`, `settings`
+- `storeUsers`, `storeUserBindings`, `storeMembers`
+
+It does not copy customer or transaction data:
+
+- `orders`
+- `members` / `customers`
+- `cashFlows`
+- `dailyReports`
+- `memberTransactions`, `memberCoupons`, point or stored-value logs
+
+Required environment variables:
+
+```bash
+$env:PROD_FIREBASE_PROJECT_ID="your-production-project-id"
+$env:STAGING_FIREBASE_PROJECT_ID="tapos-staging"
+
+# Production service account
+$env:PROD_GOOGLE_APPLICATION_CREDENTIALS="C:\path\to\prod-service-account.json"
+# or
+$env:PROD_FIREBASE_SERVICE_ACCOUNT_BASE64="base64-json"
+
+# Staging service account
+$env:STAGING_GOOGLE_APPLICATION_CREDENTIALS="C:\path\to\staging-service-account.json"
+# or
+$env:STAGING_FIREBASE_SERVICE_ACCOUNT_BASE64="base64-json"
+```
+
+Run:
+
+```bash
+npm run seed:staging-from-prod -- --storeId=正式店家ID
+```
+
+Optional:
+
+```bash
+# Copy into a different staging store id
+npm run seed:staging-from-prod -- --storeId=正式店家ID --targetStoreId=staging-copy-store
+
+# Preview counts without writing
+npm run seed:staging-from-prod -- --storeId=正式店家ID --dryRun=true
+```
+
+The staging store name is prefixed with `[STAGING] ` by default. The script refuses to write unless `STAGING_FIREBASE_PROJECT_ID` is exactly `tapos-staging`.
+
 ## Local Commands
 
 ```bash
