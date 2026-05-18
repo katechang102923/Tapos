@@ -168,6 +168,21 @@ service cloud.firestore {
         && request.resource.data.updatedAt is string;
     }
 
+    // Covers both appendOrderItems (items+total+totalAmount+updatedAt)
+    // and merge-primary (same + mergedOrderIds).
+    function validOrderItemsUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(["items", "total", "totalAmount", "mergedOrderIds", "discountSummary", "updatedAt"]);
+    }
+
+    // Marks a secondary order as merged into a primary.
+    function validOrderMergeChild() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(["isMergedChild", "mergedInto", "updatedAt"])
+        && request.resource.data.isMergedChild == true
+        && request.resource.data.mergedInto is string;
+    }
+
     function validOwnerUserCreate(userId) {
       return signedIn()
         && request.auth.uid == userId
@@ -288,6 +303,9 @@ service cloud.firestore {
           "paymentMethod",
           "paymentStatus",
           "paidAt",
+          "mergedInto",
+          "mergedOrderIds",
+          "isMergedChild",
           "cancelReason",
           "rejectReason",
           "createdBy"
@@ -404,7 +422,9 @@ service cloud.firestore {
       allow create: if validNestedQrOrderCreate(storeId) || validNestedPosOrderCreate(storeId) || isAdmin();
       allow update: if isAdmin()
         || (canHandleOrders(storeId) && validOrderStatusUpdate())
-        || (canHandleOrders(storeId) && validPaymentUpdate());
+        || (canHandleOrders(storeId) && validPaymentUpdate())
+        || (canHandleOrders(storeId) && validOrderItemsUpdate())
+        || (canHandleOrders(storeId) && validOrderMergeChild());
       allow delete: if isAdmin();
     }
 
@@ -681,6 +701,16 @@ service cloud.firestore {
         && request.resource.data.type in ["topup", "spend", "adjust", "refund"]
         && request.resource.data.amount is number;
       allow update, delete: if isAdmin();
+    }
+
+    match /roles/{roleId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /permissions/{permissionId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
     }
 
     match /counters/orderNumbers {
