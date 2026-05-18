@@ -296,15 +296,15 @@ async function ensureStagingAdminSeed(uid: string, email: string): Promise<Recor
 
   const storePayload = {
     id: storeId,
-    name: "皜祈岫?拚?摨?,
+    name: "Test Store",
     logoUrl: "",
     bannerUrl: "",
     phone: "07-000-0000",
-    address: "擃?撣??桀?皜祈岫頝?1 ??,
-    addressCity: "擃?撣?,
-    addressDistrict: "??",
-    addressDetail: "皜祈岫頝?1 ??,
-    businessHours: "?曹??喲望 06:00-14:00",
+    address: "Test Address",
+    addressCity: "Kaohsiung",
+    addressDistrict: "Qianzhen",
+    addressDetail: "Test Address",
+    businessHours: "Daily 06:00-14:00",
     businessSchedule: {
       mon: { enabled: true, start: "06:00", end: "14:00" },
       tue: { enabled: true, start: "06:00", end: "14:00" },
@@ -318,7 +318,7 @@ async function ensureStagingAdminSeed(uid: string, email: string): Promise<Recor
     temporaryClosed: false,
     temporaryPaused: false,
     allowPosOutsideBusinessHours: true,
-    description: "Staging 皜祈岫?拚?摨?,
+    description: "Staging test store",
     takeoutEnabled: true,
     dineInEnabled: true,
     takeoutOrderingEnabled: true,
@@ -353,56 +353,56 @@ async function ensureStagingAdminSeed(uid: string, email: string): Promise<Recor
   };
 
   const categories = [
-    { id: "staging-cat-burger", name: "瞍Ｗ", sort: 1 },
-    { id: "staging-cat-toast", name: "?", sort: 2 },
-    { id: "staging-cat-eggroll", name: "??", sort: 3 },
-    { id: "staging-cat-drink", name: "憌脫?", sort: 4 },
-    { id: "staging-cat-snack", name: "暺?", sort: 5 },
+    { id: "staging-cat-burger", name: "Burger", sort: 1 },
+    { id: "staging-cat-toast", name: "Toast", sort: 2 },
+    { id: "staging-cat-eggroll", name: "Egg Roll", sort: 3 },
+    { id: "staging-cat-drink", name: "Drink", sort: 4 },
+    { id: "staging-cat-snack", name: "Snack", sort: 5 },
   ];
   const flavorGroup = {
     id: "flavor",
-    name: "隤踹",
+    name: "Flavor",
     required: true,
     minSelect: 1,
     maxSelect: 1,
     type: "single",
     options: [
-      { id: "normal", name: "甇?虜", priceDelta: 0, isAvailable: true },
-      { id: "less-sauce", name: "撠", priceDelta: 0, isAvailable: true },
-      { id: "no-onion", name: "銝?瘣", priceDelta: 0, isAvailable: true },
-      { id: "spicy", name: "?麾", priceDelta: 0, isAvailable: true },
+      { id: "normal", name: "Normal", priceDelta: 0, isAvailable: true },
+      { id: "less-sauce", name: "Less Sauce", priceDelta: 0, isAvailable: true },
+      { id: "no-onion", name: "No Onion", priceDelta: 0, isAvailable: true },
+      { id: "spicy", name: "Spicy", priceDelta: 0, isAvailable: true },
     ],
   };
   const addonsGroup = {
     id: "addons",
-    name: "??",
+    name: "Add-ons",
     required: false,
     minSelect: 0,
     maxSelect: 3,
     type: "multiple",
     options: [
-      { id: "egg", name: "??", priceDelta: 15, isAvailable: true },
-      { id: "cheese", name: "?絲??, priceDelta: 10, isAvailable: true },
-      { id: "hashbrown", name: "?擗?, priceDelta: 20, isAvailable: true },
+      { id: "egg", name: "Add Egg", priceDelta: 15, isAvailable: true },
+      { id: "cheese", name: "Add Cheese", priceDelta: 10, isAvailable: true },
+      { id: "hashbrown", name: "Add Hash Brown", priceDelta: 20, isAvailable: true },
     ],
   };
   const products = [
-    { id: "staging-prod-burger", categoryId: "staging-cat-burger", categoryName: "瞍Ｗ", name: "??鞊祈??", price: 65, cost: 35, sort: 1, optionGroups: [flavorGroup, addonsGroup] },
-    { id: "staging-prod-toast", categoryId: "staging-cat-toast", categoryName: "?", name: "?怨????, price: 45, cost: 25, sort: 2, optionGroups: [flavorGroup, addonsGroup] },
-    { id: "staging-prod-eggroll", categoryId: "staging-cat-eggroll", categoryName: "??", name: "韏瑕??", price: 40, cost: 20, sort: 3, optionGroups: [flavorGroup, addonsGroup] },
-    { id: "staging-prod-fries", categoryId: "staging-cat-snack", categoryName: "暺?", name: "暺??", price: 45, cost: 20, sort: 4, optionGroups: [] },
-    { id: "staging-prod-tea", categoryId: "staging-cat-drink", categoryName: "憌脫?", name: "蝝", price: 25, cost: 8, sort: 5, optionGroups: [] },
-    { id: "staging-prod-milk-tea", categoryId: "staging-cat-drink", categoryName: "憌脫?", name: "憟嗉", price: 30, cost: 10, sort: 6, optionGroups: [] },
+    { id: "staging-prod-burger", categoryId: "staging-cat-burger", categoryName: "Burger", name: "Signature Pork Egg Burger", price: 65, cost: 35, sort: 1, optionGroups: [flavorGroup, addonsGroup] },
+    { id: "staging-prod-toast", categoryId: "staging-cat-toast", categoryName: "Toast", name: "Ham Egg Toast", price: 45, cost: 25, sort: 2, optionGroups: [flavorGroup, addonsGroup] },
+    { id: "staging-prod-eggroll", categoryId: "staging-cat-eggroll", categoryName: "Egg Roll", name: "Cheese Egg Roll", price: 40, cost: 20, sort: 3, optionGroups: [flavorGroup, addonsGroup] },
+    { id: "staging-prod-fries", categoryId: "staging-cat-snack", categoryName: "Snack", name: "Fries", price: 45, cost: 20, sort: 4, optionGroups: [] },
+    { id: "staging-prod-tea", categoryId: "staging-cat-drink", categoryName: "Drink", name: "Black Tea", price: 25, cost: 8, sort: 5, optionGroups: [] },
+    { id: "staging-prod-milk-tea", categoryId: "staging-cat-drink", categoryName: "Drink", name: "Milk Tea", price: 30, cost: 10, sort: 6, optionGroups: [] },
   ];
-  const tables = ["A1", "A2", "A3", "B1", "B2", "憭葆"];
+  const tables = ["A1", "A2", "A3", "B1", "B2", "Takeout"];
 
   await withTimeout(Promise.all([
     setDoc(doc(db, "stores", storeId), storePayload, { merge: true }),
     setDoc(doc(db, "storeUsers", `${storeId}_${uid}`), { id: `${storeId}_${uid}`, userId: uid, uid, email: normalizedEmail, storeId, role: "owner", storeRole: "owner", status: "active", approved: true, createdAt: now, updatedAt: now }, { merge: true }),
     setDoc(doc(db, "storeUserBindings", `${storeId}_${uid}`), { id: `${storeId}_${uid}`, userId: uid, uid, email: normalizedEmail, storeId, role: "owner", storeRole: "owner", status: "active", approved: true, createdAt: now, updatedAt: now }, { merge: true }),
     setDoc(doc(db, "storeMembers", `${storeId}_${uid}`), { id: `${storeId}_${uid}`, userId: uid, uid, email: normalizedEmail, storeId, role: "owner", storeRole: "owner", status: "active", approved: true, createdAt: now, updatedAt: now }, { merge: true }),
-    setDoc(doc(db, "roles", "systemAdmin"), { id: "systemAdmin", name: "蝟餌絞蝞∠???, permissions: ["*"], updatedAt: now }, { merge: true }),
-    setDoc(doc(db, "roles", "owner"), { id: "owner", name: "??", permissions: ["store:*"], updatedAt: now }, { merge: true }),
+    setDoc(doc(db, "roles", "systemAdmin"), { id: "systemAdmin", name: "System Admin", permissions: ["*"], updatedAt: now }, { merge: true }),
+    setDoc(doc(db, "roles", "owner"), { id: "owner", name: "Owner", permissions: ["store:*"], updatedAt: now }, { merge: true }),
     setDoc(doc(db, "permissions", "default"), { id: "default", updatedAt: now }, { merge: true }),
     setDoc(doc(db, "counters", "orderNumbers"), { qr: 1, pos: 1, kiosk: 1 }, { merge: true }),
     setDoc(doc(db, "stores", storeId, "settings", "memberRules"), { enablePoints: true, earnAmount: 100, earnPoints: 1, pointValue: 1, enableCouponExchange: true, birthdayRewardEnabled: false, birthdayRewardPoints: 0, updatedAt: now }, { merge: true }),
@@ -412,7 +412,7 @@ async function ensureStagingAdminSeed(uid: string, email: string): Promise<Recor
       setDoc(doc(db, "categories", category.id), { ...category, storeId, isActive: true, createdAt: now, updatedAt: now }, { merge: true }),
     ]),
     ...products.flatMap((product) => {
-      const payload = { ...product, storeId, description: `${product.name} staging 皜祈岫??`, imageUrl: "", isActive: true, isAvailable: true, originalPrice: product.price, discountType: "none", discountValue: 0, scheduledChanges: [], createdAt: now, updatedAt: now };
+      const payload = { ...product, storeId, description: `${product.name} staging test product`, imageUrl: "", isActive: true, isAvailable: true, originalPrice: product.price, discountType: "none", discountValue: 0, scheduledChanges: [], createdAt: now, updatedAt: now };
       return [
         setDoc(doc(db, "stores", storeId, "products", product.id), payload, { merge: true }),
         setDoc(doc(db, "products", product.id), payload, { merge: true }),
@@ -422,10 +422,10 @@ async function ensureStagingAdminSeed(uid: string, email: string): Promise<Recor
       id: `staging-table-${index + 1}`,
       storeId,
       tableName,
-      area: tableName === "憭葆" ? "憭葆" : tableName.replace(/\d+/g, ""),
+      area: tableName === "Takeout" ? "Takeout" : tableName.replace(/\d+/g, ""),
       number: index + 1,
       enabled: true,
-      qrUrl: `/order/${storeId}?type=${tableName === "憭葆" ? "takeout" : `dineIn&table=${encodeURIComponent(tableName)}`}`,
+      qrUrl: `/order/${storeId}?type=${tableName === "Takeout" ? "takeout" : `dineIn&table=${encodeURIComponent(tableName)}`}`,
       createdAt: now,
       updatedAt: now,
     }, { merge: true })),
@@ -434,7 +434,6 @@ async function ensureStagingAdminSeed(uid: string, email: string): Promise<Recor
   authDebug("staging seed:done", { storeId });
   return { [storeId]: "owner" };
 }
-
 async function ensureFixedAdminUser(uid: string, email: string) {
   if (!firestore) throw new Error("Firebase is not configured");
   const userRef = doc(firestore, "users", uid);
@@ -516,7 +515,7 @@ export function useAuthState(): AuthState {
     const authInitTimer = setTimeout(() => {
       if (!active) return;
       authWarn("loading timeout", { reason: "onAuthStateChanged did not resolve within 15 seconds" });
-      setError("?餃????仿暹?嚗?蝣箄? Firebase 閮剖??雯頝舫????Firestore 甈???);
+      setError("Login loading timed out. Please check Firebase config, network access, and Firestore rules.");
       setLoading(false);
     }, 15000);
 
@@ -558,7 +557,7 @@ export function useAuthState(): AuthState {
         } catch (snapshotError) {
           if (!active) return;
           authWarn("fixed admin profile failed", snapshotError);
-          setError(snapshotError instanceof Error ? snapshotError.message : "撟喳蝞∠??∟????亙仃??);
+          setError(snapshotError instanceof Error ? snapshotError.message : "Platform admin profile failed");
           setLoading(false);
         }
         return;
@@ -580,7 +579,7 @@ export function useAuthState(): AuthState {
         .catch((snapshotError) => {
           if (!active) return;
           authWarn("initial profile load failed", snapshotError);
-          setError(snapshotError instanceof Error ? snapshotError.message : "雿輻?????亙仃??);
+          setError(snapshotError instanceof Error ? snapshotError.message : "User profile load failed");
           setLoading(false);
         });
 
@@ -617,7 +616,7 @@ export function useAuthState(): AuthState {
             .catch((snapshotError) => {
               if (!active) return;
               authWarn("profile snapshot processing failed", snapshotError);
-              setError(snapshotError instanceof Error ? snapshotError.message : "雿輻?????甇亙仃??);
+              setError(snapshotError instanceof Error ? snapshotError.message : "User profile sync failed");
               setLoading(false);
             });
         },
