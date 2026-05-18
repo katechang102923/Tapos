@@ -1,14 +1,5 @@
 export type AppEnvironment = "production" | "staging";
 
-type FirebaseEnvKey =
-  | "API_KEY"
-  | "AUTH_DOMAIN"
-  | "PROJECT_ID"
-  | "STORAGE_BUCKET"
-  | "MESSAGING_SENDER_ID"
-  | "APP_ID"
-  | "MEASUREMENT_ID";
-
 export type FirebasePublicConfig = {
   apiKey?: string;
   authDomain?: string;
@@ -19,40 +10,84 @@ export type FirebasePublicConfig = {
   measurementId?: string;
 };
 
-const requiredKeys: FirebaseEnvKey[] = [
-  "API_KEY",
-  "AUTH_DOMAIN",
-  "PROJECT_ID",
-  "STORAGE_BUCKET",
-  "MESSAGING_SENDER_ID",
-  "APP_ID",
+type FirebaseEnvSource = {
+  apiKey?: string;
+  authDomain?: string;
+  projectId?: string;
+  storageBucket?: string;
+  messagingSenderId?: string;
+  appId?: string;
+  measurementId?: string;
+};
+
+const genericFirebaseEnv: FirebaseEnvSource = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
+};
+
+const stagingFirebaseEnv: FirebaseEnvSource = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_STAGING_API_KEY ?? process.env.NEXT_PUBLIC_STAGING_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_STAGING_AUTH_DOMAIN ?? process.env.NEXT_PUBLIC_STAGING_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_STAGING_PROJECT_ID ?? process.env.NEXT_PUBLIC_STAGING_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STAGING_STORAGE_BUCKET ?? process.env.NEXT_PUBLIC_STAGING_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_STAGING_MESSAGING_SENDER_ID ?? process.env.NEXT_PUBLIC_STAGING_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_STAGING_APP_ID ?? process.env.NEXT_PUBLIC_STAGING_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_STAGING_MEASUREMENT_ID ?? process.env.NEXT_PUBLIC_STAGING_FIREBASE_MEASUREMENT_ID,
+};
+
+const productionFirebaseEnv: FirebaseEnvSource = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_PRODUCTION_API_KEY ?? process.env.NEXT_PUBLIC_PRODUCTION_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_PRODUCTION_AUTH_DOMAIN ?? process.env.NEXT_PUBLIC_PRODUCTION_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PRODUCTION_PROJECT_ID ?? process.env.NEXT_PUBLIC_PRODUCTION_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_PRODUCTION_STORAGE_BUCKET ?? process.env.NEXT_PUBLIC_PRODUCTION_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_PRODUCTION_MESSAGING_SENDER_ID ?? process.env.NEXT_PUBLIC_PRODUCTION_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_PRODUCTION_APP_ID ?? process.env.NEXT_PUBLIC_PRODUCTION_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_PRODUCTION_MEASUREMENT_ID ?? process.env.NEXT_PUBLIC_PRODUCTION_FIREBASE_MEASUREMENT_ID,
+};
+
+const requiredConfigKeys: Array<keyof FirebasePublicConfig> = [
+  "apiKey",
+  "authDomain",
+  "projectId",
+  "storageBucket",
+  "messagingSenderId",
+  "appId",
 ];
 
-const configMap: Record<FirebaseEnvKey, keyof FirebasePublicConfig> = {
-  API_KEY: "apiKey",
-  AUTH_DOMAIN: "authDomain",
-  PROJECT_ID: "projectId",
-  STORAGE_BUCKET: "storageBucket",
-  MESSAGING_SENDER_ID: "messagingSenderId",
-  APP_ID: "appId",
-  MEASUREMENT_ID: "measurementId",
+const publicEnvNames: Record<keyof FirebasePublicConfig, string> = {
+  apiKey: "NEXT_PUBLIC_FIREBASE_API_KEY",
+  authDomain: "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
+  projectId: "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
+  storageBucket: "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET",
+  messagingSenderId: "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
+  appId: "NEXT_PUBLIC_FIREBASE_APP_ID",
+  measurementId: "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID",
 };
 
 function normalizeAppEnv(value?: string): AppEnvironment {
-  return value === "staging" ? "staging" : "production";
+  return value?.trim() === "staging" ? "staging" : "production";
 }
 
-function readPublicEnv(name: string) {
-  return process.env[name]?.trim() || undefined;
+function clean(value?: string) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
-function readFirebaseValue(appEnv: AppEnvironment, key: FirebaseEnvKey) {
-  const envPrefix = appEnv === "staging" ? "STAGING" : "PRODUCTION";
-  return (
-    readPublicEnv(`NEXT_PUBLIC_FIREBASE_${envPrefix}_${key}`) ??
-    readPublicEnv(`NEXT_PUBLIC_${envPrefix}_FIREBASE_${key}`) ??
-    readPublicEnv(`NEXT_PUBLIC_FIREBASE_${key}`)
-  );
+function mergeEnv(primary: FirebaseEnvSource, fallback: FirebaseEnvSource): FirebasePublicConfig {
+  return {
+    apiKey: clean(primary.apiKey) ?? clean(fallback.apiKey),
+    authDomain: clean(primary.authDomain) ?? clean(fallback.authDomain),
+    projectId: clean(primary.projectId) ?? clean(fallback.projectId),
+    storageBucket: clean(primary.storageBucket) ?? clean(fallback.storageBucket),
+    messagingSenderId: clean(primary.messagingSenderId) ?? clean(fallback.messagingSenderId),
+    appId: clean(primary.appId) ?? clean(fallback.appId),
+    measurementId: clean(primary.measurementId) ?? clean(fallback.measurementId),
+  };
 }
 
 export function getAppEnvironment() {
@@ -61,23 +96,18 @@ export function getAppEnvironment() {
 
 export function resolveFirebaseEnv() {
   const appEnv = getAppEnvironment();
-  const config: FirebasePublicConfig = {};
+  const scopedEnv = appEnv === "staging" ? stagingFirebaseEnv : productionFirebaseEnv;
+  const config = mergeEnv(scopedEnv, genericFirebaseEnv);
 
-  (Object.keys(configMap) as FirebaseEnvKey[]).forEach((key) => {
-    config[configMap[key]] = readFirebaseValue(appEnv, key);
-  });
-
-  const missing = requiredKeys.filter((key) => !config[configMap[key]]);
+  const missingKeys = requiredConfigKeys.filter((key) => !config[key]);
+  const missing = missingKeys.map((key) => publicEnvNames[key]);
   const projectId = config.projectId ?? "";
   const productionUsesStaging = appEnv === "production" && /staging/i.test(projectId);
-  const stagingUsesNonStaging = appEnv === "staging" && projectId !== "tapos-staging";
   const error = missing.length
-    ? `Firebase 尚未設定，請確認 Environment Variables：缺少 ${missing.map((key) => `NEXT_PUBLIC_FIREBASE_${key}`).join(", ")}`
+    ? `Firebase 尚未設定，請確認 Environment Variables：缺少 ${missing.join(", ")}`
     : productionUsesStaging
       ? `Production 環境不可使用 staging Firebase projectId：${projectId}`
-      : stagingUsesNonStaging
-        ? `Staging 環境必須連到 tapos-staging，目前 projectId：${projectId}`
-        : "";
+      : "";
 
   return {
     appEnv,
