@@ -4,6 +4,7 @@ import { useRef, useMemo, useState, type Dispatch, type SetStateAction } from "r
 import { ChevronDown, ChevronRight, Link2, Plus, Search, Upload, X } from "lucide-react";
 import type { Category, Product, ProductOptionChoice, ProductOptionGroup, ProductScheduledChange, SharedOptionGroup } from "@/lib/types";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
+import { ImageWithFallback } from "@/components/ui/image-with-fallback";
 
 type ProductEditorDialogProps = {
   addChildGroup: (groupId: string, optionId: string) => void;
@@ -251,7 +252,12 @@ export function ProductEditorDialog({
 
             <div className="rounded-lg bg-white p-4 shadow-sm">
               <div className="flex items-center gap-3">
-                <img src={editingProduct.imageUrl} alt={editingProduct.name || "商品圖片預覽"} className="size-24 rounded-lg object-cover ring-1 ring-orange-100" />
+                <ImageWithFallback
+                  src={editingProduct.imageUrl}
+                  alt={editingProduct.name || "商品圖片預覽"}
+                  className="size-24 rounded-lg object-cover ring-1 ring-orange-100"
+                  placeholderClassName="grid size-24 place-items-center rounded-lg bg-stone-100 text-xs font-black text-stone-400 ring-1 ring-orange-100"
+                />
                 <div>
                   <h3 className="text-xl font-black">圖片預覽</h3>
                   <p className="mt-1 text-sm font-bold text-steel">可貼上圖片 URL，或直接選用下方範例圖片。</p>

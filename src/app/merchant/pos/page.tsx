@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BarChart3, Bell, BellOff, ChefHat, CheckCircle2, Clock3, FileText, MenuIcon, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, UserPlus, WalletCards, XCircle } from "lucide-react";
+import { ArrowLeft, BarChart3, Bell, BellOff, ChefHat, CheckCircle2, ChevronDown, Clock3, FileText, GitMerge, MenuIcon, Minus, Plus, ReceiptText, Send, ShoppingCart, Table2, UserPlus, WalletCards, XCircle } from "lucide-react";
 import { collection, doc, getDoc, onSnapshot, query as firestoreQuery, where } from "firebase/firestore";
 import { LoginGate } from "@/components/auth/login-gate";
 import { ProductOptionModal } from "@/components/product-option-modal";
+import { ImageWithFallback } from "@/components/ui/image-with-fallback";
 import { StatusPill } from "@/components/status-pill";
 import { useDemoStore } from "@/lib/demo-store";
 import { firebaseEnabled, firestore } from "@/lib/firebase";
@@ -165,7 +166,7 @@ function MerchantPosShell({ profile }: { profile: User | null }) {
 }
 
 function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activeStoreId, activeStoreRole, onStoreChange }: { profile: User | null; storeId: string; storeIds: string[]; storeNames?: Record<string, string>; activeStoreId: string; activeStoreRole: StoreMemberRole | null; onStoreChange: (storeId: string) => void }) {
-  const { db, createCashFlow, createCustomer, createOrder, todayCashFlows, todayOrders, updateOrderStatus, updateOrderPayment, upsertCashFlowItem, upsertStore, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned, loadMemberRules } = useDemoStore({ storeId, loadCustomers: true, todayOrdersOnly: true });
+  const { db, createCashFlow, createCustomer, createOrder, todayCashFlows, todayOrders, updateOrderStatus, updateOrderPayment, appendOrderItems, mergeOrders, updateOrderPartySize, upsertCashFlowItem, upsertStore, lookupCustomerByPhone, lookupCustomerByMemberNo, adjustCustomerPoints, adjustStoredValue, updateCustomerOrderStats, getCalculatePointsEarned, loadMemberRules } = useDemoStore({ storeId, loadCustomers: true, todayOrdersOnly: true });
   const store = db.stores.find((item) => item.id === storeId);
   const categories = useMemo(() => db.categories.filter((item) => item.storeId === storeId && item.isActive).sort((a, b) => a.sort - b.sort), [db.categories, storeId]);
   const products = useMemo(() => db.products.filter((item) => item.storeId === storeId && productIsAvailable(item)).sort((a, b) => a.sort - b.sort), [db.products, storeId]);
@@ -194,6 +195,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const [activeCategoryId, setActiveCategoryId] = useState("all");
   const [mode, setMode] = useState<OrderMode>("takeout");
   const [tableNo, setTableNo] = useState("1");
+  const [partySize, setPartySize] = useState("1");
   const [customerNote, setCustomerNote] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [orderDiscount, setOrderDiscount] = useState<CartItemDiscount>(null);
@@ -215,6 +217,8 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
   const [successOrderNumber, setSuccessOrderNumber] = useState("");
   const [rightTab, setRightTab] = useState<"cart" | "orders" | "unpaid">("cart");
   const [nowTick, setNowTick] = useState(Date.now());
+  const [addToOrderId, setAddToOrderId] = useState<string | null>(null);
+  const [sameTablePrompt, setSameTablePrompt] = useState<{ target: Order; count: number; total: number } | null>(null);
 
   // P0-3: 成功/失敗通知 3 秒後自動消失
   useEffect(() => {
@@ -380,12 +384,26 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
       : [],
     [checkoutMode, todayOrders]
   );
-  const unpaidOrderCount = unpaidOrders.length;
+  const unpaidOrderCount = unpaidOrders.filter((order) => !order.isMergedChild).length;
   const tables = useMemo(() => (db.tables ?? []).filter((t) => t.storeId === storeId && t.enabled !== false).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0)), [db.tables, storeId]);
   const tableUnpaidCounts = useMemo(() => {
     const map = new Map<string, number>();
     unpaidOrders.forEach((o) => {
-      if (o.tableNo && o.tableNo !== "外帶") map.set(o.tableNo, (map.get(o.tableNo) ?? 0) + 1);
+      if (!o.isMergedChild && o.tableNo && o.tableNo !== "外帶") map.set(o.tableNo, (map.get(o.tableNo) ?? 0) + 1);
+    });
+    return map;
+  }, [unpaidOrders]);
+  const tableUnpaidSummary = useMemo(() => {
+    const map = new Map<string, { count: number; total: number; partySize: number; orders: Order[] }>();
+    unpaidOrders.forEach((order) => {
+      if (order.isMergedChild || order.mode === "takeout" || !order.tableNo || order.tableNo === "外帶") return;
+      const key = (order.tableName || order.tableNo).trim();
+      const current = map.get(key) ?? { count: 0, total: 0, partySize: 0, orders: [] };
+      current.count += 1;
+      current.total += order.totalAmount ?? order.total;
+      current.partySize = Math.max(current.partySize, order.partySize ?? order.guestCount ?? 1);
+      current.orders.push(order);
+      map.set(key, current);
     });
     return map;
   }, [unpaidOrders]);
@@ -434,7 +452,45 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
     setCart((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
   }
 
-  async function submitOrder() {
+  function buildCartOrderItems(targetOrderId = ""): OrderItem[] {
+    return cart.map<OrderItem>((line) => {
+      const unitPrice = lineBasePrice(line);
+      const discAmt = lineDiscountAmount(line);
+      return {
+        id: "",
+        orderId: targetOrderId,
+        storeId,
+        productId: line.product.id,
+        productName: line.product.name,
+        name: line.product.name,
+        quantity: line.quantity,
+        unitPrice,
+        price: unitPrice,
+        originalPrice: line.product.price,
+        discountType: line.product.discountType ?? "none",
+        discountValue: Number(line.product.discountValue ?? 0),
+        finalPrice: productFinalPrice(line.product),
+        selectedOptions: line.selectedOptions,
+        note: line.note,
+        itemNote: line.note,
+        ...(line.discount ? { discount: { type: line.discount.type, value: line.discount.value, amount: discAmt } } : {})
+      };
+    });
+  }
+
+  async function appendCartToExistingOrder(orderId: string) {
+    const newItems = buildCartOrderItems(orderId);
+    await appendOrderItems(orderId, newItems, finalTotal);
+    setCart([]);
+    setCustomerNote("");
+    setOrderDiscount(null);
+    setAddToOrderId(null);
+    setSameTablePrompt(null);
+    setOrderSuccess("加點成功");
+    setRightTab("unpaid");
+  }
+
+  async function submitOrder(forceNewOrder = false) {
     if (cart.length === 0 || isSubmitting) return;
     setOrderError("");
     if (!posEnabled) {
@@ -451,7 +507,31 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
       setOrderError(businessBlockReason);
       return;
     }
+    const normalizedTableNo = tableNo.trim();
+    const sameTableOrders = checkoutMode === "postpaid" && mode === "dine-in"
+      ? unpaidOrders.filter((order) => !order.isMergedChild && order.mode === "dine-in" && (order.tableName || order.tableNo || "").trim() === normalizedTableNo)
+      : [];
+    if (!forceNewOrder && !addToOrderId && sameTableOrders.length > 0) {
+      const target = sameTableOrders[0];
+      setSameTablePrompt({
+        target,
+        count: sameTableOrders.length,
+        total: sameTableOrders.reduce((sum, order) => sum + (order.totalAmount ?? order.total), 0)
+      });
+      return;
+    }
     setIsSubmitting(true);
+    if (addToOrderId) {
+      try {
+        await appendCartToExistingOrder(addToOrderId);
+      } catch (writeError) {
+        console.error("appendOrderItems failed", writeError);
+        setOrderError(writeError instanceof Error ? writeError.message : "加點失敗");
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
     try {
       const memberRules = boundMember ? await loadMemberRules(storeId) : null;
       const pointsEarned = boundMember && memberRules?.enablePoints && memberRules.earnAmount > 0
@@ -461,6 +541,9 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
         storeId,
         mode,
         tableNo: mode === "takeout" ? "外帶" : tableNo,
+        tableName: mode === "takeout" ? "外帶" : tableNo,
+        partySize: mode === "dine-in" ? Math.max(1, Math.floor(Number(partySize) || 1)) : undefined,
+        guestCount: mode === "dine-in" ? Math.max(1, Math.floor(Number(partySize) || 1)) : undefined,
         customerNote,
         total: finalTotal,
         source: "pos",
@@ -474,29 +557,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
         ...(boundMember ? { customer: { customerId: boundMember.id, memberNo: boundMember.memberNo, name: boundMember.name, phone: boundMember.phone } } : {}),
         ...(pointsEarned > 0 ? { pointsEarned } : {}),
         ...(storedValueDeduction > 0 && checkoutMode === "prepaid" ? { storedValueUsed: storedValueDeduction } : {}),
-        items: cart.map<OrderItem>((line) => {
-          const unitPrice = lineBasePrice(line);
-          const discAmt = lineDiscountAmount(line);
-          return {
-            id: "",
-            orderId: "",
-            storeId,
-            productId: line.product.id,
-            productName: line.product.name,
-            name: line.product.name,
-            quantity: line.quantity,
-            unitPrice,
-            price: unitPrice,
-            originalPrice: line.product.price,
-            discountType: line.product.discountType ?? "none",
-            discountValue: Number(line.product.discountValue ?? 0),
-            finalPrice: productFinalPrice(line.product),
-            selectedOptions: line.selectedOptions,
-            note: line.note,
-            itemNote: line.note,
-            ...(line.discount ? { discount: { type: line.discount.type, value: line.discount.value, amount: discAmt } } : {})
-          };
-        }),
+        items: buildCartOrderItems(),
         ...(orderDiscount ? { orderDiscount: { type: orderDiscount.type, value: orderDiscount.value, amount: orderDiscAmt } } : {}),
         promotionDiscounts: promotionCalculation.appliedPromotions,
         ...((itemDiscountTotal > 0 || orderDiscAmt > 0 || promotionDiscountTotal > 0) ? { discountSummary: { itemDiscountTotal, orderDiscountTotal: orderDiscAmt, promotionDiscountTotal, totalDiscount: itemDiscountTotal + orderDiscAmt + promotionDiscountTotal } } : {})
@@ -506,6 +567,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
       setOrderDiscount(null);
       setMode("takeout");
       setTableNo("1");
+      setPartySize("1");
       setCartOpen(false);
       setSuccessOrderNumber(order.orderNumber ?? "");
       setOrderSuccess("POS 訂單已建立：" + order.orderNumber);
@@ -659,7 +721,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
           />
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_460px]">
-            <QuickOrder activeCategoryId={activeCategoryId} categories={categories} checkoutMode={checkoutMode} customerNote={customerNote} mode={mode} posEnabled={posEnabled} products={visibleProducts} setActiveCategoryId={setActiveCategoryId} setChoosingProduct={setChoosingProduct} setCustomerNote={setCustomerNote} setMode={setMode} setTableNo={setTableNo} tableNo={tableNo} tables={tables} tableUnpaidCounts={tableUnpaidCounts} onViewUnpaidTable={() => setRightTab("unpaid")} />
+            <QuickOrder activeCategoryId={activeCategoryId} categories={categories} checkoutMode={checkoutMode} customerNote={customerNote} mode={mode} partySize={partySize} posEnabled={posEnabled} products={visibleProducts} setActiveCategoryId={setActiveCategoryId} setChoosingProduct={setChoosingProduct} setCustomerNote={setCustomerNote} setMode={setMode} setPartySize={setPartySize} setTableNo={setTableNo} tableNo={tableNo} tables={tables} tableUnpaidCounts={tableUnpaidCounts} tableUnpaidSummary={tableUnpaidSummary} onViewUnpaidTable={() => setRightTab("unpaid")} />
             <aside className="hidden xl:sticky xl:top-24 xl:block xl:h-fit xl:space-y-2">
               {/* Right-column tab bar */}
               <div className="flex gap-1 rounded-2xl bg-stone-100 p-1">
@@ -692,7 +754,7 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
               </div>
               {rightTab === "cart" && <CartPanel canApplyDiscounts={canApplyDiscounts} cart={cart} checkoutMode={checkoutMode} customerNote={customerNote} setCustomerNote={setCustomerNote} itemsSubtotal={itemsSubtotal} itemDiscountTotal={itemDiscountTotal} orderDiscAmt={orderDiscAmt} promotionDiscounts={promotionCalculation.appliedPromotions} finalTotal={finalTotal} cashDue={cashDue} storedValueDeduction={storedValueDeduction} orderDiscount={orderDiscount} setOrderDiscount={setOrderDiscount} updateLine={updateLine} removeLine={(index) => setCart((current) => current.filter((_, itemIndex) => itemIndex !== index))} submitOrder={submitOrder} isSubmitting={isSubmitting} posEnabled={posEnabled} memberEnabled={memberEnabled} memberStoredValueEnabled={memberStoredValueEnabled} canUseMemberLookup={canUseMemberLookup} canUseStoredValue={canUseStoredValue} boundMember={boundMember} storedValueUsed={storedValueUsed} onLookupMember={lookupMember} onClearMember={() => { setBoundMember(null); setStoredValueUsed(0); }} onStoredValueChange={setStoredValueUsed} onOpenCreateMember={() => setMemberModalOpen(true)} onOpenTopup={() => setTopupModalOpen(true)} />}
               {rightTab === "orders" && <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} nowTick={nowTick} onAcceptPrint={printSettings?.printOnAccept ? (order) => printOrder(order, storeDisplayName, printSettings) : undefined} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />}
-              {rightTab === "unpaid" && checkoutMode === "postpaid" && <UnpaidOrderBoard canProcessCheckout={canProcessCheckout} nowTick={nowTick} unpaidOrders={unpaidOrders} updateOrderPayment={updateOrderPayment} updateOrderStatus={updateOrderStatus} onAddMore={(order) => { setTableNo(order.tableNo); setMode("dine-in"); setRightTab("cart"); }} />}
+              {rightTab === "unpaid" && checkoutMode === "postpaid" && <UnpaidOrderBoard canProcessCheckout={canProcessCheckout} mergeOrders={mergeOrders} nowTick={nowTick} tables={tables} unpaidOrders={unpaidOrders} updateOrderPartySize={updateOrderPartySize} updateOrderPayment={updateOrderPayment} updateOrderStatus={updateOrderStatus} onAddMore={(order) => { setAddToOrderId(order.id); setTableNo(order.tableNo); setPartySize(String(order.partySize ?? order.guestCount ?? 1)); setMode("dine-in"); setRightTab("cart"); }} onStartTableOrder={(nextTableNo) => { setTableNo(nextTableNo); setPartySize("1"); setMode("dine-in"); setRightTab("cart"); }} />}
             </aside>
           </div>
         </div>
@@ -768,6 +830,47 @@ function MerchantPosContent({ profile, storeId, storeIds, storeNames = {}, activ
         <SideDrawer title="接單進單" onClose={() => setOrdersOpen(false)}>
           <OrderBoard activeOrderTab={activeOrderTab} canCancelOrders={canCancelOrders} displayedOrders={displayedOrders} enablePickupDisplay={enablePickupDisplay} nowTick={nowTick} onAcceptPrint={printSettings?.printOnAccept ? (order) => printOrder(order, storeDisplayName, printSettings) : undefined} pendingCount={pendingOrderCount} setActiveOrderTab={setActiveOrderTab} updateOrderStatus={updateOrderStatus} />
         </SideDrawer>
+      )}
+      {sameTablePrompt && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setSameTablePrompt(null)}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <h3 className="text-2xl font-black text-ink">此桌已有未結帳訂單</h3>
+            <p className="mt-2 text-sm font-bold leading-6 text-steel">
+              {sameTablePrompt.target.tableNo} 桌目前有 {sameTablePrompt.count} 筆未結帳訂單，合計 ${sameTablePrompt.total}。
+              是否將新品項併入同桌主單 #{sameTablePrompt.target.orderNumber}？
+            </p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <button
+                disabled={isSubmitting}
+                onClick={async () => {
+                  setIsSubmitting(true);
+                  try {
+                    await appendCartToExistingOrder(sameTablePrompt.target.id);
+                  } catch (writeError) {
+                    console.error("append same-table order failed", writeError);
+                    setOrderError(writeError instanceof Error ? writeError.message : "併入同桌訂單失敗");
+                  } finally {
+                    setIsSubmitting(false);
+                  }
+                }}
+                className="rounded-xl bg-leaf px-4 py-4 font-black text-white disabled:opacity-60"
+              >
+                併入同桌訂單
+              </button>
+              <button
+                disabled={isSubmitting}
+                onClick={() => {
+                  setSameTablePrompt(null);
+                  void submitOrder(true);
+                }}
+                className="rounded-xl bg-stone-900 px-4 py-4 font-black text-white disabled:opacity-60"
+              >
+                另開新單
+              </button>
+            </div>
+            <button onClick={() => setSameTablePrompt(null)} className="mt-3 w-full rounded-xl bg-stone-100 py-3 font-black text-steel">取消</button>
+          </div>
+        </div>
       )}
       {/* 新訂單 Toast 通知堆疊 */}
       {newOrderToasts.length > 0 && (
@@ -986,128 +1089,384 @@ function OrderBoard({ activeOrderTab, canCancelOrders, displayedOrders, enablePi
     </section>
   );
 }
-function UnpaidOrderBoard({ canProcessCheckout, nowTick, onAddMore, unpaidOrders, updateOrderPayment, updateOrderStatus }: { canProcessCheckout: boolean; nowTick: number; onAddMore: (order: Order) => void; unpaidOrders: Order[]; updateOrderPayment: (orderId: string, paymentStatus: "paid" | "unpaid", paymentMethod?: import("@/lib/types").PaymentMethod) => void; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
-  type CheckoutTarget = { orderId: string; total: number; orderNumber: string };
+function UnpaidOrderBoard({ canProcessCheckout, mergeOrders, nowTick, onAddMore, onStartTableOrder, tables, unpaidOrders, updateOrderPartySize, updateOrderPayment, updateOrderStatus }: { canProcessCheckout: boolean; mergeOrders: (primaryOrderId: string, secondaryOrderIds: string[]) => Promise<void>; nowTick: number; onAddMore: (order: Order) => void; onStartTableOrder: (tableNo: string) => void; tables: Table[]; unpaidOrders: Order[]; updateOrderPartySize: (orderId: string, partySize: number) => Promise<void>; updateOrderPayment: (orderId: string, paymentStatus: "paid" | "unpaid", paymentMethod?: import("@/lib/types").PaymentMethod) => void; updateOrderStatus: (orderId: string, status: OrderStatus) => void }) {
+  type CheckoutTarget = { orderId: string; total: number; orderNumber: string; tableOrders?: Order[] };
+  type MergeTarget = { primaryId: string; secondaryIds: string[]; tableNo: string; count: number; primaryOrderNumber: string };
   const [checkoutTarget, setCheckoutTarget] = useState<CheckoutTarget | null>(null);
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
+  const [collapsedTables, setCollapsedTables] = useState<Set<string>>(new Set());
+  const [selectedMergeIds, setSelectedMergeIds] = useState<Record<string, string[]>>({});
+  const [mergeConfirm, setMergeConfirm] = useState<MergeTarget | null>(null);
+  const [merging, setMerging] = useState(false);
+
+  const tableGroups = useMemo(() => {
+    const groups = new Map<string, Order[]>();
+    for (const order of unpaidOrders) {
+      const key = order.mode === "takeout" ? `__takeout__${order.id}` : (order.tableName || order.tableNo || "未指定桌號").trim();
+      const list = groups.get(key) ?? [];
+      list.push(order);
+      groups.set(key, list);
+    }
+    for (const [key, orders] of groups.entries()) {
+      groups.set(key, [...orders].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
+    }
+    return groups;
+  }, [unpaidOrders]);
+  const tableStatuses = useMemo(() => {
+    return tables.map((table) => {
+      const tableName = table.tableName;
+      const orders = (tableGroups.get(tableName) ?? []).filter((order) => !order.isMergedChild && order.status !== "cancelled" && order.paymentStatus !== "paid");
+      const total = orders.reduce((sum, order) => sum + (order.totalAmount ?? order.total), 0);
+      const partySize = orders.reduce((max, order) => Math.max(max, order.partySize ?? order.guestCount ?? 1), 0);
+      return { table, tableName, orders, total, partySize };
+    });
+  }, [tableGroups, tables]);
+
+  function activeOrdersForMerge(orders: Order[]) {
+    return orders.filter((order) => !order.isMergedChild && order.paymentStatus !== "paid" && order.status !== "cancelled");
+  }
+
+  function primaryOrder(orders: Order[]) {
+    return activeOrdersForMerge(orders)[0] ?? orders[0];
+  }
+
+  function mergedOrdersLabel(order: Order) {
+    if (!order.mergedOrderIds?.length) return [];
+    const mergedNumbers = unpaidOrders
+      .filter((item) => order.mergedOrderIds?.includes(item.id))
+      .map((item) => item.orderNumber);
+    return mergedNumbers.length ? mergedNumbers : order.mergedOrderIds;
+  }
+
+  function toggleTable(key: string) {
+    setCollapsedTables((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleSelected(groupKey: string, orderId: string) {
+    setSelectedMergeIds((current) => {
+      const selected = new Set(current[groupKey] ?? []);
+      if (selected.has(orderId)) selected.delete(orderId); else selected.add(orderId);
+      return { ...current, [groupKey]: Array.from(selected) };
+    });
+  }
+
+  function openMergeConfirm(tableNo: string, orders: Order[], selectedIds?: string[]) {
+    const candidates = activeOrdersForMerge(orders);
+    const selectedOrders = selectedIds?.length
+      ? candidates.filter((order) => selectedIds.includes(order.id))
+      : candidates;
+    if (selectedOrders.length < 2) return;
+    const primary = selectedOrders[0];
+    setMergeConfirm({
+      primaryId: primary.id,
+      secondaryIds: selectedOrders.slice(1).map((order) => order.id),
+      tableNo,
+      count: selectedOrders.length,
+      primaryOrderNumber: primary.orderNumber,
+    });
+  }
 
   function pay(method: import("@/lib/types").PaymentMethod) {
     if (!checkoutTarget) return;
-    updateOrderPayment(checkoutTarget.orderId, "paid", method);
+    if (checkoutTarget.tableOrders) {
+      checkoutTarget.tableOrders.forEach((order) => updateOrderPayment(order.id, "paid", method));
+    } else {
+      updateOrderPayment(checkoutTarget.orderId, "paid", method);
+    }
     setCheckoutTarget(null);
+  }
+
+  async function confirmMerge() {
+    if (!mergeConfirm || merging) return;
+    setMerging(true);
+    try {
+      await mergeOrders(mergeConfirm.primaryId, mergeConfirm.secondaryIds);
+      setSelectedMergeIds({});
+      setMergeConfirm(null);
+    } finally {
+      setMerging(false);
+    }
+  }
+
+  function renderItems(order: Order) {
+    return (
+      <div className="mt-2 space-y-1 text-sm font-bold text-steel">
+        {order.items.map((item) => (
+          <div key={item.id}>
+            <p>{item.quantity} x {item.productName}</p>
+            {item.selectedOptions?.length ? (
+              <div className="ml-4 text-xs text-stone-500">
+                {item.selectedOptions.map((option, index) => (
+                  <p key={`${item.id}-${option.choiceName}-${index}`}>- {option.groupName ? `${option.groupName}：` : ""}{option.choiceName}{option.priceDelta ? ` +$${option.priceDelta}` : ""}</p>
+                ))}
+              </div>
+            ) : null}
+            {item.itemNote && <p className="ml-4 text-xs text-stone-500">備註：{item.itemNote}</p>}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderOrderCard(order: Order, groupKey?: string, selectable = false, addTarget?: Order) {
+    const isTakeout = order.mode === "takeout";
+    const tableLabel = order.tableName ?? order.tableNo ?? "";
+    const waitMs = nowTick - new Date(order.createdAt).getTime();
+    const waitMin = Math.max(0, Math.floor(waitMs / 60_000));
+    const isCancelConfirm = cancelConfirmId === order.id;
+    const checked = groupKey ? (selectedMergeIds[groupKey] ?? []).includes(order.id) : false;
+    const isMergedChild = Boolean(order.isMergedChild);
+    return (
+      <article key={order.id} className={`rounded-xl border p-4 ${isMergedChild ? "border-stone-200 bg-stone-50 opacity-70" : "border-amber-200 bg-amber-50"}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              {selectable && !isMergedChild && (
+                <label className="inline-flex items-center gap-2 rounded-lg bg-white px-2 py-1 text-xs font-black text-ink ring-1 ring-amber-100">
+                  <input type="checkbox" checked={checked} onChange={() => groupKey && toggleSelected(groupKey, order.id)} className="size-4 accent-purple-600" />
+                  加入併單
+                </label>
+              )}
+              <p className="text-2xl font-black">#{order.orderNumber}</p>
+              {isTakeout
+                ? <span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-black text-orange-700">外帶</span>
+                : <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-black text-blue-700">{tableLabel ? `${tableLabel} 桌` : "內用"}</span>
+              }
+              {isMergedChild && <span className="rounded-full bg-stone-200 px-2.5 py-1 text-xs font-black text-stone-600">已併入 #{order.mergedInto}</span>}
+              {order.mergedOrderIds?.length ? (
+                <span className="rounded-full bg-purple-100 px-2.5 py-1 text-xs font-black text-purple-700">已併單</span>
+              ) : null}
+            </div>
+            <p className="mt-1 text-xs font-bold text-steel">
+              {new Date(order.createdAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}
+              {waitMin > 0 && ` · 等待 ${waitMin} 分`}
+            </p>
+            {!isTakeout && (
+              <label className="mt-2 inline-flex items-center gap-2 rounded-lg bg-white px-2 py-1 text-xs font-black text-steel ring-1 ring-amber-100">
+                人數
+                <input
+                  key={`${order.id}-${order.partySize ?? order.guestCount ?? 1}`}
+                  defaultValue={order.partySize ?? order.guestCount ?? 1}
+                  type="number"
+                  min="1"
+                  disabled={!canProcessCheckout}
+                  onBlur={(event) => {
+                    const nextPartySize = Math.max(1, Math.floor(Number(event.currentTarget.value) || 1));
+                    void updateOrderPartySize(order.id, nextPartySize);
+                  }}
+                  className="w-12 bg-transparent text-center text-sm font-black text-ink outline-none disabled:text-stone-400"
+                />
+              </label>
+            )}
+          </div>
+          <p className="text-lg font-black text-ink">$ {order.totalAmount ?? order.total}</p>
+        </div>
+        {order.customerNote && <p className="mt-2 rounded-lg bg-white px-3 py-2 text-sm font-bold text-steel">備註：{order.customerNote}</p>}
+        {renderItems(order)}
+        {order.mergedOrderIds?.length ? (
+          <div className="mt-3 rounded-lg bg-purple-50 px-3 py-2 text-sm font-black text-purple-700">
+            已合併：{mergedOrdersLabel(order).map((item) => `#${item}`).join("、")}
+          </div>
+        ) : null}
+        {!isMergedChild && (isCancelConfirm ? (
+          <div className="mt-3 rounded-xl bg-tomato/10 p-3">
+            <p className="mb-2 text-sm font-black text-tomato">確定要取消這筆訂單？</p>
+            <div className="flex gap-2">
+              <button onClick={() => { updateOrderStatus(order.id, "cancelled"); setCancelConfirmId(null); }} className="flex-1 rounded-xl bg-tomato px-3 py-2.5 font-black text-white">確認取消</button>
+              <button onClick={() => setCancelConfirmId(null)} className="rounded-xl bg-stone-200 px-3 py-2.5 font-black text-steel">返回</button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button disabled={!canProcessCheckout} onClick={() => setCheckoutTarget({ orderId: order.id, total: order.totalAmount ?? order.total, orderNumber: order.orderNumber })} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 font-black text-white disabled:opacity-40">
+              <WalletCards className="size-4" />結帳
+            </button>
+            <button onClick={() => onAddMore(addTarget ?? order)} className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-3 font-black text-white">
+              <Plus className="size-4" />加點
+            </button>
+            <button disabled={!canProcessCheckout} onClick={() => setCancelConfirmId(order.id)} className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-stone-200 px-3 py-3 font-black text-steel disabled:opacity-40">
+              <XCircle className="size-4" />取消
+            </button>
+          </div>
+        ))}
+      </article>
+    );
   }
 
   return (
     <section className="rounded-lg bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xl font-black">待結帳訂單</h2>
+        <h2 className="text-xl font-black">待結帳區</h2>
         {unpaidOrders.length > 0 && (
           <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-black text-amber-700">{unpaidOrders.length} 筆</span>
         )}
       </div>
       {!canProcessCheckout && (
-        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-bold text-amber-700">僅老闆或店長可執行結帳操作</p>
+        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-bold text-amber-700">此帳號沒有結帳或併單權限。</p>
       )}
-      <div className="mt-3 space-y-3">
+
+      {tables.length > 0 && (
+        <div className="mt-4 rounded-2xl border border-stone-100 bg-stone-50 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div>
+              <h3 className="font-black text-ink">桌位狀態</h3>
+              <p className="text-xs font-bold text-steel">點空桌可快速建立訂單，點待結帳桌可展開該桌訂單。</p>
+            </div>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-steel">{tables.length} 桌</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {tableStatuses.map(({ table, tableName, orders, total, partySize }) => {
+              const hasUnpaid = orders.length > 0;
+              const statusLabel = !hasUnpaid ? "空桌" : orders.length > 1 ? "多筆待結帳" : "待結帳";
+              return (
+                <button
+                  key={table.id}
+                  onClick={() => {
+                    if (hasUnpaid) {
+                      setCollapsedTables((current) => {
+                        const next = new Set(current);
+                        next.delete(tableName);
+                        return next;
+                      });
+                    } else {
+                      onStartTableOrder(tableName);
+                    }
+                  }}
+                  className={`rounded-xl border px-3 py-3 text-left transition ${hasUnpaid ? "border-amber-200 bg-white text-ink hover:border-amber-400" : "border-stone-200 bg-white text-steel hover:border-leaf hover:text-ink"}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-lg font-black">{tableName}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-black ${hasUnpaid ? "bg-amber-100 text-amber-700" : "bg-stone-100 text-stone-500"}`}>{statusLabel}</span>
+                  </div>
+                  {hasUnpaid ? (
+                    <p className="mt-1 text-xs font-bold text-steel">{partySize || 1}人｜{orders.length}筆｜${total}</p>
+                  ) : (
+                    <p className="mt-1 text-xs font-bold text-stone-400">點擊建立新訂單</p>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3 space-y-4">
         {unpaidOrders.length === 0 ? (
           <p className="rounded-lg bg-stone-50 p-5 text-center font-black text-steel">目前沒有待結帳訂單</p>
         ) : (
-          unpaidOrders.map((order) => {
-            const isTakeout = order.mode === "takeout";
-            const tableLabel = order.tableName ?? order.tableNo ?? "";
-            const waitMs = nowTick - new Date(order.createdAt).getTime();
-            const waitMin = Math.max(0, Math.floor(waitMs / 60_000));
-            const isCancelConfirm = cancelConfirmId === order.id;
+          Array.from(tableGroups.entries()).map(([groupKey, groupOrders]) => {
+            const isTakeoutGroup = groupKey.startsWith("__takeout__");
+            const tableNo = isTakeoutGroup ? "外帶" : groupKey;
+            const isCollapsed = collapsedTables.has(groupKey);
+            const activeOrders = activeOrdersForMerge(groupOrders);
+            const groupTotal = activeOrders.reduce((sum, order) => sum + (order.totalAmount ?? order.total), 0);
+            const groupPartySize = activeOrders.reduce((max, order) => Math.max(max, order.partySize ?? order.guestCount ?? 1), 0);
+            const selectedIds = selectedMergeIds[groupKey] ?? [];
+            const canMerge = !isTakeoutGroup && activeOrders.length > 1;
+            const mainOrder = primaryOrder(groupOrders);
+
+            if (isTakeoutGroup) {
+              return renderOrderCard(groupOrders[0]);
+            }
+
             return (
-              <article key={order.id} className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-2xl font-black">#{order.orderNumber}</p>
-                      {isTakeout
-                        ? <span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-black text-orange-700">外帶</span>
-                        : <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-black text-blue-700">{tableLabel ? tableLabel + " 桌" : "內用"}</span>
-                      }
-                    </div>
-                    <p className="mt-1 text-xs font-bold text-steel">
-                      {new Date(order.createdAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}
-                      {waitMin > 0 && ` · ${waitMin} 分`}
-                    </p>
+              <div key={groupKey} className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
+                <div className="flex flex-wrap items-center gap-2 bg-stone-50 px-4 py-3">
+                  <Table2 className="size-4 shrink-0 text-steel" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-black text-ink">{tableNo}桌｜{groupPartySize || 1}人｜共{activeOrders.length}筆</p>
+                    {mainOrder?.mergedOrderIds?.length ? (
+                      <p className="text-xs font-bold text-purple-700">已併單主單 #{mainOrder.orderNumber}</p>
+                    ) : null}
                   </div>
-                  <p className="text-lg font-black text-ink">$ {order.totalAmount ?? order.total}</p>
+                  <span className="font-black text-ink">$ {groupTotal}</span>
+                  {canProcessCheckout && mainOrder && (
+                    <button
+                      onClick={() => setCheckoutTarget({ orderId: mainOrder.id, total: groupTotal, orderNumber: mainOrder.orderNumber, tableOrders: activeOrders })}
+                      className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-black text-white"
+                    >
+                      整桌結帳
+                    </button>
+                  )}
+                  {canMerge && canProcessCheckout && (
+                    <button
+                      onClick={() => openMergeConfirm(tableNo, groupOrders)}
+                      className="inline-flex items-center gap-1 rounded-lg bg-purple-600 px-3 py-2 text-xs font-black text-white"
+                    >
+                      <GitMerge className="size-3" />全選併單
+                    </button>
+                  )}
+                  <button onClick={() => toggleTable(groupKey)} className="inline-flex items-center gap-1 rounded-lg bg-white px-3 py-2 text-xs font-black text-steel ring-1 ring-stone-200">
+                    {isCollapsed ? "展開" : "收合"}
+                    <ChevronDown className={`size-4 transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
+                  </button>
                 </div>
-                {order.customerNote && <p className="mt-2 rounded-lg bg-white px-3 py-2 text-sm font-bold text-steel">備註：{order.customerNote}</p>}
-                <div className="mt-2 space-y-1 text-sm font-bold text-steel">
-                  {order.items.map((item) => (
-                    <p key={item.id}>{item.quantity} × {item.productName}</p>
-                  ))}
-                </div>
-                {/* Action buttons */}
-                {isCancelConfirm ? (
-                  <div className="mt-3 rounded-xl bg-tomato/10 p-3">
-                    <p className="mb-2 text-sm font-black text-tomato">確定要作廢這筆訂單？</p>
-                    <div className="flex gap-2">
-                      <button onClick={() => { updateOrderStatus(order.id, "cancelled"); setCancelConfirmId(null); }} className="flex-1 rounded-xl bg-tomato px-3 py-2.5 font-black text-white">確定作廢</button>
-                      <button onClick={() => setCancelConfirmId(null)} className="rounded-xl bg-stone-200 px-3 py-2.5 font-black text-steel">取消</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      disabled={!canProcessCheckout}
-                      onClick={() => setCheckoutTarget({ orderId: order.id, total: order.totalAmount ?? order.total, orderNumber: order.orderNumber })}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 font-black text-white disabled:opacity-40"
-                    >
-                      <WalletCards className="size-4" />
-                      結帳
-                    </button>
-                    <button
-                      onClick={() => onAddMore(order)}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-3 font-black text-white"
-                    >
-                      <Plus className="size-4" />
-                      加點
-                    </button>
-                    <button
-                      disabled={!canProcessCheckout}
-                      onClick={() => setCancelConfirmId(order.id)}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-stone-200 px-3 py-3 font-black text-steel disabled:opacity-40"
-                    >
-                      <XCircle className="size-4" />
-                      作廢
-                    </button>
+                {!isCollapsed && (
+                  <div className="space-y-3 p-3">
+                    {canMerge && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-purple-50 px-3 py-2">
+                        <p className="text-sm font-black text-purple-800">勾選要合併的訂單，主單會保留最早建立的訂單號。</p>
+                        <button
+                          disabled={selectedIds.length < 2 || !canProcessCheckout}
+                          onClick={() => openMergeConfirm(tableNo, groupOrders, selectedIds)}
+                          className="rounded-lg bg-purple-600 px-3 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          合併選取訂單
+                        </button>
+                      </div>
+                    )}
+                    {activeOrders.map((order) => renderOrderCard(order, groupKey, canMerge, mainOrder))}
                   </div>
                 )}
-              </article>
+              </div>
             );
           })
         )}
       </div>
 
-      {/* Payment method modal */}
       {checkoutTarget && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setCheckoutTarget(null)}>
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-xl font-black text-ink">選擇付款方式</h3>
-            <p className="mt-1 text-sm font-bold text-steel">訂單 #{checkoutTarget.orderNumber} · 總計 ${checkoutTarget.total}</p>
+            <p className="mt-1 text-sm font-bold text-steel">
+              {checkoutTarget.tableOrders ? `${checkoutTarget.tableOrders[0].tableNo} 桌整桌結帳` : `訂單 #${checkoutTarget.orderNumber}`} · 總計 ${checkoutTarget.total}
+            </p>
             <div className="mt-5 grid gap-3">
               <button onClick={() => pay("cash")} className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-4 font-black text-white">
-                <WalletCards className="size-5" />
-                現金結帳
+                <WalletCards className="size-5" />現金結帳
               </button>
               <button onClick={() => pay("card")} className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-4 font-black text-white">
-                <WalletCards className="size-5" />
-                刷卡結帳
+                <WalletCards className="size-5" />刷卡結帳
               </button>
             </div>
             <button onClick={() => setCheckoutTarget(null)} className="mt-4 w-full rounded-xl bg-stone-100 py-3 font-black text-steel">取消</button>
           </div>
         </div>
       )}
+
+      {mergeConfirm && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setMergeConfirm(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-black text-ink">併單確認</h3>
+            <p className="mt-2 text-sm font-bold text-steel">
+              即將合併 {mergeConfirm.count} 筆訂單。主單將保留最早建立的訂單號 #{mergeConfirm.primaryOrderNumber}。
+            </p>
+            <div className="mt-5 grid gap-3">
+              <button onClick={confirmMerge} disabled={merging} className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600 px-4 py-4 font-black text-white disabled:opacity-60">
+                <GitMerge className="size-5" />{merging ? "合併中..." : "確認併單"}
+              </button>
+            </div>
+            <button onClick={() => setMergeConfirm(null)} className="mt-3 w-full rounded-xl bg-stone-100 py-3 font-black text-steel">取消</button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
-
 function MemberModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (form: { name: string; phone: string; birthday?: string; note?: string }) => Promise<void> }) {
   const [form, setForm] = useState({ name: "", phone: "", birthday: "", note: "" });
   const [error, setError] = useState("");
@@ -1189,7 +1548,7 @@ function TopupModal({ member, onClose, onSubmit }: { member: Customer; onClose: 
   );
 }
 
-function QuickOrder({ activeCategoryId, categories, checkoutMode, customerNote, mode, posEnabled, products, setActiveCategoryId, setChoosingProduct, setCustomerNote, setMode, setTableNo, tableNo, tables, tableUnpaidCounts, onViewUnpaidTable }: { activeCategoryId: string; categories: { id: string; name: string }[]; checkoutMode: "prepaid" | "postpaid"; customerNote: string; mode: OrderMode; posEnabled: boolean; products: Product[]; setActiveCategoryId: (id: string) => void; setChoosingProduct: (product: Product) => void; setCustomerNote: (value: string) => void; setMode: (mode: OrderMode) => void; setTableNo: (value: string) => void; tableNo: string; tables: Table[]; tableUnpaidCounts: Map<string, number>; onViewUnpaidTable: (tableNo: string) => void }) {
+function QuickOrder({ activeCategoryId, categories, checkoutMode, customerNote, mode, partySize, posEnabled, products, setActiveCategoryId, setChoosingProduct, setCustomerNote, setMode, setPartySize, setTableNo, tableNo, tables, tableUnpaidCounts, tableUnpaidSummary, onViewUnpaidTable }: { activeCategoryId: string; categories: { id: string; name: string }[]; checkoutMode: "prepaid" | "postpaid"; customerNote: string; mode: OrderMode; partySize: string; posEnabled: boolean; products: Product[]; setActiveCategoryId: (id: string) => void; setChoosingProduct: (product: Product) => void; setCustomerNote: (value: string) => void; setMode: (mode: OrderMode) => void; setPartySize: (value: string) => void; setTableNo: (value: string) => void; tableNo: string; tables: Table[]; tableUnpaidCounts: Map<string, number>; tableUnpaidSummary: Map<string, { count: number; total: number; partySize: number; orders: Order[] }>; onViewUnpaidTable: (tableNo: string) => void }) {
   const [tablePickerOpen, setTablePickerOpen] = useState(false);
   const isPostpaid = checkoutMode === "postpaid";
 
@@ -1219,6 +1578,18 @@ function QuickOrder({ activeCategoryId, categories, checkoutMode, customerNote, 
             <span className="text-xs opacity-60">{tablePickerOpen ? "▲" : "▾"}</span>
           </button>
         )}
+        {mode === "dine-in" && (
+          <label className="flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-sm font-black text-steel">
+            人數
+            <input
+              value={partySize}
+              onChange={(e) => setPartySize(e.target.value.replace(/[^\d]/g, "").slice(0, 2) || "1")}
+              type="number"
+              min="1"
+              className="w-12 bg-transparent text-center font-black text-ink outline-none"
+            />
+          </label>
+        )}
         <input value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} placeholder="訂單備註（選填）" className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2 py-1.5 text-sm font-bold" />
         {!posEnabled && <span className="shrink-0 text-xs font-black text-tomato">POS 暫停</span>}
       </div>
@@ -1232,6 +1603,7 @@ function QuickOrder({ activeCategoryId, categories, checkoutMode, customerNote, 
               {tables.map((table) => {
                 const key = table.tableName;
                 const unpaidCount = tableUnpaidCounts.get(key) ?? 0;
+                const summary = tableUnpaidSummary.get(key);
                 const isOccupied = unpaidCount > 0;
                 const isSelected = tableNo === key;
                 return (
@@ -1258,7 +1630,7 @@ function QuickOrder({ activeCategoryId, categories, checkoutMode, customerNote, 
                   >
                     <p className="truncate">{table.tableName}</p>
                     <p className={"mt-0.5 text-xs font-bold " + (isOccupied ? "text-orange-500" : "text-steel")}>
-                      {isOccupied ? `${unpaidCount} 筆待結帳` : "空桌"}
+                      {isOccupied ? `${unpaidCount} 筆待結帳 · ${summary?.partySize ?? 1}人 · $${summary?.total ?? 0}` : "空桌"}
                     </p>
                   </button>
                 );
@@ -1280,7 +1652,12 @@ function QuickOrder({ activeCategoryId, categories, checkoutMode, customerNote, 
           {products.map((product) => (
             <button key={product.id} disabled={!posEnabled} onClick={() => setChoosingProduct(product)} className="rounded-2xl border border-stone-200 bg-white p-3 text-left transition hover:border-leaf hover:bg-[#fbfff4] disabled:opacity-50">
               <div className="flex items-start gap-3">
-                <img src={product.imageUrl} alt={product.name} className="size-16 rounded-xl object-cover sm:size-20" />
+                <ImageWithFallback
+                  src={product.imageUrl}
+                  alt={product.name}
+                  className="size-16 rounded-xl object-cover sm:size-20"
+                  placeholderClassName="grid size-16 place-items-center rounded-xl bg-stone-100 text-xs font-black text-stone-400 sm:size-20"
+                />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-base font-black sm:text-lg">{product.name}</p>
                   <p className="mt-1 line-clamp-2 text-xs font-bold text-steel">{product.description}</p>
@@ -1733,3 +2110,5 @@ function CartLineCard({ canApplyDiscounts, index, line, removeLine, updateLine }
 function Field({ label, value, onChange, className = "" }: { label: string; value: string; onChange: (value: string) => void; className?: string }) {
   return <label className={"grid gap-1 text-sm font-black text-steel " + className}>{label}<input value={value} onChange={(event) => onChange(event.target.value)} className="rounded-lg border border-orange-200 bg-white px-4 py-3 text-lg font-bold" /></label>;
 }
+
+

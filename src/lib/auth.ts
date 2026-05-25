@@ -161,7 +161,7 @@ async function storeRolesFromBindings(email: string): Promise<Record<string, Sto
       try {
         return await withTimeout(
           getDocs(query(collection(firestore!, collectionName), where("email", "==", normalizedEmail))),
-          10000,
+          3500,
           `Load ${collectionName} bindings`
         );
       } catch (error) {
@@ -185,10 +185,9 @@ async function storeRolesFromBindings(email: string): Promise<Record<string, Sto
 
 async function profileWithFreshStoreBindings(rawProfile: User | null): Promise<User | null> {
   if (!rawProfile?.email) return rawProfile;
-  const bindingRoles = await storeRolesFromBindings(rawProfile.email);
-  const authoritativeRoles = Object.keys(bindingRoles).length > 0
-    ? bindingRoles
-    : { ...legacyRolesFromProfile(rawProfile), ...normalizeMemberships(rawProfile.memberships), ...normalizeMemberships(rawProfile.storeRoles) };
+  const embeddedRoles = { ...legacyRolesFromProfile(rawProfile), ...normalizeMemberships(rawProfile.memberships), ...normalizeMemberships(rawProfile.storeRoles) };
+  const bindingRoles = Object.keys(embeddedRoles).length > 0 ? {} : await storeRolesFromBindings(rawProfile.email);
+  const authoritativeRoles = Object.keys(embeddedRoles).length > 0 ? embeddedRoles : bindingRoles;
   const storeIds = Object.keys(authoritativeRoles);
   const role = rawProfile.role === "systemAdmin"
     ? "systemAdmin"
@@ -318,7 +317,7 @@ async function ensureStagingAdminSeed(uid: string, email: string): Promise<Recor
     temporaryClosed: false,
     temporaryPaused: false,
     allowPosOutsideBusinessHours: true,
-    description: "Staging test store",
+    description: "Staging 測試店家",
     takeoutEnabled: true,
     dineInEnabled: true,
     takeoutOrderingEnabled: true,
@@ -353,46 +352,46 @@ async function ensureStagingAdminSeed(uid: string, email: string): Promise<Recor
   };
 
   const categories = [
-    { id: "staging-cat-burger", name: "Burger", sort: 1 },
-    { id: "staging-cat-toast", name: "Toast", sort: 2 },
-    { id: "staging-cat-eggroll", name: "Egg Roll", sort: 3 },
-    { id: "staging-cat-drink", name: "Drink", sort: 4 },
-    { id: "staging-cat-snack", name: "Snack", sort: 5 },
+    { id: "staging-cat-burger", name: "漢堡", sort: 1 },
+    { id: "staging-cat-toast", name: "吐司", sort: 2 },
+    { id: "staging-cat-eggroll", name: "蛋餅", sort: 3 },
+    { id: "staging-cat-drink", name: "飲料", sort: 4 },
+    { id: "staging-cat-snack", name: "點心", sort: 5 },
   ];
   const flavorGroup = {
     id: "flavor",
-    name: "Flavor",
+    name: "調味",
     required: true,
     minSelect: 1,
     maxSelect: 1,
     type: "single",
     options: [
-      { id: "normal", name: "Normal", priceDelta: 0, isAvailable: true },
-      { id: "less-sauce", name: "Less Sauce", priceDelta: 0, isAvailable: true },
-      { id: "no-onion", name: "No Onion", priceDelta: 0, isAvailable: true },
-      { id: "spicy", name: "Spicy", priceDelta: 0, isAvailable: true },
+      { id: "normal", name: "正常", priceDelta: 0, isAvailable: true },
+      { id: "less-sauce", name: "少醬", priceDelta: 0, isAvailable: true },
+      { id: "no-onion", name: "不加洋蔥", priceDelta: 0, isAvailable: true },
+      { id: "spicy", name: "加辣", priceDelta: 0, isAvailable: true },
     ],
   };
   const addonsGroup = {
     id: "addons",
-    name: "Add-ons",
+    name: "加料",
     required: false,
     minSelect: 0,
     maxSelect: 3,
     type: "multiple",
     options: [
-      { id: "egg", name: "Add Egg", priceDelta: 15, isAvailable: true },
-      { id: "cheese", name: "Add Cheese", priceDelta: 10, isAvailable: true },
-      { id: "hashbrown", name: "Add Hash Brown", priceDelta: 20, isAvailable: true },
+      { id: "egg", name: "加蛋", priceDelta: 15, isAvailable: true },
+      { id: "cheese", name: "加起司", priceDelta: 10, isAvailable: true },
+      { id: "hashbrown", name: "加薯餅", priceDelta: 20, isAvailable: true },
     ],
   };
   const products = [
-    { id: "staging-prod-burger", categoryId: "staging-cat-burger", categoryName: "Burger", name: "Signature Pork Egg Burger", price: 65, cost: 35, sort: 1, optionGroups: [flavorGroup, addonsGroup] },
-    { id: "staging-prod-toast", categoryId: "staging-cat-toast", categoryName: "Toast", name: "Ham Egg Toast", price: 45, cost: 25, sort: 2, optionGroups: [flavorGroup, addonsGroup] },
-    { id: "staging-prod-eggroll", categoryId: "staging-cat-eggroll", categoryName: "Egg Roll", name: "Cheese Egg Roll", price: 40, cost: 20, sort: 3, optionGroups: [flavorGroup, addonsGroup] },
-    { id: "staging-prod-fries", categoryId: "staging-cat-snack", categoryName: "Snack", name: "Fries", price: 45, cost: 20, sort: 4, optionGroups: [] },
-    { id: "staging-prod-tea", categoryId: "staging-cat-drink", categoryName: "Drink", name: "Black Tea", price: 25, cost: 8, sort: 5, optionGroups: [] },
-    { id: "staging-prod-milk-tea", categoryId: "staging-cat-drink", categoryName: "Drink", name: "Milk Tea", price: 30, cost: 10, sort: 6, optionGroups: [] },
+    { id: "staging-prod-burger", categoryId: "staging-cat-burger", categoryName: "漢堡", name: "招牌豬肉蛋堡", price: 65, cost: 35, sort: 1, optionGroups: [flavorGroup, addonsGroup] },
+    { id: "staging-prod-toast", categoryId: "staging-cat-toast", categoryName: "吐司", name: "火腿蛋吐司", price: 45, cost: 25, sort: 2, optionGroups: [flavorGroup, addonsGroup] },
+    { id: "staging-prod-eggroll", categoryId: "staging-cat-eggroll", categoryName: "蛋餅", name: "起司蛋餅", price: 40, cost: 20, sort: 3, optionGroups: [flavorGroup, addonsGroup] },
+    { id: "staging-prod-fries", categoryId: "staging-cat-snack", categoryName: "點心", name: "黃金脆薯", price: 45, cost: 20, sort: 4, optionGroups: [] },
+    { id: "staging-prod-tea", categoryId: "staging-cat-drink", categoryName: "飲料", name: "紅茶", price: 25, cost: 8, sort: 5, optionGroups: [] },
+    { id: "staging-prod-milk-tea", categoryId: "staging-cat-drink", categoryName: "飲料", name: "奶茶", price: 30, cost: 10, sort: 6, optionGroups: [] },
   ];
   const tables = ["A1", "A2", "A3", "B1", "B2", "Takeout"];
 
@@ -412,7 +411,7 @@ async function ensureStagingAdminSeed(uid: string, email: string): Promise<Recor
       setDoc(doc(db, "categories", category.id), { ...category, storeId, isActive: true, createdAt: now, updatedAt: now }, { merge: true }),
     ]),
     ...products.flatMap((product) => {
-      const payload = { ...product, storeId, description: `${product.name} staging test product`, imageUrl: "", isActive: true, isAvailable: true, originalPrice: product.price, discountType: "none", discountValue: 0, scheduledChanges: [], createdAt: now, updatedAt: now };
+      const payload = { ...product, storeId, description: `${product.name} staging 測試商品`, imageUrl: "", isActive: true, isAvailable: true, originalPrice: product.price, discountType: "none", discountValue: 0, scheduledChanges: [], createdAt: now, updatedAt: now };
       return [
         setDoc(doc(db, "stores", storeId, "products", product.id), payload, { merge: true }),
         setDoc(doc(db, "products", product.id), payload, { merge: true }),
@@ -440,26 +439,12 @@ async function ensureFixedAdminUser(uid: string, email: string) {
   authDebug("ensureFixedAdminUser:start", { uid, email });
   const snapshot = await withTimeout(getDocFromServer(userRef), 10000, "Load fixed admin Firestore user profile");
   const existingData = snapshot.exists() ? snapshot.data() : {};
-  const bindingSnapshots = await Promise.all([
-    withTimeout(getDocs(query(collection(firestore, "storeUserBindings"), where("email", "==", email.toLowerCase()))), 10000, "Load fixed admin storeUserBindings"),
-    withTimeout(getDocs(query(collection(firestore, "storeUsers"), where("email", "==", email.toLowerCase()))), 10000, "Load fixed admin storeUsers"),
-    withTimeout(getDocs(query(collection(firestore, "storeMembers"), where("email", "==", email.toLowerCase()))), 10000, "Load fixed admin storeMembers"),
-  ]);
-  const bindingRoles = bindingSnapshots.flatMap((result) => result.docs).reduce<Record<string, StoreMemberRole>>((roles, item) => {
-    const data = item.data();
-    const storeId = typeof data.storeId === "string" ? data.storeId : "";
-    const memberRole = normalizeStoreMemberRole(typeof data.storeRole === "string" ? data.storeRole : data.role);
-    if (storeId && memberRole) {
-      roles[storeId] = memberRole;
-    }
-    return roles;
-  }, {});
   const existingMemberships = normalizeMemberships(existingData.memberships);
   const existingStoreRoles = normalizeMemberships(existingData.storeRoles);
-  let mergedStoreRoles = { ...bindingRoles, ...existingMemberships, ...existingStoreRoles };
+  let mergedStoreRoles = { ...existingMemberships, ...existingStoreRoles };
   if (Object.keys(mergedStoreRoles).length === 0 && isStagingApp()) {
-    const seededRoles = await ensureStagingAdminSeed(uid, email);
-    mergedStoreRoles = { ...mergedStoreRoles, ...seededRoles };
+    mergedStoreRoles = { "staging-breakfast-store": "owner" };
+    ensureStagingAdminSeed(uid, email).catch((seedError) => authWarn("staging background seed failed", seedError));
   }
   const existingStoreIds = Array.isArray(existingData.storeIds) ? existingData.storeIds.filter((item): item is string => typeof item === "string") : [];
   const mergedStoreIds = Array.from(new Set([...existingStoreIds, ...Object.keys(mergedStoreRoles), ...(typeof existingData.storeId === "string" ? [existingData.storeId] : [])]));
@@ -499,11 +484,23 @@ export type AuthState = {
   signOutUser: () => Promise<void>;
 };
 
+let cachedFirebaseUser: FirebaseUser | null = null;
+let cachedProfile: User | null = null;
+let cachedAuthReady = false;
+let cachedAuthError = "";
+
+function cacheAuthState(next: Partial<Pick<AuthState, "firebaseUser" | "profile" | "loading" | "error">>) {
+  if ("firebaseUser" in next) cachedFirebaseUser = next.firebaseUser ?? null;
+  if ("profile" in next) cachedProfile = next.profile ?? null;
+  if ("loading" in next) cachedAuthReady = !next.loading;
+  if ("error" in next) cachedAuthError = next.error ?? "";
+}
+
 export function useAuthState(): AuthState {
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [profile, setProfile] = useState<User | null>(null);
-  const [loading, setLoading] = useState(Boolean(firebaseEnabled));
-  const [error, setError] = useState("");
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(cachedFirebaseUser);
+  const [profile, setProfile] = useState<User | null>(cachedProfile);
+  const [loading, setLoading] = useState(Boolean(firebaseEnabled) && !cachedAuthReady);
+  const [error, setError] = useState(cachedAuthError);
 
   useEffect(() => {
     if (!firebaseEnabled || !auth || !firestore) {
@@ -523,19 +520,32 @@ export function useAuthState(): AuthState {
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!active) return;
       clearTimeout(authInitTimer);
+      const warmProfile = user && cachedProfile?.id === user.uid ? cachedProfile : null;
       setFirebaseUser(user);
-      setProfile(null);
+      cacheAuthState({ firebaseUser: user });
+      setProfile(warmProfile);
+      cacheAuthState({ profile: warmProfile });
       setError("");
+      cacheAuthState({ error: "" });
       unsubscribeProfile?.();
       authDebug("auth state changed", { uid: user?.uid ?? null, email: user?.email ?? null });
 
       if (!user) {
         syncCurrentStoreCache(null);
+        cacheAuthState({ firebaseUser: null, profile: null, loading: false, error: "" });
         setLoading(false);
         return;
       }
 
-      setLoading(true);
+      if (warmProfile) {
+        authDebug("auth warm profile", { uid: user.uid, storeId: warmProfile.storeId, storeIds: accessibleStoreIds(warmProfile) });
+        syncCurrentStoreCache(warmProfile);
+        setLoading(false);
+        cacheAuthState({ loading: false });
+      } else {
+        setLoading(true);
+        cacheAuthState({ loading: true });
+      }
       try {
         await withTimeout(user.getIdToken(true), 10000, "Refresh Firebase ID token");
       } catch (tokenError) {
@@ -545,43 +555,66 @@ export function useAuthState(): AuthState {
       const isFixedAdmin = isPlatformAdminEmail(user.email);
 
       if (isFixedAdmin) {
+        if (warmProfile) {
+          ensureFixedAdminUser(user.uid, user.email ?? platformAdminEmail)
+            .then((fixedAdminProfile) => {
+              cacheAuthState({ profile: fixedAdminProfile, loading: false, error: "" });
+              setProfile(fixedAdminProfile);
+              syncCurrentStoreCache(fixedAdminProfile);
+            })
+            .catch((snapshotError) => authWarn("fixed admin background refresh failed", snapshotError));
+          return;
+        }
         try {
           const fixedAdminProfile = await ensureFixedAdminUser(user.uid, user.email ?? platformAdminEmail);
           if (!active) return;
           authDebug("userProfile", fixedAdminProfile);
           authDebug("activeStore", { storeId: fixedAdminProfile.storeId, storeIds: accessibleStoreIds(fixedAdminProfile) });
           setProfile(fixedAdminProfile);
+          cacheAuthState({ profile: fixedAdminProfile });
           syncCurrentStoreCache(fixedAdminProfile);
           setError("");
+          cacheAuthState({ error: "" });
           setLoading(false);
+          cacheAuthState({ loading: false });
         } catch (snapshotError) {
           if (!active) return;
           authWarn("fixed admin profile failed", snapshotError);
           setError(snapshotError instanceof Error ? snapshotError.message : "Platform admin profile failed");
+          cacheAuthState({ error: snapshotError instanceof Error ? snapshotError.message : "Platform admin profile failed" });
           setLoading(false);
+          cacheAuthState({ loading: false });
         }
         return;
       }
 
-      withTimeout(getDocFromServer(userRef), 10000, "Load Firestore user profile")
-        .then(async (snapshot) => {
-          if (!active) return;
-          const baseProfile = profileFromSnapshot(snapshot) ?? await ensureDefaultProfile(user);
-          const nextProfile = await profileWithFreshStoreBindings(baseProfile);
-          if (!active) return;
-          authDebug("userProfile", nextProfile);
-          authDebug("activeStore", { storeId: nextProfile?.storeId ?? null, storeIds: nextProfile ? accessibleStoreIds(nextProfile) : [] });
-          setProfile(nextProfile);
-          syncCurrentStoreCache(nextProfile);
-          setError(nextProfile?.status === "pending" ? missingProfileMessage(user.uid) : "");
-          setLoading(false);
-        })
-        .catch((snapshotError) => {
-          if (!active) return;
-          authWarn("initial profile load failed", snapshotError);
-          setError(snapshotError instanceof Error ? snapshotError.message : "User profile load failed");
-          setLoading(false);
-        });
+      if (!warmProfile) {
+        withTimeout(getDocFromServer(userRef), 10000, "Load Firestore user profile")
+          .then(async (snapshot) => {
+            if (!active) return;
+            const baseProfile = profileFromSnapshot(snapshot) ?? await ensureDefaultProfile(user);
+            const nextProfile = await profileWithFreshStoreBindings(baseProfile);
+            if (!active) return;
+            authDebug("userProfile", nextProfile);
+            authDebug("activeStore", { storeId: nextProfile?.storeId ?? null, storeIds: nextProfile ? accessibleStoreIds(nextProfile) : [] });
+            setProfile(nextProfile);
+            cacheAuthState({ profile: nextProfile });
+            syncCurrentStoreCache(nextProfile);
+            const nextError = nextProfile?.status === "pending" ? missingProfileMessage(user.uid) : "";
+            setError(nextError);
+            cacheAuthState({ error: nextError });
+            setLoading(false);
+            cacheAuthState({ loading: false });
+          })
+          .catch((snapshotError) => {
+            if (!active) return;
+            authWarn("initial profile load failed", snapshotError);
+            const nextError = snapshotError instanceof Error ? snapshotError.message : "User profile load failed";
+            setError(nextError);
+            cacheAuthState({ error: nextError, loading: false });
+            setLoading(false);
+          });
+      }
 
       unsubscribeProfile = onSnapshot(
         userRef,
@@ -592,14 +625,18 @@ export function useAuthState(): AuthState {
             if (nextProfile) {
               const nextAdminProfile = adminProfile(user.uid, user.email ?? platformAdminEmail, nextProfile as unknown as Record<string, unknown>);
               setProfile(nextAdminProfile);
+              cacheAuthState({ profile: nextAdminProfile });
               syncCurrentStoreCache(nextAdminProfile);
             } else {
               const nextAdminProfile = adminProfile(user.uid, user.email ?? platformAdminEmail);
               setProfile(nextAdminProfile);
+              cacheAuthState({ profile: nextAdminProfile });
               syncCurrentStoreCache(nextAdminProfile);
             }
             setError("");
+            cacheAuthState({ error: "" });
             setLoading(false);
+            cacheAuthState({ loading: false });
             return;
           }
           Promise.resolve(profileFromSnapshot(snapshot) ?? ensureDefaultProfile(user))
@@ -609,22 +646,31 @@ export function useAuthState(): AuthState {
               authDebug("userProfile:snapshot", nextProfile);
               authDebug("activeStore:snapshot", { storeId: nextProfile?.storeId ?? null, storeIds: nextProfile ? accessibleStoreIds(nextProfile) : [] });
               setProfile(nextProfile);
+              cacheAuthState({ profile: nextProfile });
               syncCurrentStoreCache(nextProfile);
-              setError(nextProfile?.status === "pending" ? missingProfileMessage(user.uid) : "");
+              const nextError = nextProfile?.status === "pending" ? missingProfileMessage(user.uid) : "";
+              setError(nextError);
+              cacheAuthState({ error: nextError });
               setLoading(false);
+              cacheAuthState({ loading: false });
             })
             .catch((snapshotError) => {
               if (!active) return;
               authWarn("profile snapshot processing failed", snapshotError);
-              setError(snapshotError instanceof Error ? snapshotError.message : "User profile sync failed");
+              const nextError = snapshotError instanceof Error ? snapshotError.message : "User profile sync failed";
+              setError(nextError);
+              cacheAuthState({ error: nextError });
               setLoading(false);
+              cacheAuthState({ loading: false });
             });
         },
         (snapshotError) => {
           if (!active) return;
           authWarn("profile snapshot listener failed", snapshotError);
           setError(snapshotError.message);
+          cacheAuthState({ error: snapshotError.message });
           setLoading(false);
+          cacheAuthState({ loading: false });
         }
       );
     });
@@ -640,6 +686,7 @@ export function useAuthState(): AuthState {
   async function signIn(email: string, password: string) {
     if (!auth) throw new Error("Firebase Auth is not configured");
     setError("");
+    cacheAuthState({ error: "", loading: true, profile: null, firebaseUser: null });
     clearStoreRuntimeCache();
     const credential = await signInWithEmailAndPassword(auth, email, password);
     await credential.user.getIdToken(true);
@@ -685,6 +732,7 @@ export function useAuthState(): AuthState {
     if (!auth) return;
     clearStoreRuntimeCache();
     await signOut(auth);
+    cacheAuthState({ firebaseUser: null, profile: null, loading: false, error: "" });
     clearStoreRuntimeCache();
   }
 

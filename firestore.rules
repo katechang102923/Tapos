@@ -215,8 +215,12 @@ service cloud.firestore {
             && resource.data.storeId == request.resource.data.storeId
           )
           || (
+            // First-store onboarding: newly registered users (storeId still null)
+            // may elevate their role to owner/manager after creating a store they own.
+            // Accepts "user", "viewer", or "staff" as starting roles because
+            // normalizeUserRole(undefined) returns "staff" for fresh registrations.
             resource.data.storeId == null
-            && resource.data.role == "user"
+            && resource.data.role in ["user", "viewer", "staff"]
             && request.resource.data.storeId is string
             && normalizeStoreRole(request.resource.data.role) in ["owner", "manager", "staff", "viewer"]
             && ownsStoreDoc(request.resource.data.storeId)
@@ -640,12 +644,13 @@ service cloud.firestore {
     match /platformNotifications/{notifId} {
       // Any signed-in user can create a registration notification (needed for onboarding)
       allow create: if signedIn()
-        && request.resource.data.type == "store_registration"
+        && request.resource.data.type in ["new_registration", "store_registration"]
         && request.resource.data.email is string
         && request.resource.data.storeName is string
-        && request.resource.data.contactName is string
-        && request.resource.data.phone is string
-        && request.resource.data.read == false;
+        && (
+          request.resource.data.isRead == false
+          || request.resource.data.read == false
+        );
       // Only the platform admin can read, update (mark-read), or delete
       allow read, update, delete: if isAdmin();
     }

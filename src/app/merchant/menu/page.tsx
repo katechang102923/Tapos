@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { ProductEditorDialog } from "@/components/merchant/product-editor-dialog";
+import { ImageWithFallback } from "@/components/ui/image-with-fallback";
 import { useDemoStore } from "@/lib/demo-store";
 import { buildMenuTemplateProducts, menuTemplateLabel, type MenuTemplateType } from "@/lib/menu-import-templates";
 import { discountLabel, productFinalPrice } from "@/lib/pricing";
@@ -637,7 +638,12 @@ function MerchantMenuWorkspace({
                   }}
                   className="group cursor-pointer rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100 transition hover:-translate-y-1 hover:bg-white hover:shadow-md"
                 >
-                  <img src={product.imageUrl} alt={product.name} className="aspect-[4/3] w-full rounded-xl object-cover" />
+                  <ImageWithFallback
+                    src={product.imageUrl}
+                    alt={product.name}
+                    className="aspect-[4/3] w-full rounded-xl object-cover"
+                    placeholderClassName="grid aspect-[4/3] w-full place-items-center rounded-xl bg-slate-100 text-sm font-black text-slate-400"
+                  />
                   <div className="mt-3 flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate font-black text-slate-950">{product.name}</p>

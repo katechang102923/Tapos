@@ -7,7 +7,7 @@ import { LoginGate } from "@/components/auth/login-gate";
 import { useDemoStore } from "@/lib/demo-store";
 import { normalizeStoreMemberRole } from "@/lib/roles";
 import { SUBSCRIPTION_STATUS_COLORS, SUBSCRIPTION_STATUS_LABELS, addDays, daysUntil, effectiveSubscriptionStatus, formatDate } from "@/lib/subscription";
-import type { BusinessType, PlatformNotification, Store as StoreType, StoreApplication, StoreMemberRole, SubscriptionStatus } from "@/lib/types";
+import type { BusinessType, PlatformNotification, Store as StoreType, StoreMemberRole, SubscriptionStatus } from "@/lib/types";
 
 const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
   breakfast:  "早餐店",
@@ -35,7 +35,7 @@ export default function PlatformPage() {
 function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const {
     db, bindStoreUser, unbindStoreUser, upsertStore, updateStoreSubscription,
-    markNotificationRead, updateStoreApplicationStatus, markRecordsForArchive, softDeleteStore, restoreStore, upsertMemberRules
+    markNotificationRead, markRecordsForArchive, softDeleteStore, restoreStore, upsertMemberRules
   } = useDemoStore({ admin: true });
 
   const [search, setSearch] = useState("");
@@ -85,27 +85,16 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     return db.users.filter((u) => u.storeIds?.includes(storeId) || u.storeId === storeId);
   }
 
-  type RegistrationItem = (PlatformNotification & { source: "notification" }) | (StoreApplication & { source: "application"; read: boolean; applicationId: string });
-
-  const notifications = useMemo<RegistrationItem[]>(() => {
+  const notifications = useMemo<PlatformNotification[]>(() => {
     const q = notifSearch.trim().toLowerCase();
-    const applications = (db.storeApplications ?? []).map((app) => ({
-      ...app,
-      applicationId: app.id,
-      read: !(app.status === "pending" || app.status === "new"),
-      source: "application" as const,
-    }));
-    const applicationStoreIds = new Set(applications.map((app) => app.storeId));
-    const legacyNotifications = (db.platformNotifications ?? [])
-      .filter((notif) => !notif.applicationId && !applicationStoreIds.has(notif.storeId))
-      .map((notif) => ({ ...notif, source: "notification" as const }));
-    return [...applications, ...legacyNotifications]
+    return (db.platformNotifications ?? [])
+      .filter((notif) => notif.type === "new_registration")
       .filter((n) => !q || n.email.toLowerCase().includes(q) || n.storeName.toLowerCase().includes(q))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [db.platformNotifications, db.storeApplications, notifSearch]);
+  }, [db.platformNotifications, notifSearch]);
 
   const unreadCount = useMemo(
-    () => notifications.filter((n) => !n.read).length,
+    () => notifications.filter((n) => !(n.isRead ?? n.read)).length,
     [notifications]
   );
 
@@ -114,15 +103,6 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       await markNotificationRead(notifId);
     } catch {
       setError("標記已讀失敗");
-    }
-  }
-
-  async function handleApplicationStatus(applicationId: string, status: StoreApplication["status"]) {
-    try {
-      await updateStoreApplicationStatus(applicationId, status);
-      setMessage(status === "rejected" ? "註冊申請已拒絕" : "註冊申請狀態已更新");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "更新註冊申請失敗");
     }
   }
 
@@ -513,53 +493,40 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
             </p>
           ) : (
             <div className="space-y-3">
-              {notifications.map((notif) => (
-                <div key={`${notif.source}-${notif.id}`} className={`rounded-lg p-4 ${notif.read ? "bg-white/5" : "border border-amber-500/30 bg-amber-500/10"}`}>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {!notif.read && <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-black text-white">未讀</span>}
-                        <span className="font-black text-white">{notif.storeName}</span>
-                        <span className="rounded bg-white/10 px-2 py-0.5 text-xs font-bold text-white/60">
-                          {BUSINESS_TYPE_LABELS[notif.businessType] ?? notif.businessType}
-                        </span>
+              {notifications.map((notif) => {
+                const isRead = notif.isRead ?? notif.read;
+                return (
+                  <div key={notif.id} className={`rounded-lg p-4 ${isRead ? "bg-white/5" : "border border-amber-500/30 bg-amber-500/10"}`}>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {!isRead && <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-black text-white">未讀</span>}
+                          <span className="font-black text-white">{notif.storeName}</span>
+                          {notif.businessType && (
+                            <span className="rounded bg-white/10 px-2 py-0.5 text-xs font-bold text-white/60">
+                              {BUSINESS_TYPE_LABELS[notif.businessType] ?? notif.businessType}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm font-bold text-white/60">{notif.email}</p>
+                        <p className="text-xs font-bold text-white/30">{new Date(notif.createdAt).toLocaleString("zh-TW")}</p>
                       </div>
-                      <p className="text-sm font-bold text-white/60">
-                        <span className="mr-3">📧 {notif.email}</span>
-                        <span className="mr-3">👤 {notif.contactName}</span>
-                        <span>📞 {notif.phone}</span>
-                      </p>
-                      {notif.address && <p className="text-sm font-bold text-white/40">📍 {notif.address}</p>}
-                      <p className="text-xs font-bold text-white/30">{new Date(notif.createdAt).toLocaleString("zh-TW")}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {notif.source === "application" && (
-                        <span className="rounded bg-white/10 px-3 py-1.5 text-xs font-black text-white/60">
-                          {notif.status}
-                        </span>
-                      )}
-                      {notif.source === "application" && (notif.status === "pending" || notif.status === "new") && (
-                        <>
-                          <button onClick={() => handleApplicationStatus(notif.applicationId, "approved")} className="rounded bg-leaf/20 px-3 py-1.5 text-xs font-black text-leaf hover:bg-leaf/30">
-                            審核通過
+                      <div className="flex flex-wrap gap-2">
+                        {!isRead && (
+                          <button onClick={() => handleMarkRead(notif.id)} className="rounded bg-white/10 px-3 py-1.5 text-xs font-black text-white/70 hover:bg-white/20">
+                            標記已讀
                           </button>
-                          <button onClick={() => handleApplicationStatus(notif.applicationId, "rejected")} className="rounded bg-tomato/20 px-3 py-1.5 text-xs font-black text-tomato hover:bg-tomato/30">
-                            拒絕
-                          </button>
-                        </>
-                      )}
-                      {notif.source === "notification" && !notif.read && (
-                        <button onClick={() => handleMarkRead(notif.id)} className="rounded bg-white/10 px-3 py-1.5 text-xs font-black text-white/70 hover:bg-white/20">
-                          標記已讀
-                        </button>
-                      )}
-                      <Link href={`/merchant/menu?storeId=${notif.storeId}`} className="rounded bg-leaf/20 px-3 py-1.5 text-xs font-black text-leaf hover:bg-leaf/30">
-                        前往店家管理
-                      </Link>
+                        )}
+                        {notif.storeId && (
+                          <Link href={`/merchant/menu?storeId=${notif.storeId}`} className="rounded bg-leaf/20 px-3 py-1.5 text-xs font-black text-leaf hover:bg-leaf/30">
+                            前往店家管理
+                          </Link>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

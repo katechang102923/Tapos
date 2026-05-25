@@ -567,6 +567,8 @@ export type Order = {
   orderType?: OrderMode;
   tableName?: string;
   tableNumber?: string;
+  partySize?: number;
+  guestCount?: number;
   customerNote: string;
   status: OrderStatus;
   source: "qr" | "pos" | "kiosk";
@@ -590,6 +592,10 @@ export type Order = {
   couponId?: string;
   couponTitle?: string;
   couponDiscountAmount?: number;
+  /** Merge fields — set when multiple same-table unpaid orders are combined */
+  mergedInto?: string;        // orderNumber of the primary order (on secondary orders)
+  mergedOrderIds?: string[];  // list of secondary order IDs (on primary order)
+  isMergedChild?: boolean;    // true on secondary orders after merging
   createdBy?: string;
   createdAt: string;
   updatedAt: string;
@@ -672,7 +678,7 @@ export type Promotion = {
 
 export type PlatformNotification = {
   id: string;
-  type: "store_registration";
+  type: "store_registration" | "new_registration";
   applicationId?: string;
   email: string;
   storeId: string;
@@ -684,6 +690,7 @@ export type PlatformNotification = {
   createdAt: string;
   updatedAt?: string;
   read: boolean;
+  isRead?: boolean;
   status?: "new" | "pending" | "approved" | "rejected" | "bound";
 };
 
