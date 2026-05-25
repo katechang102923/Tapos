@@ -87,11 +87,78 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
   const notifications = useMemo<PlatformNotification[]>(() => {
     const q = notifSearch.trim().toLowerCase();
-    return (db.platformNotifications ?? [])
-      .filter((notif) => notif.type === "new_registration")
-      .filter((n) => !q || n.email.toLowerCase().includes(q) || n.storeName.toLowerCase().includes(q))
+
+    // ── Primary: platformNotifications collection ─────────────────────────────
+    const fromNotifs = (db.platformNotifications ?? []).filter(
+      (n) => n.type === "new_registration" || n.type === "store_registration",
+    );
+
+    // Track which emails/uids are already represented to avoid duplicates
+    const coveredEmails = new Set(fromNotifs.map((n) => n.email.toLowerCase()));
+    const coveredUids   = new Set(fromNotifs.map((n) => n.uid).filter(Boolean));
+
+    // ── Fallback A: storeApplications with status pending/new ─────────────────
+    const fromApps = (db.storeApplications ?? [])
+      .filter((app) =>
+        (app.status === "pending" || app.status === "new") &&
+        !coveredEmails.has(app.email.toLowerCase()),
+      )
+      .map((app): PlatformNotification => ({
+        id: app.id,
+        type: "store_registration",
+        applicationId: app.id,
+        uid: app.uid,
+        email: app.email,
+        storeId: app.storeId,
+        storeName: app.storeName,
+        contactName: app.contactName,
+        phone: app.phone,
+        address: app.address,
+        businessType: app.businessType,
+        createdAt: app.createdAt,
+        updatedAt: app.updatedAt,
+        read: false,
+        isRead: false,
+        status: app.status,
+      }));
+
+    // Update covered set with apps
+    fromApps.forEach((a) => {
+      coveredEmails.add(a.email.toLowerCase());
+      if (a.uid) coveredUids.add(a.uid);
+    });
+
+    // ── Fallback B: users with status === "pending" ────────────────────────────
+    // Safety net when both notification collections are empty / permission-denied.
+    const fromUsers = db.users
+      .filter(
+        (u) =>
+          u.status === "pending" &&
+          !coveredEmails.has(u.email.toLowerCase()) &&
+          !coveredUids.has(u.id),
+      )
+      .map((u): PlatformNotification => ({
+        id: u.id,
+        type: "new_registration",
+        uid: u.id,
+        email: u.email,
+        role: u.role,
+        storeName: u.name || "（未填寫）",
+        createdAt: u.createdAt ?? new Date().toISOString(),
+        read: false,
+        isRead: false,
+        status: "pending",
+      }));
+
+    return [...fromNotifs, ...fromApps, ...fromUsers]
+      .filter(
+        (n) =>
+          !q ||
+          n.email.toLowerCase().includes(q) ||
+          (n.storeName ?? "").toLowerCase().includes(q),
+      )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [db.platformNotifications, notifSearch]);
+  }, [db.platformNotifications, db.storeApplications, db.users, notifSearch]);
 
   const unreadCount = useMemo(
     () => notifications.filter((n) => !(n.isRead ?? n.read)).length,
@@ -489,7 +556,7 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           </div>
           {notifications.length === 0 ? (
             <p className="py-6 text-center text-sm font-bold text-white/30">
-              {notifSearch ? "找不到符合的通知" : "尚無新的註冊申請"}
+              {notifSearch ? "找不到符合的通知" : "目前沒有待審核的申請"}
             </p>
           ) : (
             <div className="space-y-3">
@@ -501,7 +568,14 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                       <div className="space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
                           {!isRead && <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-black text-white">未讀</span>}
-                          <span className="font-black text-white">{notif.storeName}</span>
+                          {notif.storeName && (
+                            <span className="font-black text-white">{notif.storeName}</span>
+                          )}
+                          {notif.role && (
+                            <span className="rounded bg-white/10 px-2 py-0.5 text-xs font-bold text-white/50">
+                              {notif.role}
+                            </span>
+                          )}
                           {notif.businessType && (
                             <span className="rounded bg-white/10 px-2 py-0.5 text-xs font-bold text-white/60">
                               {BUSINESS_TYPE_LABELS[notif.businessType] ?? notif.businessType}
