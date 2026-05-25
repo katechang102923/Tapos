@@ -1,53 +1,40 @@
 /**
- * Resolves Firebase config and environment status from build-time env vars.
+ * Firebase config and environment status derived from build-time env vars.
  *
- * Supports two patterns:
- *   1. Scoped vars: NEXT_PUBLIC_FIREBASE_STAGING_* / NEXT_PUBLIC_FIREBASE_PRODUCTION_*
- *      These override the generic vars when the matching NEXT_PUBLIC_APP_ENV is set.
- *   2. Generic vars: NEXT_PUBLIC_FIREBASE_API_KEY, etc.
- *      Used as-is when scoped vars are absent.
+ * IMPORTANT: Next.js only inlines NEXT_PUBLIC_* variables when they are
+ * accessed via static literal strings (e.g. process.env.NEXT_PUBLIC_FOO).
+ * Dynamic / computed property access (process.env[`NEXT_PUBLIC_${key}`])
+ * always returns undefined in the browser bundle, so every read below must
+ * use an explicit static key.
  *
  * Intentionally side-effect-free — importable from both server (layout.tsx)
  * and client code without triggering the Firebase SDK.
  */
 
-const appEnv = (process.env.NEXT_PUBLIC_APP_ENV ?? "production") as string;
+// ── Required fields ───────────────────────────────────────────────────────────
+const apiKey    = process.env.NEXT_PUBLIC_FIREBASE_API_KEY?.trim()    ?? "";
+const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim() ?? "";
 
-function scopedVar(suffix: string): string | undefined {
-  const env = appEnv.toUpperCase(); // "STAGING" | "PRODUCTION"
-  const scoped = process.env[`NEXT_PUBLIC_FIREBASE_${env}_${suffix}`]?.trim();
-  return scoped || process.env[`NEXT_PUBLIC_FIREBASE_${suffix}`]?.trim();
-}
-
-const apiKey             = scopedVar("API_KEY")            ?? "";
-const authDomain         = scopedVar("AUTH_DOMAIN")        ?? "";
-const projectId          = scopedVar("PROJECT_ID")         ?? "";
-const storageBucket      = scopedVar("STORAGE_BUCKET")     ?? "";
-const messagingSenderId  = scopedVar("MESSAGING_SENDER_ID") ?? "";
-const appId              = scopedVar("APP_ID")             ?? "";
-const measurementId      = scopedVar("MEASUREMENT_ID")     ?? "";
+// ── Optional fields ───────────────────────────────────────────────────────────
+const authDomain        = process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN?.trim()         ?? "";
+const storageBucket     = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim()      ?? "";
+const messagingSenderId = process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID?.trim() ?? "";
+const appId             = process.env.NEXT_PUBLIC_FIREBASE_APP_ID?.trim()              ?? "";
+const measurementId     = process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID?.trim()      ?? "";
 
 const missingKeys: string[] = [];
-if (!apiKey)    missingKeys.push("FIREBASE_API_KEY");
-if (!projectId) missingKeys.push("FIREBASE_PROJECT_ID");
+if (!apiKey)    missingKeys.push("NEXT_PUBLIC_FIREBASE_API_KEY");
+if (!projectId) missingKeys.push("NEXT_PUBLIC_FIREBASE_PROJECT_ID");
 
 export const firebaseEnvStatus = {
   /** true when all required Firebase env vars are present */
   ok: missingKeys.length === 0,
   /** Human-readable error when vars are missing; undefined when ok */
   error: missingKeys.length > 0
-    ? `Missing env vars: ${missingKeys.join(", ")} (check .env.local or Vercel environment variables)`
+    ? `Missing env vars: ${missingKeys.join(", ")} — check .env.local or Vercel Environment Variables`
     : undefined,
   /** "staging" | "production" — defaults to "production" when unset */
-  appEnv,
-  /** Resolved Firebase config object — safe to pass to initializeApp() */
-  config: {
-    apiKey,
-    authDomain,
-    projectId,
-    storageBucket,
-    messagingSenderId,
-    appId,
-    measurementId,
-  },
-} as const;
+  appEnv: process.env.NEXT_PUBLIC_APP_ENV ?? "production",
+  /** Resolved Firebase config — safe to pass directly to initializeApp() */
+  config: { apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId, measurementId },
+};
