@@ -653,8 +653,8 @@ service cloud.firestore {
           request.resource.data.isRead == false
           || request.resource.data.read == false
         );
-      // Platform admin has full access (read, mark-read, delete)
-      allow read, update, delete: if isAdmin();
+      // Platform admin has full access (approve/reject creates doc if missing)
+      allow create, read, update, delete: if isAdmin();
     }
 
     match /storeApplications/{applicationId} {

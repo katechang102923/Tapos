@@ -1899,6 +1899,70 @@ export function useDemoStore(options: StoreOptions = {}) {
     }));
   }
 
+  async function approveRegistration(uid: string, storeId: string, role: StoreMemberRole) {
+    const now = new Date().toISOString();
+    if (useFirestore && firestore) {
+      const batch = writeBatch(firestore);
+      batch.update(doc(firestore, "users", uid), {
+        approved: true,
+        status: "active",
+        storeId,
+        storeIds: [storeId],
+        role,
+        memberships: { [storeId]: role },
+        storeRoles: { [storeId]: role },
+        updatedAt: now,
+      });
+      // set+merge so it works even when no platformNotifications doc exists yet (fallback-B users)
+      batch.set(doc(firestore, "platformNotifications", uid), {
+        isRead: true, read: true, status: "approved", reviewedAt: now, updatedAt: now,
+      }, { merge: true });
+      await batch.commit();
+      return;
+    }
+    setDb((current) => ({
+      ...current,
+      users: current.users.map((u) =>
+        u.id === uid
+          ? { ...u, approved: true, status: "active" as const, storeId, storeIds: [storeId], role, memberships: { [storeId]: role }, storeRoles: { [storeId]: role } }
+          : u
+      ),
+      platformNotifications: (current.platformNotifications ?? []).map((n) =>
+        n.id === uid ? { ...n, isRead: true, read: true, status: "approved" as const, reviewedAt: now } : n
+      ),
+    }));
+  }
+
+  async function rejectRegistration(uid: string, reason?: string) {
+    const now = new Date().toISOString();
+    if (useFirestore && firestore) {
+      const batch = writeBatch(firestore);
+      batch.update(doc(firestore, "users", uid), {
+        approved: false,
+        status: "rejected",
+        ...(reason ? { rejectedReason: reason } : {}),
+        updatedAt: now,
+      });
+      batch.set(doc(firestore, "platformNotifications", uid), {
+        isRead: true, read: true, status: "rejected", reviewedAt: now, updatedAt: now,
+        ...(reason ? { rejectedReason: reason } : {}),
+      }, { merge: true });
+      await batch.commit();
+      return;
+    }
+    setDb((current) => ({
+      ...current,
+      users: current.users.map((u) =>
+        u.id === uid
+          ? { ...u, approved: false, status: "rejected" as const, ...(reason ? { rejectedReason: reason } : {}) }
+          : u
+      ),
+      platformNotifications: (current.platformNotifications ?? []).map((n) =>
+        n.id === uid ? { ...n, isRead: true, read: true, status: "rejected" as const, reviewedAt: now } : n
+      ),
+    }));
+  }
+
   async function updateStoreApplicationStatus(applicationId: string, status: StoreApplication["status"]) {
     const updatedAt = new Date().toISOString();
     if (useFirestore && firestore) {
@@ -1965,6 +2029,8 @@ export function useDemoStore(options: StoreOptions = {}) {
     updateUserStoreAccess,
     updateUserGlobalAccess,
     markNotificationRead,
+    approveRegistration,
+    rejectRegistration,
     updateStoreApplicationStatus,
     createCustomer,
     updateCustomer,

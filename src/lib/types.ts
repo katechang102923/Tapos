@@ -264,6 +264,7 @@ export type User = {
   pending?: boolean;
   approved?: boolean;
   status?: "pending" | "active" | "rejected";
+  rejectedReason?: string;
   createdAt?: string;
   updatedAt?: string;
   name: string;
@@ -694,6 +695,8 @@ export type PlatformNotification = {
   read: boolean;
   isRead?: boolean;
   status?: "new" | "pending" | "approved" | "rejected" | "bound";
+  reviewedAt?: string;
+  rejectedReason?: string;
 };
 
 export type StoreApplication = {
