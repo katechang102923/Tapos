@@ -89,33 +89,6 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
     const option = businessTypes.find((b) => b.value === businessType) ?? businessTypes[0];
     const storeType: StoreType = option.storeType;
     const email = profile?.email ?? "";
-
-    // ── Step 0: Write notification FIRST, independently ───────────────────────
-    // Uses uid as the doc ID so retries overwrite instead of creating duplicates.
-    // Wrapped in its own try/catch — a permission error here must NOT abort
-    // the rest of onboarding (store + user update still proceed).
-    try {
-      await setDoc(doc(db, "platformNotifications", uid), {
-        type: "new_registration" as const,
-        uid,
-        email,
-        storeName: storeName.trim(),
-        contactName: contactName.trim(),
-        phone: phone.trim(),
-        address: address.trim() || "",
-        businessType,
-        storeId,
-        createdAt: serverTimestamp(),
-        updatedAt: now,
-        isRead: false,
-        read: false,
-        status: "pending" as const,
-      });
-    } catch (notifErr) {
-      // Log but never block — onboarding must complete even if notification fails
-      console.error("[Onboarding] Step 0 platformNotifications write failed:", notifErr);
-    }
-
     const menu = createDefaultMenu(storeId, storeType);
 
     const store: Store = {
@@ -173,7 +146,26 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
         updatedAt: now,
       });
 
-      // ── Step 4: Seed default menu categories + products ────────────────────
+      // ── Step 4: Write platform notification (after users/{uid} confirmed) ───
+      // Own try/catch so a Firestore-rules miss never blocks the menu seed.
+      try {
+        await setDoc(doc(db, "platformNotifications", uid), {
+          type: "new_registration" as const,
+          uid,
+          email,
+          role: "staff",
+          status: "pending" as const,
+          storeName: storeName.trim() || "未填寫店名",
+          storeId,
+          createdAt: serverTimestamp(),
+          isRead: false,
+          read: false,
+        });
+      } catch (notifErr) {
+        console.error("[Onboarding] platformNotifications write failed:", notifErr);
+      }
+
+      // ── Step 5: Seed default menu categories + products ────────────────────
       await Promise.all([
         ...menu.categories.map((cat) => setDoc(doc(db, "categories", cat.id), cat)),
         ...menu.products.map((prod) => setDoc(doc(db, "products", prod.id), prod)),
