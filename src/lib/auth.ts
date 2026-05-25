@@ -67,9 +67,65 @@ function profileFromSnapshot(snapshot: DocumentSnapshot): User | null {
 }
 
 function missingProfileMessage(uid: string) {
-  return `找不到 Firestore users/${uid} 使用者資料，請先在 users collection 建立該使用者文件。`;
+  return `Missing Firestore users/${uid}. A pending profile was created; please ask the platform admin to bind a store.`;
 }
 
+function authDebug(label: string, payload?: unknown) {
+  if (typeof window === "undefined") return;
+  if (process.env.NODE_ENV === "production" && process.env.NEXT_PUBLIC_APP_ENV !== "staging") return;
+  console.log(`[auth] ${label}`, payload ?? "");
+}
+
+function authWarn(label: string, payload?: unknown) {
+  if (typeof window === "undefined") return;
+  console.warn(`[auth] ${label}`, payload ?? "");
+}
+
+function timeoutError(label: string) {
+  return new Error(`${label} timed out. Please check Firebase project, Firestore rules, and network access.`);
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(timeoutError(label)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+async function ensureDefaultProfile(user: FirebaseUser) {
+  if (!firestore) throw new Error("Firebase is not configured");
+  const now = new Date().toISOString();
+  const email = user.email?.trim().toLowerCase() ?? "";
+  const userRef = doc(firestore, "users", user.uid);
+  authDebug("ensureDefaultProfile:start", { uid: user.uid, email });
+  const snapshot = await withTimeout(getDocFromServer(userRef), 10000, "Load Firestore user profile");
+  if (snapshot.exists()) return profileFromSnapshot(snapshot);
+
+  const profile: User = {
+    id: user.uid,
+    email,
+    name: user.displayName || email || "Pending User",
+    role: "viewer",
+    storeId: null,
+    storeIds: [],
+    memberships: {},
+    storeRoles: {},
+    status: "pending",
+    approved: false,
+    pending: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await withTimeout(setDoc(userRef, profile), 10000, "Create default Firestore user profile");
+  authDebug("ensureDefaultProfile:created", profile);
+  return profile;
+}
 function adminProfile(uid: string, email = platformAdminEmail, data?: Record<string, unknown>): User {
   const now = new Date().toISOString();
   const memberships = normalizeMemberships(data?.memberships);
@@ -98,18 +154,23 @@ async function storeRolesFromBindings(email: string): Promise<Record<string, Sto
   if (!firestore) return {};
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return {};
+  authDebug("storeBindings:query", { email: normalizedEmail });
   const bindingCollections = ["storeUserBindings", "storeUsers", "storeMembers"];
   const bindingSnapshots = (await Promise.all(
     bindingCollections.map(async (collectionName) => {
       try {
-        return await getDocs(query(collection(firestore!, collectionName), where("email", "==", normalizedEmail)));
+        return await withTimeout(
+          getDocs(query(collection(firestore!, collectionName), where("email", "==", normalizedEmail))),
+          10000,
+          `Load ${collectionName} bindings`
+        );
       } catch (error) {
-        console.warn(`load ${collectionName} bindings failed; continuing with other binding sources`, error);
+        authWarn(`load ${collectionName} bindings failed; continuing with other binding sources`, error);
         return null;
       }
     })
   )).filter(Boolean) as Awaited<ReturnType<typeof getDocs>>[];
-  return bindingSnapshots.flatMap((result) => result.docs).reduce<Record<string, StoreMemberRole>>((roles, item) => {
+  const roles = bindingSnapshots.flatMap((result) => result.docs).reduce<Record<string, StoreMemberRole>>((roles, item) => {
     const data = item.data() as Record<string, unknown>;
     const storeId = typeof data.storeId === "string" ? data.storeId : "";
     const memberRole = normalizeStoreMemberRole(typeof data.storeRole === "string" ? data.storeRole : data.role);
@@ -118,6 +179,8 @@ async function storeRolesFromBindings(email: string): Promise<Record<string, Sto
     }
     return roles;
   }, {});
+  authDebug("storeBindings:result", roles);
+  return roles;
 }
 
 async function profileWithFreshStoreBindings(rawProfile: User | null): Promise<User | null> {
@@ -219,14 +282,168 @@ function syncCurrentStoreCache(nextProfile: User | null) {
   }
 }
 
+function isStagingApp() {
+  return process.env.NEXT_PUBLIC_APP_ENV === "staging";
+}
+
+async function ensureStagingAdminSeed(uid: string, email: string): Promise<Record<string, StoreMemberRole>> {
+  if (!firestore || !isStagingApp()) return {};
+  const db = firestore;
+  const now = new Date().toISOString();
+  const storeId = "staging-breakfast-store";
+  const normalizedEmail = email.toLowerCase();
+  authDebug("staging seed:start", { uid, email: normalizedEmail, storeId });
+
+  const storePayload = {
+    id: storeId,
+    name: "Test Store",
+    logoUrl: "",
+    bannerUrl: "",
+    phone: "07-000-0000",
+    address: "Test Address",
+    addressCity: "Kaohsiung",
+    addressDistrict: "Qianzhen",
+    addressDetail: "Test Address",
+    businessHours: "Daily 06:00-14:00",
+    businessSchedule: {
+      mon: { enabled: true, start: "06:00", end: "14:00" },
+      tue: { enabled: true, start: "06:00", end: "14:00" },
+      wed: { enabled: true, start: "06:00", end: "14:00" },
+      thu: { enabled: true, start: "06:00", end: "14:00" },
+      fri: { enabled: true, start: "06:00", end: "14:00" },
+      sat: { enabled: true, start: "06:00", end: "14:00" },
+      sun: { enabled: true, start: "06:00", end: "14:00" },
+    },
+    closedDates: [],
+    temporaryClosed: false,
+    temporaryPaused: false,
+    allowPosOutsideBusinessHours: true,
+    description: "Staging test store",
+    takeoutEnabled: true,
+    dineInEnabled: true,
+    takeoutOrderingEnabled: true,
+    dineInOrderingEnabled: true,
+    posOrderingEnabled: true,
+    checkoutMode: "postpaid",
+    ownerId: uid,
+    storeType: "breakfast",
+    businessType: "breakfast",
+    contactName: "Tapos Admin",
+    isOpen: true,
+    orderStatus: "open",
+    peakMode: false,
+    demoBreakfastMenuImported: true,
+    temporaryNotice: "",
+    notice: "",
+    subscriptionStatus: "trial",
+    subscriptionStartsAt: now,
+    subscriptionEndsAt: "2099-12-31T23:59:59.000Z",
+    features: {
+      kdsEnabled: true,
+      dailyReportEnabled: true,
+      promotionEnabled: true,
+      cashFlowEnabled: true,
+      memberEnabled: true,
+      memberStoredValueEnabled: true,
+    },
+    createdAt: now,
+    status: "active",
+    isDeleted: false,
+    updatedAt: now,
+  };
+
+  const categories = [
+    { id: "staging-cat-burger", name: "Burger", sort: 1 },
+    { id: "staging-cat-toast", name: "Toast", sort: 2 },
+    { id: "staging-cat-eggroll", name: "Egg Roll", sort: 3 },
+    { id: "staging-cat-drink", name: "Drink", sort: 4 },
+    { id: "staging-cat-snack", name: "Snack", sort: 5 },
+  ];
+  const flavorGroup = {
+    id: "flavor",
+    name: "Flavor",
+    required: true,
+    minSelect: 1,
+    maxSelect: 1,
+    type: "single",
+    options: [
+      { id: "normal", name: "Normal", priceDelta: 0, isAvailable: true },
+      { id: "less-sauce", name: "Less Sauce", priceDelta: 0, isAvailable: true },
+      { id: "no-onion", name: "No Onion", priceDelta: 0, isAvailable: true },
+      { id: "spicy", name: "Spicy", priceDelta: 0, isAvailable: true },
+    ],
+  };
+  const addonsGroup = {
+    id: "addons",
+    name: "Add-ons",
+    required: false,
+    minSelect: 0,
+    maxSelect: 3,
+    type: "multiple",
+    options: [
+      { id: "egg", name: "Add Egg", priceDelta: 15, isAvailable: true },
+      { id: "cheese", name: "Add Cheese", priceDelta: 10, isAvailable: true },
+      { id: "hashbrown", name: "Add Hash Brown", priceDelta: 20, isAvailable: true },
+    ],
+  };
+  const products = [
+    { id: "staging-prod-burger", categoryId: "staging-cat-burger", categoryName: "Burger", name: "Signature Pork Egg Burger", price: 65, cost: 35, sort: 1, optionGroups: [flavorGroup, addonsGroup] },
+    { id: "staging-prod-toast", categoryId: "staging-cat-toast", categoryName: "Toast", name: "Ham Egg Toast", price: 45, cost: 25, sort: 2, optionGroups: [flavorGroup, addonsGroup] },
+    { id: "staging-prod-eggroll", categoryId: "staging-cat-eggroll", categoryName: "Egg Roll", name: "Cheese Egg Roll", price: 40, cost: 20, sort: 3, optionGroups: [flavorGroup, addonsGroup] },
+    { id: "staging-prod-fries", categoryId: "staging-cat-snack", categoryName: "Snack", name: "Fries", price: 45, cost: 20, sort: 4, optionGroups: [] },
+    { id: "staging-prod-tea", categoryId: "staging-cat-drink", categoryName: "Drink", name: "Black Tea", price: 25, cost: 8, sort: 5, optionGroups: [] },
+    { id: "staging-prod-milk-tea", categoryId: "staging-cat-drink", categoryName: "Drink", name: "Milk Tea", price: 30, cost: 10, sort: 6, optionGroups: [] },
+  ];
+  const tables = ["A1", "A2", "A3", "B1", "B2", "Takeout"];
+
+  await withTimeout(Promise.all([
+    setDoc(doc(db, "stores", storeId), storePayload, { merge: true }),
+    setDoc(doc(db, "storeUsers", `${storeId}_${uid}`), { id: `${storeId}_${uid}`, userId: uid, uid, email: normalizedEmail, storeId, role: "owner", storeRole: "owner", status: "active", approved: true, createdAt: now, updatedAt: now }, { merge: true }),
+    setDoc(doc(db, "storeUserBindings", `${storeId}_${uid}`), { id: `${storeId}_${uid}`, userId: uid, uid, email: normalizedEmail, storeId, role: "owner", storeRole: "owner", status: "active", approved: true, createdAt: now, updatedAt: now }, { merge: true }),
+    setDoc(doc(db, "storeMembers", `${storeId}_${uid}`), { id: `${storeId}_${uid}`, userId: uid, uid, email: normalizedEmail, storeId, role: "owner", storeRole: "owner", status: "active", approved: true, createdAt: now, updatedAt: now }, { merge: true }),
+    setDoc(doc(db, "roles", "systemAdmin"), { id: "systemAdmin", name: "System Admin", permissions: ["*"], updatedAt: now }, { merge: true }),
+    setDoc(doc(db, "roles", "owner"), { id: "owner", name: "Owner", permissions: ["store:*"], updatedAt: now }, { merge: true }),
+    setDoc(doc(db, "permissions", "default"), { id: "default", updatedAt: now }, { merge: true }),
+    setDoc(doc(db, "counters", "orderNumbers"), { qr: 1, pos: 1, kiosk: 1 }, { merge: true }),
+    setDoc(doc(db, "stores", storeId, "settings", "memberRules"), { enablePoints: true, earnAmount: 100, earnPoints: 1, pointValue: 1, enableCouponExchange: true, birthdayRewardEnabled: false, birthdayRewardPoints: 0, updatedAt: now }, { merge: true }),
+    setDoc(doc(db, "stores", storeId, "settings", "storeSettings"), { storeId, kdsEnabled: true, dailyReportEnabled: true, cashFlowEnabled: true, memberEnabled: true, memberStoredValueEnabled: true, promotionEnabled: true, updatedAt: now }, { merge: true }),
+    ...categories.flatMap((category) => [
+      setDoc(doc(db, "stores", storeId, "categories", category.id), { ...category, storeId, isActive: true, createdAt: now, updatedAt: now }, { merge: true }),
+      setDoc(doc(db, "categories", category.id), { ...category, storeId, isActive: true, createdAt: now, updatedAt: now }, { merge: true }),
+    ]),
+    ...products.flatMap((product) => {
+      const payload = { ...product, storeId, description: `${product.name} staging test product`, imageUrl: "", isActive: true, isAvailable: true, originalPrice: product.price, discountType: "none", discountValue: 0, scheduledChanges: [], createdAt: now, updatedAt: now };
+      return [
+        setDoc(doc(db, "stores", storeId, "products", product.id), payload, { merge: true }),
+        setDoc(doc(db, "products", product.id), payload, { merge: true }),
+      ];
+    }),
+    ...tables.map((tableName, index) => setDoc(doc(db, "stores", storeId, "tables", `staging-table-${index + 1}`), {
+      id: `staging-table-${index + 1}`,
+      storeId,
+      tableName,
+      area: tableName === "Takeout" ? "Takeout" : tableName.replace(/\d+/g, ""),
+      number: index + 1,
+      enabled: true,
+      qrUrl: `/order/${storeId}?type=${tableName === "Takeout" ? "takeout" : `dineIn&table=${encodeURIComponent(tableName)}`}`,
+      createdAt: now,
+      updatedAt: now,
+    }, { merge: true })),
+  ]), 15000, "Create staging default store data");
+
+  authDebug("staging seed:done", { storeId });
+  return { [storeId]: "owner" };
+}
 async function ensureFixedAdminUser(uid: string, email: string) {
-  if (!firestore) throw new Error("Firebase 尚未設定");
+  if (!firestore) throw new Error("Firebase is not configured");
   const userRef = doc(firestore, "users", uid);
-  const snapshot = await getDocFromServer(userRef);
+  authDebug("ensureFixedAdminUser:start", { uid, email });
+  const snapshot = await withTimeout(getDocFromServer(userRef), 10000, "Load fixed admin Firestore user profile");
   const existingData = snapshot.exists() ? snapshot.data() : {};
   const bindingSnapshots = await Promise.all([
-    getDocs(query(collection(firestore, "storeUserBindings"), where("email", "==", email.toLowerCase()))),
-    getDocs(query(collection(firestore, "storeUsers"), where("email", "==", email.toLowerCase())))
+    withTimeout(getDocs(query(collection(firestore, "storeUserBindings"), where("email", "==", email.toLowerCase()))), 10000, "Load fixed admin storeUserBindings"),
+    withTimeout(getDocs(query(collection(firestore, "storeUsers"), where("email", "==", email.toLowerCase()))), 10000, "Load fixed admin storeUsers"),
+    withTimeout(getDocs(query(collection(firestore, "storeMembers"), where("email", "==", email.toLowerCase()))), 10000, "Load fixed admin storeMembers"),
   ]);
   const bindingRoles = bindingSnapshots.flatMap((result) => result.docs).reduce<Record<string, StoreMemberRole>>((roles, item) => {
     const data = item.data();
@@ -239,7 +456,11 @@ async function ensureFixedAdminUser(uid: string, email: string) {
   }, {});
   const existingMemberships = normalizeMemberships(existingData.memberships);
   const existingStoreRoles = normalizeMemberships(existingData.storeRoles);
-  const mergedStoreRoles = { ...bindingRoles, ...existingMemberships, ...existingStoreRoles };
+  let mergedStoreRoles = { ...bindingRoles, ...existingMemberships, ...existingStoreRoles };
+  if (Object.keys(mergedStoreRoles).length === 0 && isStagingApp()) {
+    const seededRoles = await ensureStagingAdminSeed(uid, email);
+    mergedStoreRoles = { ...mergedStoreRoles, ...seededRoles };
+  }
   const existingStoreIds = Array.isArray(existingData.storeIds) ? existingData.storeIds.filter((item): item is string => typeof item === "string") : [];
   const mergedStoreIds = Array.from(new Set([...existingStoreIds, ...Object.keys(mergedStoreRoles), ...(typeof existingData.storeId === "string" ? [existingData.storeId] : [])]));
   const profile = adminProfile(uid, email, {
@@ -249,7 +470,7 @@ async function ensureFixedAdminUser(uid: string, email: string) {
     memberships: mergedStoreRoles,
     storeRoles: mergedStoreRoles
   });
-  await setDoc(userRef, {
+  await withTimeout(setDoc(userRef, {
     id: uid,
     email,
     name: profile.name,
@@ -263,10 +484,10 @@ async function ensureFixedAdminUser(uid: string, email: string) {
     pending: false,
     createdAt: profile.createdAt,
     updatedAt: profile.updatedAt
-  }, { merge: true });
+  }, { merge: true }), 10000, "Upsert fixed admin Firestore user profile");
+  authDebug("ensureFixedAdminUser:done", profile);
   return profile;
 }
-
 export type AuthState = {
   firebaseUser: FirebaseUser | null;
   profile: User | null;
@@ -291,14 +512,22 @@ export function useAuthState(): AuthState {
     }
     const db = firestore;
     let active = true;
+    const authInitTimer = setTimeout(() => {
+      if (!active) return;
+      authWarn("loading timeout", { reason: "onAuthStateChanged did not resolve within 15 seconds" });
+      setError("Login loading timed out. Please check Firebase config, network access, and Firestore rules.");
+      setLoading(false);
+    }, 15000);
 
     let unsubscribeProfile: (() => void) | null = null;
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!active) return;
+      clearTimeout(authInitTimer);
       setFirebaseUser(user);
       setProfile(null);
       setError("");
       unsubscribeProfile?.();
+      authDebug("auth state changed", { uid: user?.uid ?? null, email: user?.email ?? null });
 
       if (!user) {
         syncCurrentStoreCache(null);
@@ -308,43 +537,49 @@ export function useAuthState(): AuthState {
 
       setLoading(true);
       try {
-        await user.getIdToken(true);
+        await withTimeout(user.getIdToken(true), 10000, "Refresh Firebase ID token");
       } catch (tokenError) {
-        console.warn("refresh Firebase token failed", tokenError);
+        authWarn("refresh Firebase token failed", tokenError);
       }
       const userRef = doc(db, "users", user.uid);
       const isFixedAdmin = isPlatformAdminEmail(user.email);
 
       if (isFixedAdmin) {
-        ensureFixedAdminUser(user.uid, user.email ?? platformAdminEmail)
-          .then((fixedAdminProfile) => {
-            if (!active) return;
-            setProfile(fixedAdminProfile);
-            syncCurrentStoreCache(fixedAdminProfile);
-            setError("");
-            setLoading(false);
-          })
-          .catch((snapshotError) => {
-            if (!active) return;
-            setError(snapshotError.message);
-            setLoading(false);
-          });
+        try {
+          const fixedAdminProfile = await ensureFixedAdminUser(user.uid, user.email ?? platformAdminEmail);
+          if (!active) return;
+          authDebug("userProfile", fixedAdminProfile);
+          authDebug("activeStore", { storeId: fixedAdminProfile.storeId, storeIds: accessibleStoreIds(fixedAdminProfile) });
+          setProfile(fixedAdminProfile);
+          syncCurrentStoreCache(fixedAdminProfile);
+          setError("");
+          setLoading(false);
+        } catch (snapshotError) {
+          if (!active) return;
+          authWarn("fixed admin profile failed", snapshotError);
+          setError(snapshotError instanceof Error ? snapshotError.message : "Platform admin profile failed");
+          setLoading(false);
+        }
+        return;
       }
 
-      getDocFromServer(userRef)
+      withTimeout(getDocFromServer(userRef), 10000, "Load Firestore user profile")
         .then(async (snapshot) => {
           if (!active) return;
-          if (isFixedAdmin) return;
-          const nextProfile = await profileWithFreshStoreBindings(profileFromSnapshot(snapshot));
+          const baseProfile = profileFromSnapshot(snapshot) ?? await ensureDefaultProfile(user);
+          const nextProfile = await profileWithFreshStoreBindings(baseProfile);
           if (!active) return;
+          authDebug("userProfile", nextProfile);
+          authDebug("activeStore", { storeId: nextProfile?.storeId ?? null, storeIds: nextProfile ? accessibleStoreIds(nextProfile) : [] });
           setProfile(nextProfile);
           syncCurrentStoreCache(nextProfile);
-          setError(nextProfile ? "" : missingProfileMessage(user.uid));
+          setError(nextProfile?.status === "pending" ? missingProfileMessage(user.uid) : "");
           setLoading(false);
         })
         .catch((snapshotError) => {
           if (!active) return;
-          setError(snapshotError.message);
+          authWarn("initial profile load failed", snapshotError);
+          setError(snapshotError instanceof Error ? snapshotError.message : "User profile load failed");
           setLoading(false);
         });
 
@@ -367,22 +602,27 @@ export function useAuthState(): AuthState {
             setLoading(false);
             return;
           }
-          profileWithFreshStoreBindings(profileFromSnapshot(snapshot))
+          Promise.resolve(profileFromSnapshot(snapshot) ?? ensureDefaultProfile(user))
+            .then((baseProfile) => profileWithFreshStoreBindings(baseProfile))
             .then((nextProfile) => {
               if (!active) return;
+              authDebug("userProfile:snapshot", nextProfile);
+              authDebug("activeStore:snapshot", { storeId: nextProfile?.storeId ?? null, storeIds: nextProfile ? accessibleStoreIds(nextProfile) : [] });
               setProfile(nextProfile);
               syncCurrentStoreCache(nextProfile);
-              setError(nextProfile ? "" : missingProfileMessage(user.uid));
+              setError(nextProfile?.status === "pending" ? missingProfileMessage(user.uid) : "");
               setLoading(false);
             })
             .catch((snapshotError) => {
               if (!active) return;
-              setError(snapshotError.message);
+              authWarn("profile snapshot processing failed", snapshotError);
+              setError(snapshotError instanceof Error ? snapshotError.message : "User profile sync failed");
               setLoading(false);
             });
         },
         (snapshotError) => {
           if (!active) return;
+          authWarn("profile snapshot listener failed", snapshotError);
           setError(snapshotError.message);
           setLoading(false);
         }
@@ -391,13 +631,14 @@ export function useAuthState(): AuthState {
 
     return () => {
       active = false;
+      clearTimeout(authInitTimer);
       unsubscribeProfile?.();
       unsubscribeAuth();
     };
   }, []);
 
   async function signIn(email: string, password: string) {
-    if (!auth) throw new Error("Firebase Auth 尚未設定");
+    if (!auth) throw new Error("Firebase Auth is not configured");
     setError("");
     clearStoreRuntimeCache();
     const credential = await signInWithEmailAndPassword(auth, email, password);
@@ -405,7 +646,7 @@ export function useAuthState(): AuthState {
   }
 
   async function registerOwner(email: string, password: string, name: string) {
-    if (!auth || !firestore) throw new Error("Firebase 尚未設定");
+    if (!auth || !firestore) throw new Error("Firebase is not configured");
     const credential = await createUserWithEmailAndPassword(auth, email, password);
     const pendingSnapshot = await getDocs(query(collection(firestore, "users"), where("email", "==", email), where("pending", "==", true)));
     const pendingData = pendingSnapshot.docs[0]?.data();
@@ -436,7 +677,7 @@ export function useAuthState(): AuthState {
   }
 
   async function resetPassword(email: string) {
-    if (!auth) throw new Error("Firebase Auth 尚未設定");
+    if (!auth) throw new Error("Firebase Auth is not configured");
     await sendPasswordResetEmail(auth, email);
   }
 
