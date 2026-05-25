@@ -5,6 +5,7 @@ import Link from "next/link";
 import { collection, doc, getDocs, limit, onSnapshot, query as firestoreQuery, setDoc, updateDoc, where } from "firebase/firestore";
 import { CheckCircle2, ChevronLeft, Megaphone, Minus, Plus, Search, Send, ShoppingCart, UserPlus } from "lucide-react";
 import { ProductOptionModal } from "@/components/product-option-modal";
+import { ImageWithFallback } from "@/components/ui/image-with-fallback";
 import { useDemoStore } from "@/lib/demo-store";
 import { firebaseEnabled, firestore } from "@/lib/firebase";
 import { discountLabel, productFinalPrice, productIsAvailable } from "@/lib/pricing";
@@ -552,7 +553,12 @@ export function OrderPageClient({ storeId, tableId, orderType }: { storeId: stri
                   return (
                     <article key={product.id} className={`overflow-hidden rounded-lg border bg-white shadow-sm transition ${disabled ? "border-stone-200 opacity-60 grayscale" : "border-orange-100"}`}>
                       <div className="relative">
-                        <img src={product.imageUrl} alt={product.name} className="aspect-[4/3] w-full object-cover" />
+                        <ImageWithFallback
+                          src={product.imageUrl}
+                          alt={product.name}
+                          className="aspect-[4/3] w-full object-cover"
+                          placeholderClassName="grid aspect-[4/3] w-full place-items-center bg-stone-100 text-sm font-black text-stone-400"
+                        />
                         {product.isSoldOut && <div className="absolute inset-0 grid place-items-center bg-black/55"><span className="rounded-lg bg-white px-4 py-2 text-sm font-black text-ink sm:px-5 sm:py-3 sm:text-lg">售完</span></div>}
                       </div>
                       <div className="p-3 sm:p-4">
