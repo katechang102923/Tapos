@@ -108,7 +108,6 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
 
     const menu = createDefaultMenu(storeId, storeType);
 
-    // 寫入平台通知（無 undefined，選填欄位用空字串）
     const applicationRef = doc(collection(db, "storeApplications"));
     const application = {
       id: applicationRef.id,
@@ -145,22 +144,48 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
     };
 
     try {
+      // ── Step 1: Create the store document ──────────────────────────────────
       await setDoc(doc(db, "stores", storeId), store);
+
+      // ── Step 2: Write notification + application NOW, before the user-profile
+      // update.  These writes only require signedIn() so they succeed even if
+      // the profile-update rule below fails.  We fire both in parallel and
+      // log (but do NOT throw) on failure so onboarding always completes.
+      await Promise.allSettled([
+        setDoc(notifRef, notification).catch((notifErr: unknown) => {
+          console.error("[Onboarding] platformNotifications write failed:", notifErr);
+        }),
+        setDoc(applicationRef, application).catch((appErr: unknown) => {
+          console.error("[Onboarding] storeApplications write failed:", appErr);
+        }),
+      ]);
+
+      // ── Step 3: Elevate the owner's profile (requires Firestore rule fix) ──
       await updateDoc(doc(db, "users", uid), {
         storeId,
         storeIds: [storeId],
         memberships: { [storeId]: "owner" },
+        storeRoles: { [storeId]: "owner" },
         role: "owner",
+        approved: true,
+        status: "active",
+        updatedAt: now,
       });
-      await setDoc(notifRef, notification);
-      await setDoc(applicationRef, application);
+
+      // ── Step 4: Seed default menu categories + products ────────────────────
       await Promise.all([
         ...menu.categories.map((cat) => setDoc(doc(db, "categories", cat.id), cat)),
         ...menu.products.map((prod) => setDoc(doc(db, "products", prod.id), prod)),
       ]);
+
       router.push("/merchant");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "建立失敗，請再試一次");
+      console.error("[Onboarding] createStore failed:", err);
+      const msg = err instanceof Error ? err.message : "建立失敗，請再試一次";
+      const isPermission = /permission|PERMISSION_DENIED|insufficient/i.test(msg);
+      setError(isPermission
+        ? "建立失敗：權限不足，請確認 Firestore 規則已正確部署，或聯絡平台管理員。"
+        : msg);
       setLoading(false);
     }
   }
