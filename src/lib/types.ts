@@ -680,6 +680,7 @@ export type PlatformNotification = {
   id: string;
   type: "store_registration" | "new_registration";
   applicationId?: string;
+  uid?: string;
   email: string;
   storeId: string;
   storeName: string;

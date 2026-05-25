@@ -87,11 +87,39 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
   const notifications = useMemo<PlatformNotification[]>(() => {
     const q = notifSearch.trim().toLowerCase();
-    return (db.platformNotifications ?? [])
-      .filter((notif) => notif.type === "new_registration")
+
+    // Primary source: platformNotifications collection
+    const fromNotifs = (db.platformNotifications ?? []).filter(
+      (n) => n.type === "new_registration" || n.type === "store_registration",
+    );
+
+    // Fallback: storeApplications not already covered by a notification (dedup by storeId)
+    const notifStoreIds = new Set(fromNotifs.map((n) => n.storeId).filter(Boolean));
+    const fromApps = (db.storeApplications ?? [])
+      .filter((app) => (app.status === "pending" || app.status === "new") && !notifStoreIds.has(app.storeId))
+      .map((app): PlatformNotification => ({
+        id: app.id,
+        type: "store_registration",
+        applicationId: app.id,
+        uid: app.uid,
+        email: app.email,
+        storeId: app.storeId,
+        storeName: app.storeName,
+        contactName: app.contactName,
+        phone: app.phone,
+        address: app.address,
+        businessType: app.businessType,
+        createdAt: app.createdAt,
+        updatedAt: app.updatedAt,
+        read: false,
+        isRead: false,
+        status: app.status,
+      }));
+
+    return [...fromNotifs, ...fromApps]
       .filter((n) => !q || n.email.toLowerCase().includes(q) || n.storeName.toLowerCase().includes(q))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [db.platformNotifications, notifSearch]);
+  }, [db.platformNotifications, db.storeApplications, notifSearch]);
 
   const unreadCount = useMemo(
     () => notifications.filter((n) => !(n.isRead ?? n.read)).length,

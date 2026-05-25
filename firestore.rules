@@ -642,8 +642,10 @@ service cloud.firestore {
     }
 
     match /platformNotifications/{notifId} {
-      // Any signed-in user can create a registration notification (needed for onboarding)
-      allow create: if signedIn()
+      // Signed-in users can create OR overwrite their own registration notification
+      // (using uid as docId makes retry idempotent — needs both create + update)
+      allow create, update: if signedIn()
+        && notifId == request.auth.uid
         && request.resource.data.type in ["new_registration", "store_registration"]
         && request.resource.data.email is string
         && request.resource.data.storeName is string
@@ -651,7 +653,7 @@ service cloud.firestore {
           request.resource.data.isRead == false
           || request.resource.data.read == false
         );
-      // Only the platform admin can read, update (mark-read), or delete
+      // Platform admin has full access (read, mark-read, delete)
       allow read, update, delete: if isAdmin();
     }
 
