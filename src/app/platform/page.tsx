@@ -35,12 +35,27 @@ export default function PlatformPage() {
 function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const {
     db, bindStoreUser, unbindStoreUser, upsertStore, updateStoreSubscription,
-    markNotificationRead, markRecordsForArchive, softDeleteStore, restoreStore, upsertMemberRules
+    markNotificationRead, approveRegistration, rejectRegistration,
+    markRecordsForArchive, softDeleteStore, restoreStore, upsertMemberRules
   } = useDemoStore({ admin: true });
 
   const [search, setSearch] = useState("");
   const [showDeleted, setShowDeleted] = useState(false);
   const [notifSearch, setNotifSearch] = useState("");
+  const [notifFilter, setNotifFilter] = useState<"pending" | "approved" | "rejected" | "all">("pending");
+  // ── Approve modal ──
+  const [approveTarget, setApproveTarget] = useState<PlatformNotification | null>(null);
+  const [approveStoreId, setApproveStoreId] = useState("");
+  const [approveRole, setApproveRole] = useState<StoreMemberRole>("staff");
+  // ── Reject modal ──
+  const [rejectTarget, setRejectTarget] = useState<PlatformNotification | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  // ── View/edit modal ──
+  const [viewTarget, setViewTarget] = useState<PlatformNotification | null>(null);
+  const [viewStoreId, setViewStoreId] = useState("");
+  const [viewRole, setViewRole] = useState<StoreMemberRole>("staff");
+  // ── Shared reviewing lock ──
+  const [reviewing, setReviewing] = useState(false);
   const [bindingEmail, setBindingEmail] = useState<Record<string, string>>({});
   const [bindingRole, setBindingRole] = useState<Record<string, StoreMemberRole>>({});
   const [message, setMessage] = useState("");
@@ -85,24 +100,181 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     return db.users.filter((u) => u.storeIds?.includes(storeId) || u.storeId === storeId);
   }
 
-  const notifications = useMemo<PlatformNotification[]>(() => {
+  // ── Merge all three notification sources (search applied here) ───────────────
+  const allNotifications = useMemo<PlatformNotification[]>(() => {
     const q = notifSearch.trim().toLowerCase();
-    return (db.platformNotifications ?? [])
-      .filter((notif) => notif.type === "new_registration")
-      .filter((n) => !q || n.email.toLowerCase().includes(q) || n.storeName.toLowerCase().includes(q))
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [db.platformNotifications, notifSearch]);
 
+    // Primary: platformNotifications collection
+    const fromNotifs = (db.platformNotifications ?? []).filter(
+      (n) => n.type === "new_registration" || n.type === "store_registration",
+    );
+
+    // Dedup tracking
+    const coveredEmails = new Set(fromNotifs.map((n) => n.email.toLowerCase()));
+    const coveredUids   = new Set(fromNotifs.map((n) => n.uid).filter(Boolean));
+
+    // Fallback A: storeApplications pending/new
+    const fromApps = (db.storeApplications ?? [])
+      .filter((app) =>
+        (app.status === "pending" || app.status === "new") &&
+        !coveredEmails.has(app.email.toLowerCase()),
+      )
+      .map((app): PlatformNotification => ({
+        id: app.id,
+        type: "store_registration",
+        applicationId: app.id,
+        uid: app.uid,
+        email: app.email,
+        storeId: app.storeId,
+        storeName: app.storeName,
+        contactName: app.contactName,
+        phone: app.phone,
+        address: app.address,
+        businessType: app.businessType,
+        createdAt: app.createdAt,
+        updatedAt: app.updatedAt,
+        read: false,
+        isRead: false,
+        status: app.status,
+      }));
+
+    fromApps.forEach((a) => {
+      coveredEmails.add(a.email.toLowerCase());
+      if (a.uid) coveredUids.add(a.uid);
+    });
+
+    // Fallback B: users with status === "pending" (works even if both collections empty)
+    const fromUsers = db.users
+      .filter(
+        (u) =>
+          u.status === "pending" &&
+          !coveredEmails.has(u.email.toLowerCase()) &&
+          !coveredUids.has(u.id),
+      )
+      .map((u): PlatformNotification => ({
+        id: u.id,
+        type: "new_registration",
+        uid: u.id,
+        email: u.email,
+        role: u.role,
+        storeName: u.name || "（未填寫）",
+        createdAt: u.createdAt ?? new Date().toISOString(),
+        read: false,
+        isRead: false,
+        status: "pending",
+      }));
+
+    return [...fromNotifs, ...fromApps, ...fromUsers]
+      .filter(
+        (n) =>
+          !q ||
+          n.email.toLowerCase().includes(q) ||
+          (n.storeName ?? "").toLowerCase().includes(q),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [db.platformNotifications, db.storeApplications, db.users, notifSearch]);
+
+  // ── Apply status filter ───────────────────────────────────────────────────
+  const notifications = useMemo(() => {
+    if (notifFilter === "all") return allNotifications;
+    if (notifFilter === "pending")
+      return allNotifications.filter(
+        (n) => n.status === "pending" || !n.status || !(n.isRead ?? n.read),
+      );
+    return allNotifications.filter((n) => n.status === notifFilter);
+  }, [allNotifications, notifFilter]);
+
+  // Unread badge counts from full list (unaffected by active filter)
   const unreadCount = useMemo(
-    () => notifications.filter((n) => !(n.isRead ?? n.read)).length,
-    [notifications]
+    () => allNotifications.filter((n) => !(n.isRead ?? n.read)).length,
+    [allNotifications],
   );
+  const pendingCount  = useMemo(
+    () => allNotifications.filter((n) => n.status === "pending" || (!n.status && !(n.isRead ?? n.read))).length,
+    [allNotifications],
+  );
+  const approvedCount = useMemo(() => allNotifications.filter((n) => n.status === "approved").length, [allNotifications]);
+  const rejectedCount = useMemo(() => allNotifications.filter((n) => n.status === "rejected").length, [allNotifications]);
 
   async function handleMarkRead(notifId: string) {
     try {
       await markNotificationRead(notifId);
     } catch {
       setError("標記已讀失敗");
+    }
+  }
+
+  // ── Approve modal helpers ─────────────────────────────────────────────────
+  function openApprove(notif: PlatformNotification) {
+    setApproveStoreId(notif.storeId ?? "");
+    setApproveRole("staff");
+    setApproveTarget(notif);
+  }
+
+  async function handleApprove() {
+    if (!approveTarget || !approveStoreId) return;
+    setReviewing(true);
+    setError("");
+    try {
+      const uid = approveTarget.uid ?? approveTarget.id;
+      await approveRegistration(uid, approveStoreId, approveRole);
+      const storeName = activeStores.find((s) => s.id === approveStoreId)?.name ?? approveStoreId;
+      setMessage(`已核准 ${approveTarget.email}，綁定至「${storeName}」`);
+      setApproveTarget(null);
+      setApproveStoreId("");
+      setApproveRole("staff");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "核准失敗");
+    } finally {
+      setReviewing(false);
+    }
+  }
+
+  // ── Reject modal helpers ──────────────────────────────────────────────────
+  function openReject(notif: PlatformNotification) {
+    setRejectReason("");
+    setRejectTarget(notif);
+  }
+
+  async function handleReject() {
+    if (!rejectTarget) return;
+    setReviewing(true);
+    setError("");
+    try {
+      const uid = rejectTarget.uid ?? rejectTarget.id;
+      await rejectRegistration(uid, rejectReason || undefined);
+      setMessage(`已拒絕 ${rejectTarget.email}`);
+      setRejectTarget(null);
+      setRejectReason("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "拒絕失敗");
+    } finally {
+      setReviewing(false);
+    }
+  }
+
+  // ── View/edit modal helpers ───────────────────────────────────────────────
+  function openView(notif: PlatformNotification) {
+    const user = db.users.find((u) => u.id === (notif.uid ?? notif.id));
+    setViewStoreId(user?.storeId ?? "");
+    setViewRole(normalizeStoreMemberRole(user?.role) ?? "staff");
+    setViewTarget(notif);
+  }
+
+  async function handleViewSave() {
+    if (!viewTarget || !viewStoreId) return;
+    setReviewing(true);
+    setError("");
+    try {
+      const uid = viewTarget.uid ?? viewTarget.id;
+      await approveRegistration(uid, viewStoreId, viewRole);
+      const storeName = activeStores.find((s) => s.id === viewStoreId)?.name ?? viewStoreId;
+      setMessage(`已更新 ${viewTarget.email} — 綁定至「${storeName}」`);
+      setViewTarget(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "更新失敗");
+    } finally {
+      setReviewing(false);
     }
   }
 
@@ -469,6 +641,7 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
         {/* New registration notifications */}
         <section className="mb-6 rounded-lg bg-[#1a1a1a] p-5">
+          {/* Header row */}
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <Bell className="size-5 text-white/60" />
@@ -487,21 +660,64 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               />
             </div>
           </div>
+
+          {/* Filter tabs */}
+          <div className="mb-4 flex flex-wrap gap-2">
+            {([
+              { key: "pending",  label: "待審核",  count: pendingCount },
+              { key: "approved", label: "已核准",  count: approvedCount },
+              { key: "rejected", label: "已拒絕",  count: rejectedCount },
+              { key: "all",      label: "全部",    count: allNotifications.length },
+            ] as const).map(({ key, label, count }) => (
+              <button
+                key={key}
+                onClick={() => setNotifFilter(key)}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-black transition ${
+                  notifFilter === key ? "bg-white text-black" : "bg-white/10 text-white/60 hover:bg-white/20"
+                }`}
+              >
+                {label}
+                <span className={`rounded-full px-1.5 py-0.5 text-xs ${notifFilter === key ? "bg-black/10 text-black" : "bg-white/10 text-white/40"}`}>
+                  {count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {/* Notification list */}
           {notifications.length === 0 ? (
             <p className="py-6 text-center text-sm font-bold text-white/30">
-              {notifSearch ? "找不到符合的通知" : "尚無新的註冊申請"}
+              {notifSearch ? "找不到符合的通知" : "目前沒有此狀態的申請"}
             </p>
           ) : (
             <div className="space-y-3">
               {notifications.map((notif) => {
-                const isRead = notif.isRead ?? notif.read;
+                const isPending = notif.status === "pending" || !notif.status || !(notif.isRead ?? notif.read);
+                const isApproved = notif.status === "approved";
+                const isRejected = notif.status === "rejected";
                 return (
-                  <div key={notif.id} className={`rounded-lg p-4 ${isRead ? "bg-white/5" : "border border-amber-500/30 bg-amber-500/10"}`}>
+                  <div
+                    key={notif.id}
+                    className={`rounded-lg p-4 ${
+                      isApproved ? "bg-leaf/5 ring-1 ring-leaf/20" :
+                      isRejected ? "bg-tomato/5 ring-1 ring-tomato/20" :
+                      isPending  ? "border border-amber-500/30 bg-amber-500/10" :
+                      "bg-white/5"
+                    }`}
+                  >
                     <div className="flex flex-wrap items-start justify-between gap-3">
+                      {/* Left: info */}
                       <div className="space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          {!isRead && <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-black text-white">未讀</span>}
-                          <span className="font-black text-white">{notif.storeName}</span>
+                          {isPending  && <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-black text-white">待審核</span>}
+                          {isApproved && <span className="rounded-full bg-leaf/30 px-2 py-0.5 text-xs font-black text-leaf">已核准</span>}
+                          {isRejected && <span className="rounded-full bg-tomato/30 px-2 py-0.5 text-xs font-black text-tomato">已拒絕</span>}
+                          {notif.storeName && (
+                            <span className="font-black text-white">{notif.storeName}</span>
+                          )}
+                          {notif.role && (
+                            <span className="rounded bg-white/10 px-2 py-0.5 text-xs font-bold text-white/50">{notif.role}</span>
+                          )}
                           {notif.businessType && (
                             <span className="rounded bg-white/10 px-2 py-0.5 text-xs font-bold text-white/60">
                               {BUSINESS_TYPE_LABELS[notif.businessType] ?? notif.businessType}
@@ -509,17 +725,41 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                           )}
                         </div>
                         <p className="text-sm font-bold text-white/60">{notif.email}</p>
+                        {notif.rejectedReason && (
+                          <p className="text-xs font-bold text-tomato/70">拒絕原因：{notif.rejectedReason}</p>
+                        )}
                         <p className="text-xs font-bold text-white/30">{new Date(notif.createdAt).toLocaleString("zh-TW")}</p>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        {!isRead && (
-                          <button onClick={() => handleMarkRead(notif.id)} className="rounded bg-white/10 px-3 py-1.5 text-xs font-black text-white/70 hover:bg-white/20">
-                            標記已讀
-                          </button>
+                      {/* Right: actions */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {isPending && (
+                          <>
+                            <button
+                              onClick={() => openApprove(notif)}
+                              className="rounded bg-leaf px-3 py-1.5 text-xs font-black text-white hover:bg-leaf/80"
+                            >
+                              核准
+                            </button>
+                            <button
+                              onClick={() => openReject(notif)}
+                              className="rounded bg-tomato/20 px-3 py-1.5 text-xs font-black text-tomato hover:bg-tomato/30"
+                            >
+                              拒絕
+                            </button>
+                          </>
                         )}
+                        <button
+                          onClick={() => openView(notif)}
+                          className="rounded bg-white/10 px-3 py-1.5 text-xs font-black text-white/70 hover:bg-white/20"
+                        >
+                          查看
+                        </button>
                         {notif.storeId && (
-                          <Link href={`/merchant/menu?storeId=${notif.storeId}`} className="rounded bg-leaf/20 px-3 py-1.5 text-xs font-black text-leaf hover:bg-leaf/30">
-                            前往店家管理
+                          <Link
+                            href={`/merchant/menu?storeId=${notif.storeId}`}
+                            className="rounded bg-white/10 px-3 py-1.5 text-xs font-black text-white/50 hover:bg-white/20"
+                          >
+                            前往店家
                           </Link>
                         )}
                       </div>
@@ -817,6 +1057,182 @@ function PlatformContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           })}
         </div>
       </div>
+
+      {/* ── Approve modal ──────────────────────────────────────────────────── */}
+      {approveTarget && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-xl bg-[#1a1a1a] p-6 shadow-2xl">
+            <div className="mb-5">
+              <h2 className="text-xl font-black text-white">核准申請</h2>
+              <p className="mt-1 text-sm font-bold text-white/50">{approveTarget.email}</p>
+            </div>
+            <div className="mb-5 grid gap-4">
+              <label className="grid gap-1.5 text-xs font-black text-white/50">
+                綁定店家 <span className="text-tomato">*</span>
+                <select
+                  value={approveStoreId}
+                  onChange={(e) => setApproveStoreId(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-[#111] px-3 py-2.5 text-sm font-bold text-white"
+                >
+                  <option value="">請選擇店家...</option>
+                  {activeStores.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1.5 text-xs font-black text-white/50">
+                指派角色 <span className="text-tomato">*</span>
+                <select
+                  value={approveRole}
+                  onChange={(e) => setApproveRole(e.target.value as StoreMemberRole)}
+                  className="rounded-lg border border-white/10 bg-[#111] px-3 py-2.5 text-sm font-bold text-white"
+                >
+                  {roleMemberRoles.map((r) => (
+                    <option key={r} value={r}>{STORE_ROLE_LABELS[r]}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {!approveStoreId && (
+              <p className="mb-4 text-xs font-bold text-amber-400">⚠ 請先選擇店家才能核准</p>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setApproveTarget(null)}
+                className="flex-1 rounded-lg bg-white/10 px-4 py-3 font-black text-white/70 hover:bg-white/20"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleApprove}
+                disabled={!approveStoreId || reviewing}
+                className="flex-1 rounded-lg bg-leaf px-4 py-3 font-black text-white disabled:opacity-40"
+              >
+                {reviewing ? "核准中..." : "確認核准"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Reject modal ───────────────────────────────────────────────────── */}
+      {rejectTarget && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-xl bg-[#1a1a1a] p-6 shadow-2xl">
+            <div className="mb-5">
+              <h2 className="text-xl font-black text-white">拒絕申請</h2>
+              <p className="mt-1 text-sm font-bold text-white/50">{rejectTarget.email}</p>
+            </div>
+            <div className="mb-5">
+              <label className="grid gap-2 text-xs font-black text-white/50">
+                拒絕原因（建議填寫）
+                <textarea
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="例如：資料不完整，請重新申請"
+                  rows={3}
+                  className="resize-none rounded-lg border border-white/10 bg-[#111] px-3 py-2.5 text-sm font-bold text-white/80 placeholder:text-white/25 focus:outline-none"
+                />
+              </label>
+              {!rejectReason && (
+                <p className="mt-2 text-xs text-white/30">未填寫原因，使用者不會收到說明，但仍可拒絕。</p>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setRejectTarget(null)}
+                className="flex-1 rounded-lg bg-white/10 px-4 py-3 font-black text-white/70 hover:bg-white/20"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleReject}
+                disabled={reviewing}
+                className="flex-1 rounded-lg bg-tomato px-4 py-3 font-black text-white disabled:opacity-40"
+              >
+                {reviewing ? "處理中..." : "確認拒絕"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── View / edit modal ──────────────────────────────────────────────── */}
+      {viewTarget && (() => {
+        const viewUser = db.users.find((u) => u.id === (viewTarget.uid ?? viewTarget.id));
+        return (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
+            <div className="w-full max-w-md rounded-xl bg-[#1a1a1a] p-6 shadow-2xl">
+              <h2 className="mb-5 text-xl font-black text-white">查看 / 編輯帳號</h2>
+
+              {/* User details */}
+              <div className="mb-5 space-y-2 rounded-lg bg-white/5 p-4 text-sm">
+                {[
+                  { label: "Email",    value: viewTarget.email },
+                  { label: "姓名",     value: viewUser?.name || "—" },
+                  { label: "目前角色", value: viewUser?.role || "—" },
+                  { label: "帳號狀態", value: viewUser?.status || "—" },
+                  { label: "申請時間", value: viewUser?.createdAt ? new Date(viewUser.createdAt).toLocaleString("zh-TW") : "—" },
+                ].map(({ label, value }) => (
+                  <div key={label} className="flex items-center justify-between gap-2">
+                    <span className="font-black text-white/40">{label}</span>
+                    <span className="font-bold text-white/80">{value}</span>
+                  </div>
+                ))}
+                {viewTarget.rejectedReason && (
+                  <div className="mt-1 rounded bg-tomato/10 px-3 py-2 text-xs font-bold text-tomato/80">
+                    拒絕原因：{viewTarget.rejectedReason}
+                  </div>
+                )}
+              </div>
+
+              {/* Edit store binding */}
+              <div className="mb-5 grid gap-3">
+                <p className="text-xs font-black text-white/40">修改店家綁定</p>
+                <select
+                  value={viewStoreId}
+                  onChange={(e) => setViewStoreId(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-[#111] px-3 py-2.5 text-sm font-bold text-white"
+                >
+                  <option value="">不變更 / 不綁定</option>
+                  {activeStores.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                {viewStoreId && (
+                  <select
+                    value={viewRole}
+                    onChange={(e) => setViewRole(e.target.value as StoreMemberRole)}
+                    className="rounded-lg border border-white/10 bg-[#111] px-3 py-2.5 text-sm font-bold text-white"
+                  >
+                    {roleMemberRoles.map((r) => (
+                      <option key={r} value={r}>{STORE_ROLE_LABELS[r]}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setViewTarget(null)}
+                  className="flex-1 rounded-lg bg-white/10 px-4 py-3 font-black text-white/70 hover:bg-white/20"
+                >
+                  關閉
+                </button>
+                {viewStoreId && (
+                  <button
+                    onClick={handleViewSave}
+                    disabled={reviewing}
+                    className="flex-1 rounded-lg bg-leaf px-4 py-3 font-black text-white disabled:opacity-40"
+                  >
+                    {reviewing ? "儲存中..." : "儲存修改"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Delete confirmation modal */}
       {deleteConfirm && (

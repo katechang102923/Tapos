@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { collection, doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { ArrowRight, ImagePlus, QrCode } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { firestore } from "@/lib/firebase";
@@ -88,6 +88,8 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
     const storeId = `store-${uid.slice(0, 8)}-${Date.now().toString(36)}`;
     const option = businessTypes.find((b) => b.value === businessType) ?? businessTypes[0];
     const storeType: StoreType = option.storeType;
+    const email = profile?.email ?? "";
+    const menu = createDefaultMenu(storeId, storeType);
 
     const store: Store = {
       id: storeId,
@@ -106,14 +108,12 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
       createdAt: now,
     };
 
-    const menu = createDefaultMenu(storeId, storeType);
-
-    const applicationRef = doc(collection(db, "storeApplications"));
+    const applicationRef = doc(db, "storeApplications", uid);
     const application = {
-      id: applicationRef.id,
+      id: uid,
       type: "store_registration" as const,
       status: "pending" as const,
-      email: profile?.email ?? "",
+      email,
       uid,
       storeId,
       storeName: storeName.trim(),
@@ -124,43 +124,17 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
       createdAt: now,
       updatedAt: now,
     };
-    const notifRef = doc(collection(db, "platformNotifications"));
-    const notification = {
-      id: notifRef.id,
-      type: "new_registration" as const,
-      applicationId: applicationRef.id,
-      email: profile?.email ?? "",
-      storeId,
-      storeName: storeName.trim(),
-      contactName: contactName.trim(),
-      phone: phone.trim(),
-      address: address.trim() || "",
-      businessType,
-      createdAt: serverTimestamp(),
-      updatedAt: now,
-      isRead: false,
-      read: false,
-      status: "new" as const,
-    };
 
     try {
       // ── Step 1: Create the store document ──────────────────────────────────
       await setDoc(doc(db, "stores", storeId), store);
 
-      // ── Step 2: Write notification + application NOW, before the user-profile
-      // update.  These writes only require signedIn() so they succeed even if
-      // the profile-update rule below fails.  We fire both in parallel and
-      // log (but do NOT throw) on failure so onboarding always completes.
-      await Promise.allSettled([
-        setDoc(notifRef, notification).catch((notifErr: unknown) => {
-          console.error("[Onboarding] platformNotifications write failed:", notifErr);
-        }),
-        setDoc(applicationRef, application).catch((appErr: unknown) => {
-          console.error("[Onboarding] storeApplications write failed:", appErr);
-        }),
-      ]);
+      // ── Step 2: Write storeApplication (resilient, non-blocking on failure) ─
+      setDoc(applicationRef, application).catch((appErr: unknown) => {
+        console.error("[Onboarding] storeApplications write failed:", appErr);
+      });
 
-      // ── Step 3: Elevate the owner's profile (requires Firestore rule fix) ──
+      // ── Step 3: Elevate the owner's profile ────────────────────────────────
       await updateDoc(doc(db, "users", uid), {
         storeId,
         storeIds: [storeId],
@@ -172,7 +146,26 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
         updatedAt: now,
       });
 
-      // ── Step 4: Seed default menu categories + products ────────────────────
+      // ── Step 4: Write platform notification (after users/{uid} confirmed) ───
+      // Own try/catch so a Firestore-rules miss never blocks the menu seed.
+      try {
+        await setDoc(doc(db, "platformNotifications", uid), {
+          type: "new_registration" as const,
+          uid,
+          email,
+          role: "staff",
+          status: "pending" as const,
+          storeName: storeName.trim() || "未填寫店名",
+          storeId,
+          createdAt: serverTimestamp(),
+          isRead: false,
+          read: false,
+        });
+      } catch (notifErr) {
+        console.error("[Onboarding] platformNotifications write failed:", notifErr);
+      }
+
+      // ── Step 5: Seed default menu categories + products ────────────────────
       await Promise.all([
         ...menu.categories.map((cat) => setDoc(doc(db, "categories", cat.id), cat)),
         ...menu.products.map((prod) => setDoc(doc(db, "products", prod.id), prod)),

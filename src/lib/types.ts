@@ -264,6 +264,7 @@ export type User = {
   pending?: boolean;
   approved?: boolean;
   status?: "pending" | "active" | "rejected";
+  rejectedReason?: string;
   createdAt?: string;
   updatedAt?: string;
   name: string;
@@ -680,18 +681,22 @@ export type PlatformNotification = {
   id: string;
   type: "store_registration" | "new_registration";
   applicationId?: string;
+  uid?: string;
   email: string;
-  storeId: string;
-  storeName: string;
-  contactName: string;
-  phone: string;
-  address: string;
-  businessType: BusinessType;
+  role?: UserRole;
+  storeId?: string;
+  storeName?: string;
+  contactName?: string;
+  phone?: string;
+  address?: string;
+  businessType?: BusinessType;
   createdAt: string;
   updatedAt?: string;
   read: boolean;
   isRead?: boolean;
   status?: "new" | "pending" | "approved" | "rejected" | "bound";
+  reviewedAt?: string;
+  rejectedReason?: string;
 };
 
 export type StoreApplication = {
