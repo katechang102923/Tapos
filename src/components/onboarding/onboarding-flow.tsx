@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { collection, doc, setDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { ArrowRight, ImagePlus, QrCode } from "lucide-react";
 import { LoginGate } from "@/components/auth/login-gate";
 import { firestore } from "@/lib/firebase";
@@ -128,7 +128,7 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
     const notifRef = doc(collection(db, "platformNotifications"));
     const notification = {
       id: notifRef.id,
-      type: "store_registration" as const,
+      type: "new_registration" as const,
       applicationId: applicationRef.id,
       email: profile?.email ?? "",
       storeId,
@@ -137,8 +137,9 @@ function OnboardingContent({ uid, profile }: { uid: string; profile: User | null
       phone: phone.trim(),
       address: address.trim() || "",
       businessType,
-      createdAt: now,
+      createdAt: serverTimestamp(),
       updatedAt: now,
+      isRead: false,
       read: false,
       status: "new" as const,
     };

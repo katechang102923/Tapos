@@ -640,12 +640,13 @@ service cloud.firestore {
     match /platformNotifications/{notifId} {
       // Any signed-in user can create a registration notification (needed for onboarding)
       allow create: if signedIn()
-        && request.resource.data.type == "store_registration"
+        && request.resource.data.type in ["new_registration", "store_registration"]
         && request.resource.data.email is string
         && request.resource.data.storeName is string
-        && request.resource.data.contactName is string
-        && request.resource.data.phone is string
-        && request.resource.data.read == false;
+        && (
+          request.resource.data.isRead == false
+          || request.resource.data.read == false
+        );
       // Only the platform admin can read, update (mark-read), or delete
       allow read, update, delete: if isAdmin();
     }

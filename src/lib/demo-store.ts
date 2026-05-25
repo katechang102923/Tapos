@@ -38,6 +38,23 @@ type StoreOptions = {
   todayOrdersOnly?: boolean; // Only query today's orders from Firestore (for POS/KDS optimization)
 };
 
+const firestoreDbCache = new Map<string, DemoDatabase>();
+
+function emptyDatabase(): DemoDatabase {
+  return { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [], promotions: [], platformNotifications: [], storeApplications: [], customers: [], pointLogs: [], storedValueLogs: [], rewardCoupons: [], memberCoupons: [], sharedOptionGroups: [] };
+}
+
+function storeCacheKey(options: StoreOptions) {
+  return [
+    options.admin ? "admin" : "store",
+    options.storeId ?? "all",
+    options.customerSessionId ?? "staff",
+    options.skipOrderList ? "skipOrders" : "orders",
+    options.loadCustomers ? "customers" : "noCustomers",
+    options.todayOrdersOnly ? "today" : "allDays",
+  ].join(":");
+}
+
 function loadLocalData(): DemoDatabase {
   if (typeof window === "undefined") return initialData;
   const raw = window.localStorage.getItem(storageKey);
@@ -76,6 +93,14 @@ function orderDayKey(value = new Date()) {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function firestoreDateToIso(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "toDate" in value && typeof (value as { toDate?: unknown }).toDate === "function") {
+    return ((value as { toDate: () => Date }).toDate()).toISOString();
+  }
+  return new Date().toISOString();
 }
 
 function formatOrderNumber(source: "qr" | "pos" | "kiosk", sequence: number) {
@@ -261,8 +286,10 @@ function todayStartIso(): string {
 
 export function useDemoStore(options: StoreOptions = {}) {
   const { storeId, admin = false, customerSessionId, skipOrderList = false, loadCustomers = false, todayOrdersOnly = false } = options;
-  const [db, setDb] = useState<DemoDatabase>(initialData);
-  const [ready, setReady] = useState(false);
+  const cacheKey = storeCacheKey(options);
+  const cachedDb = firestoreDbCache.get(cacheKey);
+  const [db, setDb] = useState<DemoDatabase>(cachedDb ?? initialData);
+  const [ready, setReady] = useState(Boolean(cachedDb));
   const [error, setError] = useState("");
   const useFirestore = firebaseEnabled && Boolean(firestore);
 
@@ -283,10 +310,12 @@ export function useDemoStore(options: StoreOptions = {}) {
       };
     }
 
-    setReady(false);
-    const next: DemoDatabase = { stores: [], users: [], categories: [], products: [], orders: [], cashFlows: [], cashFlowItems: [], devices: [], tables: [], promotions: [], platformNotifications: [], storeApplications: [], customers: [], pointLogs: [], storedValueLogs: [], rewardCoupons: [], memberCoupons: [], sharedOptionGroups: [] };
+    if (!firestoreDbCache.has(cacheKey)) setReady(false);
+    const next: DemoDatabase = firestoreDbCache.get(cacheKey) ?? emptyDatabase();
     const commit = () => {
-      setDb({ ...next });
+      const snapshot = { ...next };
+      firestoreDbCache.set(cacheKey, snapshot);
+      setDb(snapshot);
       setReady(true);
     };
     const handleError = (snapshotError: Error) => {
@@ -370,7 +399,18 @@ export function useDemoStore(options: StoreOptions = {}) {
       ? onSnapshot(
           collection(firestore, "platformNotifications"),
           (snapshot) => {
-            next.platformNotifications = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as PlatformNotification);
+            next.platformNotifications = snapshot.docs.map((item) => {
+              const data = item.data();
+              const isRead = typeof data.isRead === "boolean" ? data.isRead : Boolean(data.read);
+              return {
+                id: item.id,
+                ...data,
+                createdAt: firestoreDateToIso(data.createdAt),
+                updatedAt: data.updatedAt ? firestoreDateToIso(data.updatedAt) : undefined,
+                read: isRead,
+                isRead,
+              } as PlatformNotification;
+            });
             commit();
           },
           () => undefined // silently ignore permission errors for non-admins
@@ -443,7 +483,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       unsubStoredValueLogs();
       unsubSharedOptionGroups();
     };
-  }, [admin, customerSessionId, loadCustomers, skipOrderList, storeId, todayOrdersOnly, useFirestore]);
+  }, [admin, cacheKey, customerSessionId, loadCustomers, skipOrderList, storeId, todayOrdersOnly, useFirestore]);
 
   useEffect(() => {
     if (!ready || useFirestore) return;
@@ -696,6 +736,110 @@ export function useDemoStore(options: StoreOptions = {}) {
       ...current,
       orders: current.orders.map((order) => order.id === orderId ? { ...order, ...patch } : order)
     }));
+  }
+
+  async function mergeOrders(primaryOrderId: string, secondaryOrderIds: string[]) {
+    const updatedAt = new Date().toISOString();
+    const allOrders = db.orders;
+    const primaryOrder = allOrders.find((o) => o.id === primaryOrderId);
+    if (!primaryOrder) { setError("找不到主單，無法合併"); return; }
+    const secondaryOrders = secondaryOrderIds
+      .map((id) => allOrders.find((o) => o.id === id))
+      .filter((o): o is import("./types").Order => Boolean(o));
+    if (secondaryOrders.length === 0) return;
+
+    // Guard: same tableNo, all unpaid, not cancelled, not already a merged child
+    const invalid = secondaryOrders.filter(
+      (o) => o.tableNo !== primaryOrder.tableNo || o.paymentStatus === "paid" || o.status === "cancelled" || o.isMergedChild
+    );
+    if (invalid.length > 0) { setError("部分訂單不符合合併條件（已結帳、已取消、不同桌或已為子單）"); return; }
+
+    // Merge: append secondary items to primary, re-assign orderId
+    const mergedItems = [
+      ...primaryOrder.items,
+      ...secondaryOrders.flatMap((o) => o.items.map((item) => ({ ...item, orderId: primaryOrderId })))
+    ];
+    const newTotal = mergedItems.reduce((sum, item) => sum + (item.unitPrice ?? 0) * (item.quantity ?? 1), 0);
+
+    const primaryPatch = {
+      items: mergedItems,
+      total: newTotal,
+      totalAmount: newTotal,
+      mergedOrderIds: [...(primaryOrder.mergedOrderIds ?? []), ...secondaryOrderIds],
+      updatedAt,
+    };
+    const childPatch = { isMergedChild: true as const, mergedInto: primaryOrder.orderNumber, updatedAt };
+
+    // Optimistic local update first
+    setDb((current) => ({
+      ...current,
+      orders: current.orders.map((o) => {
+        if (o.id === primaryOrderId) return { ...o, ...primaryPatch };
+        if (secondaryOrderIds.includes(o.id)) return { ...o, ...childPatch };
+        return o;
+      }),
+    }));
+
+    if (useFirestore && firestore) {
+      const fs = firestore;
+      const targetStoreId = primaryOrder.storeId ?? storeId;
+      const batch = writeBatch(fs);
+      batch.update(doc(fs, "stores", targetStoreId, "orders", primaryOrderId), primaryPatch);
+      secondaryOrders.forEach((o) => {
+        batch.update(doc(fs, "stores", o.storeId ?? targetStoreId, "orders", o.id), childPatch);
+      });
+      await batch.commit().catch((e: Error) => {
+        console.error("[DemoStore] mergeOrders failed", e);
+        setError(e.message);
+      });
+    }
+  }
+
+  async function appendOrderItems(orderId: string, newItems: import("./types").OrderItem[], addedTotal: number) {
+    const updatedAt = new Date().toISOString();
+    const order = db.orders.find((o) => o.id === orderId);
+    if (!order) { setError("找不到訂單，無法加點"); return; }
+
+    const allItems = [
+      ...order.items,
+      ...newItems.map((item) => ({ ...item, id: item.id || newId("oi"), orderId })),
+    ];
+    const newTotal = (order.total ?? 0) + addedTotal;
+    const patch = { items: allItems, total: newTotal, totalAmount: newTotal, updatedAt };
+
+    setDb((current) => ({
+      ...current,
+      orders: current.orders.map((o) => (o.id === orderId ? { ...o, ...patch } : o)),
+    }));
+
+    if (useFirestore && firestore) {
+      const targetStoreId = order.storeId ?? storeId;
+      updateDoc(doc(firestore, "stores", targetStoreId, "orders", orderId), patch).catch((e: Error) => {
+        console.error("[DemoStore] appendOrderItems failed", e);
+        setError(e.message);
+      });
+    }
+  }
+
+  async function updateOrderPartySize(orderId: string, partySize: number) {
+    const normalizedPartySize = Math.max(1, Math.floor(Number(partySize) || 1));
+    const updatedAt = new Date().toISOString();
+    const order = db.orders.find((o) => o.id === orderId);
+    if (!order) { setError("找不到訂單，無法更新人數"); return; }
+    const patch = { partySize: normalizedPartySize, guestCount: normalizedPartySize, updatedAt };
+
+    setDb((current) => ({
+      ...current,
+      orders: current.orders.map((o) => (o.id === orderId ? { ...o, ...patch } : o)),
+    }));
+
+    if (useFirestore && firestore) {
+      const targetStoreId = order.storeId ?? storeId;
+      await updateDoc(doc(firestore, "stores", targetStoreId, "orders", orderId), patch).catch((e: Error) => {
+        console.error("[DemoStore] updateOrderPartySize failed", e);
+        setError(e.message);
+      });
+    }
   }
 
   function rejectOrder(orderId: string, rejectReason: string) {
@@ -1206,7 +1350,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     const count = Math.min(3, Math.max(1, Math.floor(Math.random() * 4)));
     const selected = [...availableProducts].sort(() => Math.random() - 0.5).slice(0, count);
     const mode = Math.random() > 0.35 ? "dine-in" : "takeout";
-    const tableNo = mode === "takeout" ? "憭葆" : String(Math.floor(Math.random() * 12) + 1);
+    const tableNo = mode === "takeout" ? "外帶" : String(Math.floor(Math.random() * 12) + 1);
     const items = selected.map((product) => {
       const quantity = Math.floor(Math.random() * 2) + 1;
       return {
@@ -1222,7 +1366,7 @@ export function useDemoStore(options: StoreOptions = {}) {
         discountValue: Number(product.discountValue ?? 0),
         finalPrice: productFinalPrice(product),
         selectedOptions: optionDefaults(product),
-        note: Math.random() > 0.7 ? "撠" : ""
+        note: Math.random() > 0.7 ? "少醬" : ""
       };
     });
     const total = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
@@ -1231,7 +1375,7 @@ export function useDemoStore(options: StoreOptions = {}) {
       storeId: targetStoreId,
       mode,
       tableNo,
-      customerNote: Math.random() > 0.65 ? "頞???雓?" : "",
+      customerNote: Math.random() > 0.65 ? "餐點完成請通知" : "",
       total,
       items
     });
@@ -1740,7 +1884,7 @@ export function useDemoStore(options: StoreOptions = {}) {
   async function markNotificationRead(notifId: string) {
     if (useFirestore && firestore) {
       try {
-        await updateDoc(doc(firestore, "platformNotifications", notifId), { read: true });
+        await updateDoc(doc(firestore, "platformNotifications", notifId), { isRead: true, read: true, updatedAt: new Date().toISOString() });
       } catch (writeError) {
         setError(writeError instanceof Error ? writeError.message : "markNotificationRead failed");
         throw writeError;
@@ -1750,7 +1894,7 @@ export function useDemoStore(options: StoreOptions = {}) {
     setDb((current) => ({
       ...current,
       platformNotifications: (current.platformNotifications ?? []).map((n) =>
-        n.id === notifId ? { ...n, read: true } : n
+        n.id === notifId ? { ...n, read: true, isRead: true } : n
       ),
     }));
   }
@@ -1838,6 +1982,9 @@ export function useDemoStore(options: StoreOptions = {}) {
     deleteSharedOptionGroup,
     softDeleteStore,
     restoreStore,
+    mergeOrders,
+    appendOrderItems,
+    updateOrderPartySize,
   };
 }
 
