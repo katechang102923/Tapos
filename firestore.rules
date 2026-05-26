@@ -107,15 +107,15 @@ service cloud.firestore {
     }
 
     function isAdmin() {
+      // Tier 1: hardcoded platform-owner email (fastest path, no extra reads)
+      // Tier 2: any user whose Firestore role is systemAdmin/admin/softwareAdmin
+      //   — deliberately NOT gated on approved/status so that platform admins
+      //     can operate even before their own profile has those fields set,
+      //     and to avoid a chicken-and-egg with the approval workflow itself.
       return signedIn()
         && (
           request.auth.token.email == "ciut0000@gmail.com"
-          || (
-            hasUserDoc()
-            && isSystemAdminRole(userDoc().data.role)
-            && userDoc().data.approved == true
-            && userDoc().data.status == "active"
-          )
+          || (hasUserDoc() && isSystemAdminRole(userDoc().data.role))
         );
     }
 

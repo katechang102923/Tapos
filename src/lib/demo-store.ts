@@ -1902,22 +1902,32 @@ export function useDemoStore(options: StoreOptions = {}) {
   async function approveRegistration(uid: string, storeId: string, role: StoreMemberRole) {
     const now = new Date().toISOString();
     if (useFirestore && firestore) {
-      const batch = writeBatch(firestore);
-      batch.update(doc(firestore, "users", uid), {
-        approved: true,
-        status: "active",
-        storeId,
-        storeIds: [storeId],
-        role,
-        memberships: { [storeId]: role },
-        storeRoles: { [storeId]: role },
-        updatedAt: now,
-      });
-      // set+merge so it works even when no platformNotifications doc exists yet (fallback-B users)
-      batch.set(doc(firestore, "platformNotifications", uid), {
-        isRead: true, read: true, status: "approved", reviewedAt: now, updatedAt: now,
-      }, { merge: true });
-      await batch.commit();
+      // ── 1. Update user profile (critical — throws on failure so UI shows the error) ──
+      try {
+        await updateDoc(doc(firestore, "users", uid), {
+          approved: true,
+          status: "active",
+          storeId,
+          storeIds: [storeId],
+          role,
+          memberships: { [storeId]: role },
+          storeRoles: { [storeId]: role },
+          updatedAt: now,
+        });
+      } catch (err) {
+        console.error("[approveRegistration] FAILED: users/" + uid, err);
+        throw err; // bubble up so the platform page shows the error
+      }
+      // ── 2. Update notification (non-critical — logs but never blocks user approval) ──
+      // Uses setDoc+merge so it works whether the notification doc exists or not.
+      try {
+        await setDoc(doc(firestore, "platformNotifications", uid), {
+          isRead: true, read: true, status: "approved", reviewedAt: now, updatedAt: now,
+        }, { merge: true });
+      } catch (err) {
+        console.error("[approveRegistration] FAILED: platformNotifications/" + uid, err);
+        // Intentionally not re-throwing — user is approved even if the notification stamp fails
+      }
       return;
     }
     setDb((current) => ({
@@ -1936,18 +1946,27 @@ export function useDemoStore(options: StoreOptions = {}) {
   async function rejectRegistration(uid: string, reason?: string) {
     const now = new Date().toISOString();
     if (useFirestore && firestore) {
-      const batch = writeBatch(firestore);
-      batch.update(doc(firestore, "users", uid), {
-        approved: false,
-        status: "rejected",
-        ...(reason ? { rejectedReason: reason } : {}),
-        updatedAt: now,
-      });
-      batch.set(doc(firestore, "platformNotifications", uid), {
-        isRead: true, read: true, status: "rejected", reviewedAt: now, updatedAt: now,
-        ...(reason ? { rejectedReason: reason } : {}),
-      }, { merge: true });
-      await batch.commit();
+      // ── 1. Update user profile (critical — throws on failure) ─────────────────────────
+      try {
+        await updateDoc(doc(firestore, "users", uid), {
+          approved: false,
+          status: "rejected",
+          ...(reason ? { rejectedReason: reason } : {}),
+          updatedAt: now,
+        });
+      } catch (err) {
+        console.error("[rejectRegistration] FAILED: users/" + uid, err);
+        throw err;
+      }
+      // ── 2. Update notification (non-critical) ─────────────────────────────────────────
+      try {
+        await setDoc(doc(firestore, "platformNotifications", uid), {
+          isRead: true, read: true, status: "rejected", reviewedAt: now, updatedAt: now,
+          ...(reason ? { rejectedReason: reason } : {}),
+        }, { merge: true });
+      } catch (err) {
+        console.error("[rejectRegistration] FAILED: platformNotifications/" + uid, err);
+      }
       return;
     }
     setDb((current) => ({
