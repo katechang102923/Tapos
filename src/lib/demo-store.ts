@@ -1902,6 +1902,16 @@ export function useDemoStore(options: StoreOptions = {}) {
   async function approveRegistration(uid: string, storeId: string, role: StoreMemberRole) {
     const now = new Date().toISOString();
     if (useFirestore && firestore) {
+      // ── Diagnostic: log auth context and write targets ─────────────────────────────────
+      const currentUser = auth?.currentUser;
+      const projectId = (firestore as unknown as { _databaseId?: { projectId?: string } })._databaseId?.projectId ?? "unknown";
+      console.log("[approveRegistration] DIAGNOSTIC", {
+        authEmail: currentUser?.email ?? "no-auth",
+        authUid:   currentUser?.uid   ?? "no-auth",
+        projectId,
+        writes: [`users/${uid}`, `platformNotifications/${uid}`],
+        targetUid: uid, storeId, role,
+      });
       // ── 1. Update user profile (critical — throws on failure so UI shows the error) ──
       try {
         await updateDoc(doc(firestore, "users", uid), {
@@ -1946,6 +1956,16 @@ export function useDemoStore(options: StoreOptions = {}) {
   async function rejectRegistration(uid: string, reason?: string) {
     const now = new Date().toISOString();
     if (useFirestore && firestore) {
+      // ── Diagnostic: log auth context and write targets ─────────────────────────────────
+      const currentUser = auth?.currentUser;
+      const projectId = (firestore as unknown as { _databaseId?: { projectId?: string } })._databaseId?.projectId ?? "unknown";
+      console.log("[rejectRegistration] DIAGNOSTIC", {
+        authEmail: currentUser?.email ?? "no-auth",
+        authUid:   currentUser?.uid   ?? "no-auth",
+        projectId,
+        writes: [`users/${uid}`, `platformNotifications/${uid}`],
+        targetUid: uid, reason,
+      });
       // ── 1. Update user profile (critical — throws on failure) ─────────────────────────
       try {
         await updateDoc(doc(firestore, "users", uid), {
